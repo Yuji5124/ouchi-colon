@@ -1,6 +1,6 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { FpsMeter } from './app/fps-meter';
-import type { FaceTrackingInput } from './vision/face-tracking-input';
+import { toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker } from './vision/media-pipe-face-tracker';
 import './style.css';
 
@@ -42,9 +42,10 @@ function onFaceTrackingInput(input: FaceTrackingInput): void {
     return;
   }
 
-  targetGazeX = input.normalizedX;
-  targetGazeY = input.normalizedY;
-  trackingStatus.value = `顔を追跡中（信頼度 ${Math.round(input.confidence * 100)}%）`;
+  const gaze = toFaceGazeTarget(input);
+  targetGazeX = gaze.x;
+  targetGazeY = gaze.y;
+  trackingStatus.value = `顔を追跡中（視線 ${gaze.x.toFixed(1)}, ${gaze.y.toFixed(1)} / 信頼度 ${Math.round(input.confidence * 100)}%）`;
   if (!trackingSawFace) {
     trackingSawFace = true;
     setExpression('HAPPY');

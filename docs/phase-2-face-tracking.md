@@ -5,7 +5,7 @@
 - Face tracking is opt-in from the hidden debug panel (`?debug=1` → **カメラで顔追跡を開始**). The ordinary face screen contains no camera controls.
 - The browser asks for the front camera only after the user presses Start. No audio track is requested.
 - MediaPipe Tasks Vision Face Detector 1.1.1 runs with the CPU delegate and samples video at up to 5 frames per second.
-- The highest-confidence face box is converted to normalized center coordinates and drives gaze. Losing the face selects SEARCH; finding it again briefly selects HAPPY.
+- The highest-confidence face box is converted to normalized center coordinates and drives gaze. Small camera movements are amplified for visible pupil movement, and the debug status shows the applied gaze values. Losing the face selects SEARCH; finding it again briefly selects HAPPY.
 - The camera stream is processed in memory. Frames, face crops, and coordinates are not saved or sent to a server. Stopping, hiding the page, closing debug, or leaving the page stops the camera tracks.
 - The preview is hidden; the operating system's camera-use indicator remains the user's permission/status signal.
 

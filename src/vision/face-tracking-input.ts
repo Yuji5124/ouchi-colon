@@ -18,10 +18,26 @@ export interface FaceDetectionBox {
   height: number;
 }
 
+export interface FaceGazeTarget {
+  x: number;
+  y: number;
+}
+
 const MIN_FACE_CONFIDENCE = 0.5;
+const GAZE_GAIN_X = 3;
+const GAZE_GAIN_Y = 2;
 
 function clampUnit(value: number): number {
   return Math.max(-1, Math.min(1, value));
+}
+
+/** Amplifies small camera movements enough to be visible in the eye highlights. */
+export function toFaceGazeTarget(input: FaceTrackingInput): FaceGazeTarget {
+  if (!input.faceDetected) return { x: 0, y: 0 };
+  return {
+    x: clampUnit(input.normalizedX * GAZE_GAIN_X),
+    y: clampUnit(input.normalizedY * GAZE_GAIN_Y),
+  };
 }
 
 /** Converts a MediaPipe bounding box into the app's normalized input contract. */

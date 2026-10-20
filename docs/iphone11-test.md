@@ -7,6 +7,6 @@ User reports that they completed the iPhone screen check and confirmed the updat
 3. Add the page to the Home Screen, launch it, then use `?debug=1` during a separate check to exercise each expression, blink, gaze, and mouth motion. Read the measured FPS output after it settles.
 4. Load the page once, enable Airplane Mode, close and reopen the Home Screen app, then check that the face and PNG assets still render.
 5. Record model/iOS version, Safari vs Home Screen mode, observations, and PASS/FAIL/UNKNOWN for each item. Keep unreported checks as UNKNOWN.
-6. With `?debug=1`, press **カメラで顔追跡を開始**, grant permission, move left/right, move out of view, then stop. Repeat after one online detector load with Airplane Mode on to check the cached model/runtime.
+6. With `?debug=1`, press **カメラで顔追跡を開始**, grant permission, move left/right, move out of view, then stop. While a face is found, the status shows the applied gaze values. Repeat after one online detector load with Airplane Mode on to check the cached model/runtime.
 
 The web manifest requests landscape and fullscreen display, but iOS Safari may ignore orientation locking. Camera permission, face detection cadence, thermal behavior, and offline model loading still require hands-on iPhone 11 checks.
