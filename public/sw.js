@@ -1,4 +1,4 @@
-const CACHE = 'ouchicolon-shell-v1';
+const CACHE = 'ouchicolon-shell-v2';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`];
 
