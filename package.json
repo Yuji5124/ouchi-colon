@@ -1,0 +1,17 @@
+{
+  "name": "ouchi-colon",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vite": "~6.3.5"
+  }
+}

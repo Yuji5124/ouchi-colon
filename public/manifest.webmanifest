@@ -1,0 +1,13 @@
+{
+  "id": "/ouchi-colon/",
+  "name": "OuchiColon",
+  "short_name": "コロン",
+  "description": "おうちコロンの顔アニメーション",
+  "lang": "ja",
+  "start_url": "/ouchi-colon/",
+  "scope": "/ouchi-colon/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#fff4e1",
+  "theme_color": "#fff4e1"
+}

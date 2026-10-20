@@ -1,0 +1,45 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #fff4e1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html, body, #app { height: 100dvh; }
+body { overscroll-behavior: none; }
+#app { position: relative; background: #fff4e1; }
+#face { display: block; width: 100%; height: 100%; }
+.debug {
+  position: fixed;
+  z-index: 2;
+  left: max(12px, env(safe-area-inset-left));
+  top: max(12px, env(safe-area-inset-top));
+  width: min(560px, calc(100vw - 24px));
+  padding: 14px;
+  border: 1px solid #d9c8ac;
+  border-radius: 16px;
+  color: #3b281c;
+  background: rgb(255 252 246 / 94%);
+  box-shadow: 0 8px 32px rgb(52 30 15 / 15%);
+  font-size: 14px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.debug[hidden] { display: none; }
+.debug__top, .debug__controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.debug__top { justify-content: space-between; margin-bottom: 10px; }
+.debug__expressions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.debug button { border: 1px solid #d4c2a6; border-radius: 9px; padding: 7px 10px; color: #3b281c; background: #fff; font: inherit; }
+.debug button:active { background: #f2ddc2; }
+.debug input { vertical-align: middle; }
+.debug small { display: block; margin-top: 8px; color: #6f5b48; }
+.debug__fps { display: inline-block; margin-top: 8px; font-variant-numeric: tabular-nums; font-weight: 700; }
+@media (orientation: portrait) {
+  .debug { max-height: calc(100dvh - 24px); overflow: auto; }
+}
