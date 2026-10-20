@@ -70,6 +70,8 @@ export const FACE_ASSET_PATHS: Record<FaceAssetName, string> = {
 
 const cream = '#fff4e1';
 const brown = '#2c1a12';
+const GAZE_TRAVEL_X = 0.2;
+const GAZE_TRAVEL_Y = 0.15;
 
 function getAssetRoot(): string {
   const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')?.href;
@@ -220,7 +222,7 @@ export class FaceRenderer {
       this.drawImageCentered(ctx, this.assets.eyeOpen!, rect.width, rect.height);
       ctx.save();
       ctx.globalAlpha *= 1 - closedAmount;
-      ctx.translate(state.gazeX * rect.width * 0.077, state.gazeY * rect.height * 0.0365);
+      ctx.translate(state.gazeX * rect.width * GAZE_TRAVEL_X, state.gazeY * rect.height * GAZE_TRAVEL_Y);
       this.drawImageCentered(ctx, this.assets.eyeHighlight!, rect.width, rect.height);
       ctx.restore();
       ctx.restore();
@@ -244,8 +246,8 @@ export class FaceRenderer {
     for (const rect of [this.layout.leftEye, this.layout.rightEye]) {
       const eyeX = rect.x + rect.width / 2;
       const eyeY = rect.y + rect.height / 2 + (state.expression === 'SAD' ? rect.height * 0.044 : 0);
-      const gazeX = state.gazeX * rect.width * 0.077;
-      const gazeY = state.gazeY * rect.height * 0.0365;
+      const gazeX = state.gazeX * rect.width * GAZE_TRAVEL_X;
+      const gazeY = state.gazeY * rect.height * GAZE_TRAVEL_Y;
       ctx.save();
       ctx.translate(eyeX, eyeY);
       const sx = happy ? 1 : surprised ? 0.92 : 1;

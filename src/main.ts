@@ -23,6 +23,7 @@ let reacquiredIdleTimer = 0;
 const fpsMeter = new FpsMeter();
 
 const debugPanel = document.querySelector<HTMLElement>('#debug')!;
+const minimizeDebugButton = document.querySelector<HTMLButtonElement>('#minimize-debug')!;
 const mouthSlider = document.querySelector<HTMLInputElement>('#mouth')!;
 const talkButton = document.querySelector<HTMLButtonElement>('#talk-toggle')!;
 const fpsOutput = document.querySelector<HTMLOutputElement>('#fps')!;
@@ -166,6 +167,11 @@ function frame(now: number): void {
 buildDebugControls();
 setDebug(debug);
 document.querySelector('#close-debug')!.addEventListener('click', () => setDebug(false));
+minimizeDebugButton.addEventListener('click', () => {
+  const minimized = debugPanel.classList.toggle('debug--minimized');
+  minimizeDebugButton.textContent = minimized ? '設定' : '顔を見る';
+  minimizeDebugButton.setAttribute('aria-label', minimized ? '設定パネルを開く' : '顔を見やすくする');
+});
 trackingStartButton.addEventListener('click', () => { void startFaceTracking(); });
 trackingStopButton.addEventListener('click', () => { void stopFaceTracking(); });
 updateTrackingButtons();

@@ -43,6 +43,23 @@ body { overscroll-behavior: none; }
 .debug__tracking { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e3d4bd; }
 .debug__tracking output { font-size: 13px; }
 .debug__tracking button:disabled { opacity: 0.55; }
+.debug--minimized {
+  left: 50%;
+  width: min(340px, calc(100vw - 24px));
+  padding: 8px 12px;
+  transform: translateX(-50%);
+}
+.debug--minimized .debug__top { margin: 0; justify-content: flex-end; }
+.debug--minimized .debug__top strong,
+.debug--minimized .debug__expressions,
+.debug--minimized > .debug__controls,
+.debug--minimized .debug__tracking > strong,
+.debug--minimized .debug__tracking > .debug__controls,
+.debug--minimized .debug__tracking > small,
+.debug--minimized > .debug__fps,
+.debug--minimized > small { display: none; }
+.debug--minimized .debug__tracking { margin: 4px 0 0; padding: 0; border: 0; }
+.debug--minimized .debug__tracking output { font-size: 13px; }
 .camera-source { position: fixed; z-index: -1; left: -2px; top: -2px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 @media (orientation: portrait) {
   .debug { max-height: calc(100dvh - 24px); overflow: auto; }
