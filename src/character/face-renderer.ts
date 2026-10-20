@@ -346,12 +346,14 @@ export class FaceRenderer {
     ctx.strokeStyle = brown;
     ctx.fillStyle = '#8c241b';
     ctx.beginPath();
-    ctx.moveTo(cx - width, cy - height * 0.55);
-    ctx.quadraticCurveTo(cx - width * 0.98, cy - height * 0.78, cx - width * 0.82, cy - height * 0.53);
-    ctx.quadraticCurveTo(cx, cy - height * 0.14, cx + width * 0.82, cy - height * 0.53);
-    ctx.quadraticCurveTo(cx + width * 0.98, cy - height * 0.78, cx + width, cy - height * 0.55);
-    ctx.quadraticCurveTo(cx + width * 1.12, cy + height * 0.72, cx, cy + height);
-    ctx.quadraticCurveTo(cx - width * 1.12, cy + height * 0.72, cx - width, cy - height * 0.55);
+    ctx.moveTo(cx - width, cy - height * 0.82);
+    ctx.bezierCurveTo(cx - width * 1.09, cy - height * 0.99, cx - width * 0.93, cy - height * 1.01, cx - width * 0.82, cy - height * 0.82);
+    ctx.bezierCurveTo(cx - width * 0.51, cy - height * 0.53, cx - width * 0.22, cy - height * 0.43, cx, cy - height * 0.43);
+    ctx.bezierCurveTo(cx + width * 0.22, cy - height * 0.43, cx + width * 0.51, cy - height * 0.53, cx + width * 0.82, cy - height * 0.82);
+    ctx.bezierCurveTo(cx + width * 0.93, cy - height * 1.01, cx + width * 1.09, cy - height * 0.99, cx + width, cy - height * 0.82);
+    ctx.bezierCurveTo(cx + width * 1.08, cy - height * 0.24, cx + width * 0.89, cy + height * 0.54, cx + width * 0.57, cy + height * 0.79);
+    ctx.bezierCurveTo(cx + width * 0.29, cy + height, cx - width * 0.29, cy + height, cx - width * 0.57, cy + height * 0.79);
+    ctx.bezierCurveTo(cx - width * 0.89, cy + height * 0.54, cx - width * 1.08, cy - height * 0.24, cx - width, cy - height * 0.82);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -361,7 +363,12 @@ export class FaceRenderer {
       ctx.clip();
       ctx.fillStyle = '#ff706f';
       ctx.beginPath();
-      ctx.ellipse(cx, cy + height * 0.9, width * 0.78, height * 0.55, 0, Math.PI, Math.PI * 2);
+      ctx.beginPath();
+      ctx.moveTo(cx - width * 0.83, cy + height * 0.47);
+      ctx.bezierCurveTo(cx - width * 0.53, cy + height * 0.11, cx - width * 0.21, cy + height * 0.03, cx, cy + height * 0.03);
+      ctx.bezierCurveTo(cx + width * 0.21, cy + height * 0.03, cx + width * 0.53, cy + height * 0.11, cx + width * 0.83, cy + height * 0.47);
+      ctx.bezierCurveTo(cx + width * 0.61, cy + height * 0.84, cx + width * 0.29, cy + height * 0.96, cx, cy + height * 0.96);
+      ctx.bezierCurveTo(cx - width * 0.29, cy + height * 0.96, cx - width * 0.61, cy + height * 0.84, cx - width * 0.83, cy + height * 0.47);
       ctx.fill();
       ctx.restore();
     }
