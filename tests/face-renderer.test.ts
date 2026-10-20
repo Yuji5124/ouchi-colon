@@ -35,6 +35,7 @@ class FakeContext {
   closePath(): void {}
   moveTo(): void {}
   quadraticCurveTo(): void {}
+  bezierCurveTo(): void {}
   ellipse(): void { this.ellipseCount += 1; }
   arc(): void {}
   fill(): void {}

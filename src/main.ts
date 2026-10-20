@@ -1,5 +1,7 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { FpsMeter } from './app/fps-meter';
+import type { FaceTrackingInput } from './vision/face-tracking-input';
+import { MediaPipeFaceTracker } from './vision/media-pipe-face-tracker';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -14,12 +16,92 @@ let debug = new URLSearchParams(location.search).has('debug');
 let nextBlink = performance.now() + 2200 + Math.random() * 3500;
 let lastFrame = performance.now();
 let lastDraw = 0;
+let trackingActive = false;
+let trackingStarting = false;
+let trackingSawFace = false;
+let reacquiredIdleTimer = 0;
 const fpsMeter = new FpsMeter();
 
 const debugPanel = document.querySelector<HTMLElement>('#debug')!;
 const mouthSlider = document.querySelector<HTMLInputElement>('#mouth')!;
 const talkButton = document.querySelector<HTMLButtonElement>('#talk-toggle')!;
 const fpsOutput = document.querySelector<HTMLOutputElement>('#fps')!;
+const trackingStartButton = document.querySelector<HTMLButtonElement>('#tracking-start')!;
+const trackingStopButton = document.querySelector<HTMLButtonElement>('#tracking-stop')!;
+const trackingStatus = document.querySelector<HTMLOutputElement>('#tracking-status')!;
+
+function onFaceTrackingInput(input: FaceTrackingInput): void {
+  if (!trackingActive) return;
+  if (!input.faceDetected) {
+    trackingSawFace = false;
+    targetGazeX = 0;
+    targetGazeY = 0;
+    window.clearTimeout(reacquiredIdleTimer);
+    setExpression('SEARCH');
+    trackingStatus.value = '顔を探しています…';
+    return;
+  }
+
+  targetGazeX = input.normalizedX;
+  targetGazeY = input.normalizedY;
+  trackingStatus.value = `顔を追跡中（信頼度 ${Math.round(input.confidence * 100)}%）`;
+  if (!trackingSawFace) {
+    trackingSawFace = true;
+    setExpression('HAPPY');
+    window.clearTimeout(reacquiredIdleTimer);
+    reacquiredIdleTimer = window.setTimeout(() => {
+      if (trackingActive && trackingSawFace) setExpression('IDLE');
+    }, 1000);
+  }
+}
+
+const faceTracker = new MediaPipeFaceTracker(onFaceTrackingInput, (message) => {
+  trackingStatus.value = message;
+});
+
+function updateTrackingButtons(): void {
+  trackingStartButton.disabled = trackingStarting || trackingActive;
+  trackingStopButton.disabled = !trackingStarting && !trackingActive;
+}
+
+async function startFaceTracking(): Promise<void> {
+  if (!debug || trackingStarting || trackingActive) return;
+  trackingStarting = true;
+  updateTrackingButtons();
+  try {
+    const started = await faceTracker.start();
+    trackingActive = started;
+    trackingSawFace = false;
+    if (!started) trackingStatus.value = '顔追跡を停止しました';
+  } catch (error) {
+    trackingActive = false;
+    const name = error instanceof DOMException ? error.name : '';
+    const message = name === 'NotAllowedError'
+      ? 'カメラの使用が許可されませんでした。Safariのサイト設定をご確認ください。'
+      : name === 'NotFoundError'
+        ? '利用できるカメラが見つかりませんでした。'
+        : name === 'NotReadableError'
+          ? 'カメラを起動できませんでした。他のアプリが使用していないかご確認ください。'
+          : error instanceof Error ? error.message : 'カメラを起動できませんでした';
+    trackingStatus.value = message;
+  } finally {
+    trackingStarting = false;
+    updateTrackingButtons();
+  }
+}
+
+async function stopFaceTracking(): Promise<void> {
+  if (!trackingStarting && !trackingActive) return;
+  trackingActive = false;
+  trackingSawFace = false;
+  window.clearTimeout(reacquiredIdleTimer);
+  targetGazeX = 0;
+  targetGazeY = 0;
+  setExpression('IDLE');
+  await faceTracker.stop();
+  trackingStatus.value = '顔追跡は停止中です';
+  updateTrackingButtons();
+}
 
 function setExpression(expression: Expression): void {
   if (state.expression === expression) return;
@@ -32,6 +114,7 @@ function setDebug(value: boolean): void {
   debug = value;
   debugPanel.hidden = !value;
   document.body.classList.toggle('debug-on', value);
+  if (!value) void stopFaceTracking();
 }
 
 function buildDebugControls(): void {
@@ -55,7 +138,7 @@ function frame(now: number): void {
   lastDraw = now;
   let gazeX = targetGazeX;
   let gazeY = targetGazeY;
-  if (!debug && state.expression === 'SEARCH') gazeX = Math.sin(now / 620) * 0.84;
+  if ((!debug || trackingActive) && state.expression === 'SEARCH') gazeX = Math.sin(now / 620) * 0.84;
   if (!debug && state.expression === 'THINK') {
     gazeX = 0.24 + Math.sin(now / 1500) * 0.15;
     gazeY = -0.14;
@@ -82,6 +165,9 @@ function frame(now: number): void {
 buildDebugControls();
 setDebug(debug);
 document.querySelector('#close-debug')!.addEventListener('click', () => setDebug(false));
+trackingStartButton.addEventListener('click', () => { void startFaceTracking(); });
+trackingStopButton.addEventListener('click', () => { void stopFaceTracking(); });
+updateTrackingButtons();
 document.querySelector('#gaze-left')!.addEventListener('click', () => { targetGazeX = -1; });
 document.querySelector('#gaze-center')!.addEventListener('click', () => { targetGazeX = 0; targetGazeY = 0; });
 document.querySelector('#gaze-right')!.addEventListener('click', () => { targetGazeX = 1; });
@@ -119,8 +205,12 @@ canvas.addEventListener('pointerdown', () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) talking = false;
+  if (document.hidden) {
+    talking = false;
+    void stopFaceTracking();
+  }
 });
+window.addEventListener('pagehide', () => { void stopFaceTracking(); });
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

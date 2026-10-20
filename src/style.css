@@ -40,6 +40,10 @@ body { overscroll-behavior: none; }
 .debug input { vertical-align: middle; }
 .debug small { display: block; margin-top: 8px; color: #6f5b48; }
 .debug__fps { display: inline-block; margin-top: 8px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.debug__tracking { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e3d4bd; }
+.debug__tracking output { font-size: 13px; }
+.debug__tracking button:disabled { opacity: 0.55; }
+.camera-source { position: fixed; z-index: -1; left: -2px; top: -2px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 @media (orientation: portrait) {
   .debug { max-height: calc(100dvh - 24px); overflow: auto; }
 }

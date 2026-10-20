@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 const origin = 'https://ouchicolon.example';
 
-test('service worker precaches its shell, caches PNGs, and serves them offline', async () => {
+test('service worker caches app assets and approved face detector resources offline', async () => {
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
   const entries = new Map<string, Response>();
   const keyOf = (request: string | { url: string }) => new URL(typeof request === 'string' ? request : request.url, origin).href;
@@ -19,7 +19,7 @@ test('service worker precaches its shell, caches PNGs, and serves them offline',
   };
   const caches = {
     async open() { return cache; },
-    async keys() { return ['ouchicolon-shell-v1']; },
+    async keys() { return ['ouchicolon-shell-v2']; },
     async delete() { return true; },
     async match(request: string | { url: string }) { return entries.get(keyOf(request))?.clone(); },
   };
@@ -58,6 +58,44 @@ test('service worker precaches its shell, caches PNGs, and serves them offline',
   let offlineResponse!: Promise<Response>;
   listeners.get('fetch')!({ request: pngRequest, respondWith(promise: Promise<Response>) { offlineResponse = promise; } });
   assert.match(await offlineResponse.then((response) => response.text()), /^network:/);
+
+  const modelRequest = {
+    method: 'GET',
+    mode: 'cors',
+    url: 'https://storage.googleapis.com/mediapipe-models/face_detector/model.tflite',
+  };
+  offline = false;
+  let modelResponse!: Promise<Response>;
+  listeners.get('fetch')!({ request: modelRequest, respondWith(promise: Promise<Response>) { modelResponse = promise; } });
+  assert.match(await modelResponse.then((response) => response.text()), /^network:/);
+  assert.ok(await caches.match(modelRequest), 'the face detector model is cached after its first online load');
+
+  offline = true;
+  let offlineModel!: Promise<Response>;
+  listeners.get('fetch')!({ request: modelRequest, respondWith(promise: Promise<Response>) { offlineModel = promise; } });
+  assert.match(await offlineModel.then((response) => response.text()), /^network:/);
+
+  const wasmRequest = {
+    method: 'GET',
+    mode: 'cors',
+    url: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/vision_wasm_internal.js',
+  };
+  offline = false;
+  let wasmResponse!: Promise<Response>;
+  listeners.get('fetch')!({ request: wasmRequest, respondWith(promise: Promise<Response>) { wasmResponse = promise; } });
+  await wasmResponse;
+  assert.ok(await caches.match(wasmRequest), 'the approved vision runtime is cached after its first online load');
+  offline = true;
+  let offlineWasm!: Promise<Response>;
+  listeners.get('fetch')!({ request: wasmRequest, respondWith(promise: Promise<Response>) { offlineWasm = promise; } });
+  assert.match(await offlineWasm.then((response) => response.text()), /^network:/);
+
+  let unrelatedExternalIntercepted = false;
+  listeners.get('fetch')!({
+    request: { method: 'GET', mode: 'cors', url: 'https://example.com/unrelated.js' },
+    respondWith() { unrelatedExternalIntercepted = true; },
+  });
+  assert.equal(unrelatedExternalIntercepted, false, 'other external requests are ignored');
 
   const navigation = { method: 'GET', mode: 'navigate', url: `${origin}/ouchi-colon/` };
   let offlinePage!: Promise<Response>;

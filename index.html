@@ -22,6 +22,15 @@
           <button id="talk-toggle" type="button">おしゃべり</button>
           <label>口パク <input id="mouth" type="range" min="0" max="1" step="0.01" value="0" /></label>
         </div>
+        <div class="debug__tracking" aria-label="顔追跡の操作">
+          <strong>顔追跡 / Phase 2</strong>
+          <div class="debug__controls">
+            <button id="tracking-start" type="button">カメラで顔追跡を開始</button>
+            <button id="tracking-stop" type="button" disabled>停止</button>
+          </div>
+          <output id="tracking-status" aria-live="polite">停止中。開始すると前面カメラを使用します。</output>
+          <small>初回は検出モデル等の読み込みに通信を使います（約15 MB）。映像は端末内で処理し、保存・送信しません。</small>
+        </div>
         <output id="fps" class="debug__fps" aria-live="off">FPS: --</output>
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>
       </section>
