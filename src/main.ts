@@ -67,7 +67,7 @@ function frame(now: number): void {
     state.blink = 1;
     nextBlink = now + 2400 + Math.random() * 3900;
   }
-  state.blink = Math.max(0, state.blink - dt * 8);
+  state.blink = Math.max(0, state.blink - dt * 4);
   if (talking && state.expression === 'TALK') {
     state.mouthOpen = 0.12 + (Math.sin(now / 115) + 1) * 0.31;
   } else if (!debug) {
