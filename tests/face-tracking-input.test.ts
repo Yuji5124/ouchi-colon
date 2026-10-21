@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { toFaceGazeTarget, toFaceTrackingInput } from '../src/vision/face-tracking-input.ts';
+import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, toFaceTrackingInput, type FaceTrackingInput } from '../src/vision/face-tracking-input.ts';
 
 test('normalizes a centered face to the gaze origin', () => {
   const input = toFaceTrackingInput({ originX: 40, originY: 20, width: 20, height: 20 }, 0.92, 100, 100, 1234);
@@ -40,4 +40,46 @@ test('amplifies small face movement and clamps gaze to the eye range', () => {
   assert.ok(Math.abs(slightMove.x - 0.6) < 0.000001);
   assert.ok(Math.abs(slightMove.y + 0.4) < 0.000001);
   assert.deepEqual(edgeMove, { x: 1, y: -1 });
+});
+
+const faceAt = (x: number, timestamp: number, y = 0): FaceTrackingInput => ({
+  faceDetected: true, normalizedX: x, normalizedY: y, confidence: 0.9, timestamp,
+});
+
+test('maps a face on the left and right to gaze in the matching directions', () => {
+  assert.ok(toFaceGazeTarget(faceAt(-0.3, 1)).x < 0);
+  assert.ok(toFaceGazeTarget(faceAt(0.3, 2)).x > 0);
+});
+
+test('keeps gaze centered for a face near the center', () => {
+  assert.deepEqual(toFaceGazeTarget(faceAt(0.02, 1, -0.03)), { x: 0, y: 0 });
+});
+
+test('horizontal mirroring reverses the gaze direction', () => {
+  assert.ok(toFaceGazeTarget(faceAt(0.3, 1), true).x < 0);
+  assert.ok(toFaceGazeTarget(faceAt(0.3, 1), false).x > 0);
+});
+
+test('stabilizes acquisition, tolerates a short miss, then returns to no-face', () => {
+  const stabilizer = new FaceTrackingStabilizer();
+  assert.equal(stabilizer.update(faceAt(0.4, 0)).faceDetected, false);
+  assert.equal(stabilizer.update(faceAt(0.4, 200)).faceDetected, true);
+  assert.equal(stabilizer.update({ ...faceAt(0, 250), faceDetected: false }).faceDetected, true);
+  assert.equal(stabilizer.update({ ...faceAt(0, 650), faceDetected: false }).faceDetected, false);
+});
+
+test('reacquires after a stable loss', () => {
+  const stabilizer = new FaceTrackingStabilizer();
+  stabilizer.update(faceAt(0, 0));
+  assert.equal(stabilizer.update(faceAt(0, 200)).faceDetected, true);
+  assert.equal(stabilizer.update({ ...faceAt(0, 700), faceDetected: false }).faceDetected, false);
+  assert.equal(stabilizer.update(faceAt(-0.3, 800)).faceDetected, false);
+  assert.equal(stabilizer.update(faceAt(-0.3, 1000)).faceDetected, true);
+});
+
+test('smoothly interpolates gaze instead of jumping to the target', () => {
+  const firstFrame = smoothGaze(0, 1, 1 / 30);
+  assert.ok(firstFrame > 0 && firstFrame < 1);
+  assert.ok(smoothGaze(firstFrame, 1, 1 / 30) > firstFrame);
+  assert.equal(smoothGaze(0.5, 0, 0), 0.5);
 });

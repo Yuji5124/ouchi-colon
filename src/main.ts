@@ -1,7 +1,8 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { FpsMeter } from './app/fps-meter';
-import { toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
-import { MediaPipeFaceTracker } from './vision/media-pipe-face-tracker';
+import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
+import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
+import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -16,92 +17,151 @@ let debug = new URLSearchParams(location.search).has('debug');
 let nextBlink = performance.now() + 2200 + Math.random() * 3500;
 let lastFrame = performance.now();
 let lastDraw = 0;
-let trackingActive = false;
+let cameraActive = false;
+let detectorActive = false;
 let trackingStarting = false;
 let trackingSawFace = false;
 let reacquiredIdleTimer = 0;
 const fpsMeter = new FpsMeter();
+const faceStabilizer = new FaceTrackingStabilizer();
+let detectionFps = 0;
+let detectionLatencyMs = 0;
 
 const debugPanel = document.querySelector<HTMLElement>('#debug')!;
 const minimizeDebugButton = document.querySelector<HTMLButtonElement>('#minimize-debug')!;
 const mouthSlider = document.querySelector<HTMLInputElement>('#mouth')!;
 const talkButton = document.querySelector<HTMLButtonElement>('#talk-toggle')!;
 const fpsOutput = document.querySelector<HTMLOutputElement>('#fps')!;
-const trackingStartButton = document.querySelector<HTMLButtonElement>('#tracking-start')!;
-const trackingStopButton = document.querySelector<HTMLButtonElement>('#tracking-stop')!;
+const cameraStartButton = document.querySelector<HTMLButtonElement>('#camera-start')!;
+const cameraStopButton = document.querySelector<HTMLButtonElement>('#camera-stop')!;
+const detectorStartButton = document.querySelector<HTMLButtonElement>('#detector-start')!;
+const detectorStopButton = document.querySelector<HTMLButtonElement>('#detector-stop')!;
 const trackingStatus = document.querySelector<HTMLOutputElement>('#tracking-status')!;
+const trackingCoordinates = document.querySelector<HTMLOutputElement>('#tracking-coordinates')!;
+const mirrorHorizontal = document.querySelector<HTMLInputElement>('#mirror-horizontal')!;
+
+function renderTrackingStatus(detail: string): void {
+  trackingStatus.value = `カメラ ${cameraActive ? 'ON' : 'OFF'} / 検出 ${detectorActive ? 'ON' : 'OFF'} / ${detail}`;
+}
 
 function onFaceTrackingInput(input: FaceTrackingInput): void {
-  if (!trackingActive) return;
-  if (!input.faceDetected) {
+  if (!detectorActive) return;
+  const stableInput = faceStabilizer.update(input);
+  if (!stableInput.faceDetected) {
     trackingSawFace = false;
     targetGazeX = 0;
     targetGazeY = 0;
     window.clearTimeout(reacquiredIdleTimer);
     setExpression('SEARCH');
-    trackingStatus.value = '顔を探しています…';
+    trackingCoordinates.value = `顔座標: -- / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
+    renderTrackingStatus('顔を探しています');
     return;
   }
 
-  const gaze = toFaceGazeTarget(input);
+  const gaze = toFaceGazeTarget(stableInput, mirrorHorizontal.checked);
   targetGazeX = gaze.x;
   targetGazeY = gaze.y;
-  trackingStatus.value = `顔を追跡中（視線 ${gaze.x.toFixed(1)}, ${gaze.y.toFixed(1)} / 信頼度 ${Math.round(input.confidence * 100)}%）`;
+  trackingCoordinates.value = `顔座標: X ${stableInput.normalizedX.toFixed(2)} / Y ${stableInput.normalizedY.toFixed(2)} / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
+  renderTrackingStatus(`顔を追跡中・信頼度 ${Math.round(stableInput.confidence * 100)}%`);
   if (!trackingSawFace) {
     trackingSawFace = true;
     setExpression('HAPPY');
     window.clearTimeout(reacquiredIdleTimer);
     reacquiredIdleTimer = window.setTimeout(() => {
-      if (trackingActive && trackingSawFace) setExpression('IDLE');
+      if (detectorActive && trackingSawFace) setExpression('IDLE');
     }, 1000);
   }
 }
 
-const faceTracker = new MediaPipeFaceTracker(onFaceTrackingInput, (message) => {
-  trackingStatus.value = message;
-});
+const faceTracker = new MediaPipeFaceTracker(
+  onFaceTrackingInput,
+  (message) => {
+    if (message.startsWith('顔検出でエラー')) {
+      detectorActive = false;
+      trackingSawFace = false;
+      targetGazeX = 0;
+      targetGazeY = 0;
+      setExpression('SEARCH');
+      updateTrackingButtons();
+    }
+    trackingStatus.value = message;
+  },
+  (metrics: FaceTrackerMetrics) => {
+    detectionFps = metrics.detectionFps;
+    detectionLatencyMs = metrics.detectionLatencyMs;
+  },
+);
 
 function updateTrackingButtons(): void {
-  trackingStartButton.disabled = trackingStarting || trackingActive;
-  trackingStopButton.disabled = !trackingStarting && !trackingActive;
+  cameraStartButton.disabled = trackingStarting || cameraActive;
+  cameraStopButton.disabled = !cameraActive;
+  detectorStartButton.disabled = trackingStarting || detectorActive;
+  detectorStopButton.disabled = trackingStarting || !detectorActive;
 }
 
-async function startFaceTracking(): Promise<void> {
-  if (!debug || trackingStarting || trackingActive) return;
+async function startCamera(): Promise<void> {
+  if (!debug || trackingStarting || cameraActive) return;
   trackingStarting = true;
   updateTrackingButtons();
   try {
-    const started = await faceTracker.start();
-    trackingActive = started;
-    trackingSawFace = false;
-    if (!started) trackingStatus.value = '顔追跡を停止しました';
+    cameraActive = await faceTracker.startCamera();
+    faceStabilizer.reset();
+    renderTrackingStatus('カメラ映像は画面に表示されません');
   } catch (error) {
-    trackingActive = false;
-    const name = error instanceof DOMException ? error.name : '';
-    const message = name === 'NotAllowedError'
-      ? 'カメラの使用が許可されませんでした。Safariのサイト設定をご確認ください。'
-      : name === 'NotFoundError'
-        ? '利用できるカメラが見つかりませんでした。'
-        : name === 'NotReadableError'
-          ? 'カメラを起動できませんでした。他のアプリが使用していないかご確認ください。'
-          : error instanceof Error ? error.message : 'カメラを起動できませんでした';
-    trackingStatus.value = message;
+    cameraActive = false;
+    trackingStatus.value = cameraFailureMessage(error);
   } finally {
     trackingStarting = false;
     updateTrackingButtons();
   }
 }
 
-async function stopFaceTracking(): Promise<void> {
-  if (!trackingStarting && !trackingActive) return;
-  trackingActive = false;
+async function startDetection(): Promise<void> {
+  if (!debug || trackingStarting || detectorActive) return;
+  trackingStarting = true;
+  updateTrackingButtons();
+  try {
+    if (!cameraActive) cameraActive = await faceTracker.startCamera();
+    detectorActive = await faceTracker.startDetection();
+    faceStabilizer.reset();
+    trackingSawFace = false;
+  } catch (error) {
+    detectorActive = false;
+    trackingStatus.value = error instanceof DOMException ? cameraFailureMessage(error) : detectorFailureMessage(error);
+  } finally {
+    trackingStarting = false;
+    updateTrackingButtons();
+  }
+}
+
+async function stopDetection(): Promise<void> {
+  if (!detectorActive) return;
+  detectorActive = false;
   trackingSawFace = false;
   window.clearTimeout(reacquiredIdleTimer);
   targetGazeX = 0;
   targetGazeY = 0;
   setExpression('IDLE');
-  await faceTracker.stop();
-  trackingStatus.value = '顔追跡は停止中です';
+  faceStabilizer.reset();
+  await faceTracker.stopDetection();
+  renderTrackingStatus('検出を停止しました');
+  trackingCoordinates.value = '顔座標: --';
+  updateTrackingButtons();
+}
+
+async function stopCamera(): Promise<void> {
+  if (!cameraActive && !detectorActive) return;
+  detectorActive = false;
+  cameraActive = false;
+  trackingSawFace = false;
+  window.clearTimeout(reacquiredIdleTimer);
+  targetGazeX = 0;
+  targetGazeY = 0;
+  faceStabilizer.reset();
+  setExpression('IDLE');
+  await faceTracker.stopCamera();
+  renderTrackingStatus('顔アニメーションは継続中です');
+  trackingCoordinates.value = '顔座標: --';
   updateTrackingButtons();
 }
 
@@ -116,7 +176,7 @@ function setDebug(value: boolean): void {
   debug = value;
   debugPanel.hidden = !value;
   document.body.classList.toggle('debug-on', value);
-  if (!value) void stopFaceTracking();
+  if (!value) void stopCamera();
 }
 
 function buildDebugControls(): void {
@@ -140,13 +200,13 @@ function frame(now: number): void {
   lastDraw = now;
   let gazeX = targetGazeX;
   let gazeY = targetGazeY;
-  if ((!debug || trackingActive) && state.expression === 'SEARCH') gazeX = Math.sin(now / 620) * 0.84;
+  if ((!debug || !detectorActive) && state.expression === 'SEARCH') gazeX = Math.sin(now / 620) * 0.84;
   if (!debug && state.expression === 'THINK') {
     gazeX = 0.24 + Math.sin(now / 1500) * 0.15;
     gazeY = -0.14;
   }
-  state.gazeX += (gazeX - state.gazeX) * Math.min(1, dt * 5);
-  state.gazeY += (gazeY - state.gazeY) * Math.min(1, dt * 5);
+  state.gazeX = smoothGaze(state.gazeX, gazeX, dt);
+  state.gazeY = smoothGaze(state.gazeY, gazeY, dt);
   state.transition = Math.min(1, state.transition + dt * 5);
   if (!debug && now > nextBlink) {
     state.blink = 1;
@@ -160,7 +220,10 @@ function frame(now: number): void {
   }
   renderer.draw(state, now);
   const fps = fpsMeter.addFrame(now);
-  if (fps !== null) fpsOutput.value = `FPS: ${fps}`;
+  if (fps !== null) fpsOutput.value = `描画 ${fps} FPS / 検出 ${detectionFps.toFixed(1)} FPS / 遅延 ${detectionLatencyMs} ms`;
+  if (debug && detectorActive) {
+    trackingCoordinates.value = `顔座標: ${trackingCoordinates.value.replace(/^顔座標: /, '').split(' / 視線')[0]} / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
+  }
   requestAnimationFrame(frame);
 }
 
@@ -172,8 +235,10 @@ minimizeDebugButton.addEventListener('click', () => {
   minimizeDebugButton.textContent = minimized ? '設定' : '顔を見る';
   minimizeDebugButton.setAttribute('aria-label', minimized ? '設定パネルを開く' : '顔を見やすくする');
 });
-trackingStartButton.addEventListener('click', () => { void startFaceTracking(); });
-trackingStopButton.addEventListener('click', () => { void stopFaceTracking(); });
+cameraStartButton.addEventListener('click', () => { void startCamera(); });
+cameraStopButton.addEventListener('click', () => { void stopCamera(); });
+detectorStartButton.addEventListener('click', () => { void startDetection(); });
+detectorStopButton.addEventListener('click', () => { void stopDetection(); });
 updateTrackingButtons();
 document.querySelector('#gaze-left')!.addEventListener('click', () => { targetGazeX = -1; });
 document.querySelector('#gaze-center')!.addEventListener('click', () => { targetGazeX = 0; targetGazeY = 0; });
@@ -214,10 +279,10 @@ canvas.addEventListener('pointerdown', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     talking = false;
-    void stopFaceTracking();
+    void stopCamera();
   }
 });
-window.addEventListener('pagehide', () => { void stopFaceTracking(); });
+window.addEventListener('pagehide', () => { void stopCamera(); });
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

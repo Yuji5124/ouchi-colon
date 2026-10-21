@@ -24,6 +24,7 @@ test('service worker caches app assets and approved face detector resources offl
     async match(request: string | { url: string }) { return entries.get(keyOf(request))?.clone(); },
   };
   let offline = false;
+  let networkRequests = 0;
   const listeners = new Map<string, (event: any) => void>();
   const self = {
     location: { origin },
@@ -37,6 +38,7 @@ test('service worker caches app assets and approved face detector resources offl
     URL,
     Response,
     async fetch(request: { url: string }) {
+      networkRequests += 1;
       if (offline) throw new TypeError('offline');
       return new Response(`network:${request.url}`);
     },
@@ -58,6 +60,7 @@ test('service worker caches app assets and approved face detector resources offl
   let offlineResponse!: Promise<Response>;
   listeners.get('fetch')!({ request: pngRequest, respondWith(promise: Promise<Response>) { offlineResponse = promise; } });
   assert.match(await offlineResponse.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 1, 'cached face assets are served without an offline network request');
 
   const modelRequest = {
     method: 'GET',
@@ -74,6 +77,7 @@ test('service worker caches app assets and approved face detector resources offl
   let offlineModel!: Promise<Response>;
   listeners.get('fetch')!({ request: modelRequest, respondWith(promise: Promise<Response>) { offlineModel = promise; } });
   assert.match(await offlineModel.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 2, 'the cached face model is served while offline');
 
   const wasmRequest = {
     method: 'GET',
@@ -89,6 +93,23 @@ test('service worker caches app assets and approved face detector resources offl
   let offlineWasm!: Promise<Response>;
   listeners.get('fetch')!({ request: wasmRequest, respondWith(promise: Promise<Response>) { offlineWasm = promise; } });
   assert.match(await offlineWasm.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 3, 'the cached WASM loader is served while offline');
+
+  const wasmBinaryRequest = {
+    method: 'GET',
+    mode: 'cors',
+    url: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm/vision_wasm_internal.wasm',
+  };
+  offline = false;
+  let wasmBinaryResponse!: Promise<Response>;
+  listeners.get('fetch')!({ request: wasmBinaryRequest, respondWith(promise: Promise<Response>) { wasmBinaryResponse = promise; } });
+  await wasmBinaryResponse;
+  assert.ok(await caches.match(wasmBinaryRequest), 'WASM binary is cached after an online fetch');
+  offline = true;
+  let offlineWasmBinary!: Promise<Response>;
+  listeners.get('fetch')!({ request: wasmBinaryRequest, respondWith(promise: Promise<Response>) { offlineWasmBinary = promise; } });
+  assert.match(await offlineWasmBinary.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 4, 'the cached WASM binary is served while offline');
 
   let unrelatedExternalIntercepted = false;
   listeners.get('fetch')!({

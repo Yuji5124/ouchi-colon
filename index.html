@@ -25,11 +25,15 @@
         <div class="debug__tracking" aria-label="顔追跡の操作">
           <strong>顔追跡 / Phase 2</strong>
           <div class="debug__controls">
-            <button id="tracking-start" type="button">カメラで顔追跡を開始</button>
-            <button id="tracking-stop" type="button" disabled>停止</button>
+            <button id="camera-start" type="button">カメラON</button>
+            <button id="camera-stop" type="button" disabled>カメラOFF</button>
+            <button id="detector-start" type="button" disabled>顔検出ON</button>
+            <button id="detector-stop" type="button" disabled>顔検出OFF</button>
           </div>
           <output id="tracking-status" aria-live="polite">停止中。開始すると前面カメラを使用します。</output>
-          <small>初回は検出モデル等の読み込みに通信を使います（約15 MB）。映像は端末内で処理し、保存・送信しません。</small>
+          <output id="tracking-coordinates" aria-live="off">顔座標: --</output>
+          <label class="debug__mirror"><input id="mirror-horizontal" type="checkbox" /> 左右反転（顔の動きに合わせて調整）</label>
+          <small>初回は検出モデル等の読み込みに通信を使います（約15 MB）。映像は表示・保存・送信せず端末内で処理します。端末が前面カメラを塞ぐ場合は少し下向きにしてください。</small>
         </div>
         <output id="fps" class="debug__fps" aria-live="off">FPS: --</output>
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>
