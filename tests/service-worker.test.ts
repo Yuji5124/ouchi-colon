@@ -198,7 +198,7 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v13');
+  const current = await open('ouchicolon-shell-v14');
   await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
@@ -216,5 +216,5 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v13');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v14');
 });

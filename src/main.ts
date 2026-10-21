@@ -10,6 +10,7 @@ import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { SpeechSynthesisEngine, type SpeechEndReason } from './speech/speech-synthesis-engine';
 import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
 import { TohokuVoiceLab, type TohokuLabEvent, type TohokuWorkerPort } from './speech/tohoku-voice-lab';
+import { runTohokuBenchmark, summarizeTohokuSamples, TohokuBenchmarkError } from './speech/tohoku-benchmark';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -147,8 +148,12 @@ const tohokuText = document.querySelector<HTMLInputElement>('#tohoku-text')!;
 const tohokuGenerateSampleButton = document.querySelector<HTMLButtonElement>('#tohoku-generate-sample')!;
 const tohokuGenerateTextButton = document.querySelector<HTMLButtonElement>('#tohoku-generate-text')!;
 const tohokuPlayButton = document.querySelector<HTMLButtonElement>('#tohoku-play')!;
+const tohokuPlayStopButton = document.querySelector<HTMLButtonElement>('#tohoku-play-stop')!;
+const tohokuBenchmarkButton = document.querySelector<HTMLButtonElement>('#tohoku-benchmark')!;
+const tohokuBenchmarkCancelButton = document.querySelector<HTMLButtonElement>('#tohoku-benchmark-cancel')!;
 const tohokuStatus = document.querySelector<HTMLOutputElement>('#tohoku-status')!;
 const tohokuMetrics = document.querySelector<HTMLOutputElement>('#tohoku-metrics')!;
+const tohokuBenchmarkResults = document.querySelector<HTMLOutputElement>('#tohoku-benchmark-results')!;
 const tohokuError = document.querySelector<HTMLOutputElement>('#tohoku-error')!;
 const tohokuVoiceLab = new TohokuVoiceLab(() => {
   if (typeof Worker === 'undefined') throw new Error('このブラウザーはWeb Workerに対応していません。');
@@ -159,6 +164,8 @@ const tohokuInitializationSamples: number[] = [];
 const tohokuPlaybackSamples: number[] = [];
 let tohokuAudioUrl: string | null = null;
 let tohokuAudio: HTMLAudioElement | null = null;
+let tohokuBenchmarkRunning = false;
+let tohokuBenchmarkCancelRequested = false;
 let diagnosticOwner: 'native' | 'wrapper' | null = null;
 let diagnosticEvents: string[] = [];
 let workerCacheStatus = '未確認';
@@ -292,6 +299,7 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
     tohokuStatus.value = `Happyモデルの初期化完了 (${event.initializationMs?.toFixed(0) ?? '--'} ms)。音声を生成できます。`;
     tohokuGenerateSampleButton.disabled = false;
     tohokuGenerateTextButton.disabled = false;
+    tohokuBenchmarkButton.disabled = false;
     tohokuInitButton.disabled = true;
     tohokuStopButton.disabled = false;
   }
@@ -304,10 +312,17 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
       if (tohokuPlayRequestedAt !== null) tohokuPlaybackSamples.push(performance.now() - tohokuPlayRequestedAt);
       tohokuPlayRequestedAt = null;
       tohokuStatus.value = 'TOHOKU Happy音声を再生中です。可聴確認は端末で行ってください。';
+      tohokuPlayStopButton.disabled = false;
       renderTohokuMetrics();
     };
     tohokuAudio.onended = () => { tohokuStatus.value = '再生終了。音声データはメモリ内にあり、再生ボタンで再試聴できます。'; };
+    tohokuAudio.onerror = () => {
+      tohokuStatus.value = '生成音声の再生に失敗しました。既存iOS TTSで比較できます。';
+      tohokuError.value = '生成したWAVをSafariで再生できませんでした。';
+      tohokuPlayStopButton.disabled = true;
+    };
     tohokuPlayButton.disabled = false;
+    tohokuPlayStopButton.disabled = true;
     if (event.generationMs !== undefined) tohokuGenerationSamples.push(event.generationMs);
     tohokuStatus.value = `音声生成完了 (${event.generationMs?.toFixed(0) ?? '--'} ms)。Safariでは再生に別の操作が必要な場合があります。`;
     tohokuError.value = '';
@@ -316,10 +331,12 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
   if (event.type === 'error') {
     tohokuError.value = `${event.stage ?? '実験'}エラー: ${event.message ?? '不明なエラー'}`;
     tohokuStatus.value = `${tohokuVoiceLab.status} 既存のiOS標準TTSは通常会話で引き続き利用できます。`;
-    tohokuInitButton.disabled = false;
-    tohokuGenerateSampleButton.disabled = tohokuVoiceLab.state !== 'ready';
-    tohokuGenerateTextButton.disabled = tohokuVoiceLab.state !== 'ready';
-    tohokuStopButton.disabled = true;
+    const available = tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated';
+    tohokuInitButton.disabled = available;
+    tohokuGenerateSampleButton.disabled = !available;
+    tohokuGenerateTextButton.disabled = !available;
+    tohokuBenchmarkButton.disabled = !available;
+    tohokuStopButton.disabled = !available;
   }
 });
 
@@ -342,6 +359,7 @@ async function generateTohokuAudio(text: string): Promise<void> {
   tohokuError.value = '';
   tohokuGenerateSampleButton.disabled = true;
   tohokuGenerateTextButton.disabled = true;
+  tohokuBenchmarkButton.disabled = true;
   try {
     await tohokuVoiceLab.generate(text);
   } catch (error) {
@@ -350,6 +368,63 @@ async function generateTohokuAudio(text: string): Promise<void> {
     const available = tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated';
     tohokuGenerateSampleButton.disabled = !available;
     tohokuGenerateTextButton.disabled = !available;
+    tohokuBenchmarkButton.disabled = !available || tohokuBenchmarkRunning;
+  }
+}
+
+async function runTohokuTwentyGenerationBenchmark(): Promise<void> {
+  if (tohokuBenchmarkRunning || (tohokuVoiceLab.state !== 'ready' && tohokuVoiceLab.state !== 'generated')) return;
+  tohokuBenchmarkRunning = true;
+  tohokuBenchmarkCancelRequested = false;
+  tohokuBenchmarkButton.disabled = true;
+  tohokuBenchmarkCancelButton.disabled = false;
+  tohokuGenerateSampleButton.disabled = true;
+  tohokuGenerateTextButton.disabled = true;
+  tohokuError.value = '';
+  tohokuBenchmarkResults.value = '20回連続生成: 準備中…';
+  tohokuStatus.value = '同じ初期化済みWorkerで、異なる20文を順番に音声生成します。自動再生はせず、最後のWAVを試聴できます。';
+  const samples: number[] = [];
+  try {
+    const result = await runTohokuBenchmark(async (text) => {
+      tohokuText.value = text;
+      const event = await tohokuVoiceLab.generate(text);
+      if (event.generationMs === undefined) throw new Error('Workerから生成時間が返りませんでした。');
+      return event.generationMs;
+    }, (progress) => {
+      samples.push(progress.generationMs);
+      const summary = summarizeTohokuSamples(samples);
+      tohokuStatus.value = `連続生成 ${progress.completed}/${progress.total} 回。辞書・Workerは保持中です。`;
+      tohokuBenchmarkResults.value = `進行 ${progress.completed}/${progress.total} / 中央値 ${summary.median?.toFixed(0) ?? '--'} ms / p95 ${summary.p95?.toFixed(0) ?? '--'} ms / 最大 ${summary.max?.toFixed(0) ?? '--'} ms / 各回 ${samples.map((sample) => sample.toFixed(0)).join(', ')} ms`;
+    }, () => tohokuBenchmarkCancelRequested);
+    const summary = summarizeTohokuSamples(result.samples);
+    const state = result.cancelled ? '中断' : '完了';
+    tohokuBenchmarkResults.value = `20回連続生成 ${state}: ${summary.count}/20 / 中央値 ${summary.median?.toFixed(0) ?? '--'} ms / p95 ${summary.p95?.toFixed(0) ?? '--'} ms / 最大 ${summary.max?.toFixed(0) ?? '--'} ms / 各回 ${result.samples.map((sample) => sample.toFixed(0)).join(', ')} ms`;
+    tohokuStatus.value = result.cancelled
+      ? `連続生成を中断しました（${summary.count}件完了）。初期化済みWorkerは保持されています。`
+      : '20種類の文を同じWorkerで生成しました。最新の音声は再生ボタンから確認できます。';
+  } catch (error) {
+    const currentLabState: string = tohokuVoiceLab.state;
+    if (tohokuBenchmarkCancelRequested && currentLabState === 'stopped') {
+      const summary = summarizeTohokuSamples(samples);
+      tohokuBenchmarkResults.value = `連続生成を中断: ${summary.count}/20 完了 / 中央値 ${summary.median?.toFixed(0) ?? '--'} ms / p95 ${summary.p95?.toFixed(0) ?? '--'} ms / 最大 ${summary.max?.toFixed(0) ?? '--'} ms`;
+      tohokuStatus.value = 'Workerを停止し、連続生成を中断しました。再開するにはHappyモデルを再読み込みしてください。';
+      return;
+    }
+    const iteration = error instanceof TohokuBenchmarkError ? error.iteration : samples.length + 1;
+    const reason = error instanceof TohokuBenchmarkError && error.cause instanceof Error
+      ? error.cause.message
+      : error instanceof Error ? error.message : '不明なエラー';
+    tohokuBenchmarkResults.value = `連続生成失敗: ${samples.length}/20 完了、${iteration}回目で停止。${samples.length ? `途中値 ${samples.map((sample) => sample.toFixed(0)).join(', ')} ms` : '生成時間なし'}`;
+    tohokuStatus.value = 'TOHOKU Happyの連続生成が停止しました。失敗した文は自由入力欄にあり、既存iOS TTSで比較できます。';
+    tohokuError.value = reason;
+  } finally {
+    tohokuBenchmarkRunning = false;
+    tohokuBenchmarkCancelRequested = false;
+    tohokuBenchmarkCancelButton.disabled = true;
+    const available = tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated';
+    tohokuGenerateSampleButton.disabled = !available;
+    tohokuGenerateTextButton.disabled = !available;
+    tohokuBenchmarkButton.disabled = !available;
   }
 }
 
@@ -1100,20 +1175,29 @@ document.querySelector<HTMLButtonElement>('#latency-clear')!.addEventListener('c
 });
 tohokuInitButton.addEventListener('click', () => { void initializeTohokuLab(); });
 tohokuStopButton.addEventListener('click', () => {
+  if (tohokuBenchmarkRunning) tohokuBenchmarkCancelRequested = true;
   tohokuVoiceLab.stop();
   tohokuAudio?.pause();
   tohokuAudio = null;
   if (tohokuAudioUrl) URL.revokeObjectURL(tohokuAudioUrl);
   tohokuAudioUrl = null;
   tohokuPlayButton.disabled = true;
+  tohokuPlayStopButton.disabled = true;
   tohokuGenerateSampleButton.disabled = true;
   tohokuGenerateTextButton.disabled = true;
+  tohokuBenchmarkButton.disabled = true;
   tohokuInitButton.disabled = false;
   tohokuStopButton.disabled = true;
   tohokuStatus.value = tohokuVoiceLab.status;
 });
 tohokuGenerateSampleButton.addEventListener('click', () => { void generateTohokuAudio(tohokuSample.value); });
 tohokuGenerateTextButton.addEventListener('click', () => { void generateTohokuAudio(tohokuText.value); });
+tohokuBenchmarkButton.addEventListener('click', () => { void runTohokuTwentyGenerationBenchmark(); });
+tohokuBenchmarkCancelButton.addEventListener('click', () => {
+  tohokuBenchmarkCancelRequested = true;
+  tohokuBenchmarkCancelButton.disabled = true;
+  tohokuStatus.value = '中断要求を受け付けました。進行中の1回が完了した時点で止め、Workerと辞書を保持します。';
+});
 tohokuPlayButton.addEventListener('click', () => {
   if (!tohokuAudio) return;
   tohokuPlayRequestedAt = performance.now();
@@ -1123,6 +1207,11 @@ tohokuPlayButton.addEventListener('click', () => {
     tohokuStatus.value = 'Safariが音声再生を開始しませんでした。再生ボタンをもう一度押してください。';
     tohokuError.value = error instanceof Error ? error.message : 'WAVの再生に失敗しました。';
   });
+});
+tohokuPlayStopButton.addEventListener('click', () => {
+  tohokuAudio?.pause();
+  tohokuPlayStopButton.disabled = true;
+  tohokuStatus.value = '生成音声の再生を停止しました。Workerと生成音声は保持しています。';
 });
 tohokuFallbackButton.addEventListener('click', () => testColonVoice(tohokuText.value.trim() || tohokuSample.value));
 nativeTtsRunButton.addEventListener('click', runNativeTtsDiagnostic);

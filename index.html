@@ -130,9 +130,13 @@
             <div class="debug__controls">
               <button id="tohoku-generate-sample" type="button" disabled>試聴文を生成</button>
               <button id="tohoku-generate-text" type="button" disabled>入力文を生成</button>
+              <button id="tohoku-benchmark" type="button" disabled>20回連続生成を計測</button>
+              <button id="tohoku-benchmark-cancel" type="button" disabled>連続生成を中断</button>
               <button id="tohoku-play" type="button" disabled>生成音声を再生</button>
+              <button id="tohoku-play-stop" type="button" disabled>再生を停止</button>
             </div>
             <output id="tohoku-metrics" aria-live="off">初期化: -- / 生成時間: -- / 再生開始: -- / 生成音声: -- / memory: UNKNOWN</output>
+            <output id="tohoku-benchmark-results" aria-live="off">20回連続生成: 未実施（計測値はこのページのメモリ内だけに保持）</output>
             <output id="tohoku-error" aria-live="polite"></output>
             <small>iOS Safariの再生許可を保つため、生成後の再生は別ボタン操作です。HappyのiPhone実機成功後にNeutral・Sad・Angryを追加します。失敗時は通常会話のiOS標準TTSをそのまま利用できます。</small>
           </details>
