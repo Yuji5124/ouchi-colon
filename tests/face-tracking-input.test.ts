@@ -33,10 +33,10 @@ test('rejects missing, low-confidence, and invalid face measurements', () => {
 test('amplifies small face movement and clamps gaze to the eye range', () => {
   const slightMove = toFaceGazeTarget({
     faceDetected: true, normalizedX: 0.2, normalizedY: -0.2, confidence: 0.9, timestamp: 10,
-  });
+  }, false);
   const edgeMove = toFaceGazeTarget({
     faceDetected: true, normalizedX: 1, normalizedY: -1, confidence: 0.9, timestamp: 11,
-  });
+  }, false);
   assert.ok(Math.abs(slightMove.x - 0.6) < 0.000001);
   assert.ok(Math.abs(slightMove.y + 0.4) < 0.000001);
   assert.deepEqual(edgeMove, { x: 1, y: -1 });
@@ -47,8 +47,8 @@ const faceAt = (x: number, timestamp: number, y = 0): FaceTrackingInput => ({
 });
 
 test('maps a face on the left and right to gaze in the matching directions', () => {
-  assert.ok(toFaceGazeTarget(faceAt(-0.3, 1)).x < 0);
-  assert.ok(toFaceGazeTarget(faceAt(0.3, 2)).x > 0);
+  assert.ok(toFaceGazeTarget(faceAt(-0.3, 1), false).x < 0);
+  assert.ok(toFaceGazeTarget(faceAt(0.3, 2), false).x > 0);
 });
 
 test('keeps gaze centered for a face near the center', () => {
@@ -58,6 +58,7 @@ test('keeps gaze centered for a face near the center', () => {
 test('horizontal mirroring reverses the gaze direction', () => {
   assert.ok(toFaceGazeTarget(faceAt(0.3, 1), true).x < 0);
   assert.ok(toFaceGazeTarget(faceAt(0.3, 1), false).x > 0);
+  assert.ok(toFaceGazeTarget(faceAt(0.3, 1)).x < 0, 'front-camera default mirrors the horizontal position');
 });
 
 test('stabilizes acquisition, tolerates a short miss, then returns to no-face', () => {

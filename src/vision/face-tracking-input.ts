@@ -37,7 +37,7 @@ function clampUnit(value: number): number {
 }
 
 /** Amplifies small camera movements enough to be visible in the eye highlights. */
-export function toFaceGazeTarget(input: FaceTrackingInput, mirrorHorizontal = false): FaceGazeTarget {
+export function toFaceGazeTarget(input: FaceTrackingInput, mirrorHorizontal = true): FaceGazeTarget {
   if (!input.faceDetected) return { x: 0, y: 0 };
   const horizontal = mirrorHorizontal ? -input.normalizedX : input.normalizedX;
   const deadZone = (value: number) => Math.abs(value) < GAZE_DEAD_ZONE ? 0 : value;
