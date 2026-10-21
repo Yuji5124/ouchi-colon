@@ -47,6 +47,31 @@ let speechEndHandled = false;
 const reactionEvents: string[] = [];
 let detectionFps = 0;
 let detectionLatencyMs = 0;
+let latestRenderFps: number | null = null;
+
+type SpeechStage =
+  | 'microphone' | 'recognition-start' | 'voice-detected' | 'interim-result' | 'final-result'
+  | 'conversation-input' | 'reply-generated' | 'tts-request' | 'tts-start' | 'mouth-start'
+  | 'tts-end' | 'mouth-stop' | 'recognition-resume';
+
+const SPEECH_STAGE_LABELS: Record<SpeechStage, string> = {
+  microphone: '1 マイク許可',
+  'recognition-start': '2 音声認識開始',
+  'voice-detected': '3 発話検出',
+  'interim-result': '4 途中認識',
+  'final-result': '5 最終認識',
+  'conversation-input': '6 会話入力',
+  'reply-generated': '7 返答生成',
+  'tts-request': '8 TTS開始要求',
+  'tts-start': '9 TTS onstart',
+  'mouth-start': '10 口パク開始',
+  'tts-end': '11 TTS onend/onerror',
+  'mouth-stop': '12 口パク停止',
+  'recognition-resume': '13 音声認識再開',
+};
+
+const speechStageState = new Map<SpeechStage, string>();
+const speechDiagnosticLog: string[] = [];
 
 const debugPanel = document.querySelector<HTMLElement>('#debug')!;
 const minimizeDebugButton = document.querySelector<HTMLButtonElement>('#minimize-debug')!;
@@ -72,8 +97,50 @@ const recognitionInterim = document.querySelector<HTMLOutputElement>('#recogniti
 const recognitionFinal = document.querySelector<HTMLOutputElement>('#recognition-final')!;
 const speechStatus = document.querySelector<HTMLOutputElement>('#speech-status')!;
 const speechStopButton = document.querySelector<HTMLButtonElement>('#speech-stop')!;
+const voiceTestStatus = document.querySelector<HTMLOutputElement>('#voice-test-status')!;
 const ttsEnabled = document.querySelector<HTMLInputElement>('#tts-enabled')!;
 const reactionHistory = document.querySelector<HTMLOutputElement>('#reaction-history')!;
+const voiceTestButton = document.querySelector<HTMLButtonElement>('#voice-test')!;
+const speechRuntimeOutput = document.querySelector<HTMLOutputElement>('#speech-runtime')!;
+const speechStagesOutput = document.querySelector<HTMLOutputElement>('#speech-stages')!;
+const speechDiagnosticsOutput = document.querySelector<HTMLOutputElement>('#speech-diagnostics')!;
+const mediaConcurrencyOutput = document.querySelector<HTMLOutputElement>('#media-concurrency')!;
+
+function renderSpeechDiagnostics(): void {
+  speechStagesOutput.value = `音声経路: ${Object.entries(SPEECH_STAGE_LABELS)
+    .map(([stage, label]) => `${label}=${speechStageState.get(stage as SpeechStage) ?? '待機'}`)
+    .join(' / ')}`;
+  speechDiagnosticsOutput.value = `診断履歴(音声内容なし): ${speechDiagnosticLog.length ? speechDiagnosticLog.join(' | ') : '--'}`;
+}
+
+function recordSpeechStage(stage: SpeechStage, status: string): void {
+  const safeStatus = status.replace(/[\r\n|]/g, ' ').slice(0, 100);
+  speechStageState.set(stage, safeStatus);
+  const elapsed = Math.round(performance.now());
+  speechDiagnosticLog.push(`${elapsed}ms ${SPEECH_STAGE_LABELS[stage]}: ${safeStatus}`);
+  if (speechDiagnosticLog.length > 20) speechDiagnosticLog.shift();
+  renderSpeechDiagnostics();
+}
+
+function renderSpeechRuntime(): void {
+  const local = speechEngine.isSpeaking ? '再生中(onstart済み)'
+    : speechEngine.isPending ? '開始待ち'
+      : '停止中';
+  const voice = speechEngine.voiceStatus === 'japanese-voice-ready' ? 'ja音声あり'
+    : speechEngine.voiceStatus === 'loading' ? 'voice一覧待ち'
+      : speechEngine.voiceStatus === 'system-default' ? 'ja音声なし・ja-JP既定音声'
+        : '音声合成非対応';
+  speechRuntimeOutput.value = `音声状態: ${local} / paused=${speechEngine.isPaused} / browser speaking=${speechEngine.browserSpeaking} / pending=${speechEngine.browserPending} / ${voice}`;
+}
+
+function renderMediaConcurrency(): void {
+  mediaConcurrencyOutput.value = `カメラ ${cameraActive ? 'ON' : 'OFF'} / 顔検出 ${detectorActive ? 'ON' : 'OFF'} / 認識 ${recognitionEngine.isActive ? 'ON' : 'OFF'} / TTS ${speechEngine.isSpeaking ? '再生中' : speechEngine.isPending ? '開始待ち' : 'OFF'} / 描画 ${latestRenderFps?.toFixed(1) ?? '--'} FPS`;
+}
+
+speechEngine.onVoicesChanged(() => {
+  recordSpeechStage('tts-request', `voice一覧更新:${speechEngine.voiceStatus}`);
+  renderSpeechRuntime();
+});
 
 function applyReaction(event: ReactionEvent): void {
   const reaction = reactionEngine.handle(event, performance.now());
@@ -104,74 +171,81 @@ function updateConversationTiming(): void {
   conversationTiming.value = `返答生成: ${replyGenerationMs.toFixed(1)} ms / TTS開始: ${ttsStartMs === null ? '--' : `${ttsStartMs.toFixed(1)} ms`} / 発話終了→音声: ${ttsStartDelayMs === null ? '--' : `${ttsStartDelayMs.toFixed(1)} ms`} / 音声イベント→表情: ${voiceReactionMs === null ? '--' : `${voiceReactionMs.toFixed(2)} ms`}`;
 }
 
-function finishReactionResponse(reason: SpeechEndReason | 'text-only'): void {
+function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
   applyReaction('RESPONSE_ENDED');
   state.mouthOpen = 0;
   speechStopButton.disabled = true;
+  talking = false;
+  recordSpeechStage('mouth-stop', reason);
   if (reason === 'finished') speechStatus.value = '読み上げが終わりました。音声は保存していません。';
   if (reason === 'stopped') speechStatus.value = '読み上げを停止しました。';
+  if (reason === 'error') speechStatus.value = '音声を開始または継続できませんでした。診断状態を確認してください。';
+  if (reason === 'stopped' && voiceResponseActive) {
+    recognitionEnabled = false;
+    recognitionStatus.value = '読み上げを停止しました。音声認識は自動再開しません。保護者が開始ボタンを押してください。';
+    updateRecognitionButtons();
+  }
+  renderSpeechRuntime();
+  renderMediaConcurrency();
   scheduleIdleSleep();
-  if (voiceResponseActive && recognitionEnabled) {
+  recordSpeechStage('recognition-resume', voiceResponseActive && recognitionEnabled ? '一度だけ再開を要求' : '対象外/利用者停止');
+  if (voiceResponseActive && recognitionEnabled && reason !== 'stopped') {
     voiceResponseActive = false;
     window.setTimeout(() => {
-      if (debug && recognitionEnabled && !speechEngine.isSpeaking) startVoiceRecognition();
-    }, 180);
+      if (token !== conversationGeneration || !debug || !recognitionEnabled || speechEngine.shouldSuppressRecognition) return;
+      startVoiceRecognition(true);
+    }, 250);
   } else {
     voiceResponseActive = false;
   }
 }
 
-async function speakReply(text: string, token: number): Promise<void> {
+function speakReply(text: string, token: number): void {
   ttsStartMs = null;
   ttsStartDelayMs = null;
   updateConversationTiming();
+  recordSpeechStage('tts-request', `返答${text.length}文字`);
   if (!ttsEnabled.checked) {
     speechStatus.value = '読み上げOFF。返答は文字で表示しています。';
-    applyReaction('RESPONSE_STARTED');
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
-    if (token === conversationGeneration) finishReactionResponse('text-only');
+    finishReactionResponse('text-only', token);
     return;
   }
 
   if (!speechEngine.isSupported) {
     speechStatus.value = 'このSafariでは音声合成を利用できません。文字の返答は引き続き使えます。';
-    applyReaction('RESPONSE_STARTED');
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
-    if (token === conversationGeneration) finishReactionResponse('text-only');
+    finishReactionResponse('error', token);
     return;
   }
 
   let responseFinished = false;
-  const spoken = await speechEngine.speak(text, {
+  void speechEngine.speak(text, {
     onStart: () => {
       if (token !== conversationGeneration) return;
+      recordSpeechStage('tts-start', 'onstart');
+      recordSpeechStage('mouth-start', '口パクを開始');
       ttsStartMs = performance.now() - submittedUtteranceEndedAt;
       ttsStartDelayMs = ttsStartMs;
       updateConversationTiming();
       applyReaction('RESPONSE_STARTED');
       speechStopButton.disabled = false;
+      renderSpeechRuntime();
+      renderMediaConcurrency();
       speechStatus.value = 'iOS日本語音声で読み上げています。マイク入力は使用していません。';
     },
-    onBoundary: () => {
-      if (token === conversationGeneration) state.mouthOpen = 0.2 + Math.random() * 0.3;
+    onBoundary: () => { /* Mouth animation follows the actual onstart/onend interval. */ },
+    onError: (message) => {
+      recordSpeechStage('tts-end', `onerror:${message}`);
+      speechStatus.value = `読み上げエラー: ${message}`;
     },
-    onError: (message) => { speechStatus.value = `読み上げエラー: ${message}`; },
     onEnd: (reason) => {
       if (token !== conversationGeneration || responseFinished) return;
       responseFinished = true;
-      finishReactionResponse(reason);
+      recordSpeechStage('tts-end', reason === 'finished' ? 'onend' : reason === 'stopped' ? 'cancel' : 'onerror');
+      finishReactionResponse(reason, token);
     },
   });
-
-  if (!spoken && !responseFinished && token === conversationGeneration) {
-    speechStatus.value = '読み上げを開始できませんでした。返答は文字で表示しています。';
-    applyReaction('RESPONSE_STARTED');
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
-    if (token === conversationGeneration && !responseFinished) {
-      responseFinished = true;
-      finishReactionResponse('text-only');
-    }
-  }
+  renderSpeechRuntime();
+  renderMediaConcurrency();
 }
 
 async function respondToConversation(text: string, fromVoice = false): Promise<void> {
@@ -186,6 +260,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     recognitionEngine.abort();
     updateRecognitionButtons();
   }
+  recordSpeechStage('conversation-input', `${fromVoice ? '音声' : '手入力'} ${text.length}文字`);
   scheduleIdleSleep();
   if (!fromVoice) {
     applyReaction('VOICE_INPUT_STARTED');
@@ -197,9 +272,10 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   const result = conversationEngine.reply(text, conversationContext);
   replyGenerationMs = performance.now() - generationStart;
   conversationContext = result.context;
+  recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
   updateConversationTiming();
-  await speakReply(result.text, token);
+  speakReply(result.text, token);
 }
 
 function submitConversation(): Promise<void> {
@@ -210,12 +286,66 @@ function submitConversation(): Promise<void> {
   return respondToConversation(text);
 }
 
+function testColonVoice(): void {
+  if (!ttsEnabled.checked) {
+    voiceTestStatus.value = '音声テスト: 先に保護者確認のチェックを入れてください。';
+    return;
+  }
+  if (!speechEngine.isSupported) {
+    voiceTestStatus.value = '音声テスト: このSafariではSpeechSynthesis非対応です。';
+    return;
+  }
+  // Keep speak() in the button event call stack for Safari's user-activation policy.
+  recognitionEnabled = false;
+  voiceResponseActive = false;
+  recognitionEngine.abort();
+  updateRecognitionButtons();
+  const token = ++conversationGeneration;
+  speechEngine.stop();
+  submittedUtteranceEndedAt = performance.now();
+  recordSpeechStage('tts-request', '音声テスト 14文字');
+  voiceTestStatus.value = '音声テスト: 開始待ち(onstart前)';
+  const pending = speechEngine.speak('こんにちは！コロンだよ！', {
+    onStart: () => {
+      if (token !== conversationGeneration) return;
+      recordSpeechStage('tts-start', '音声テスト onstart');
+      recordSpeechStage('mouth-start', '音声テスト口パク開始');
+      ttsStartMs = performance.now() - submittedUtteranceEndedAt;
+      ttsStartDelayMs = ttsStartMs;
+      updateConversationTiming();
+      applyReaction('RESPONSE_STARTED');
+      speechStopButton.disabled = false;
+      voiceTestStatus.value = '音声テスト: 再生中(onstart確認済み)';
+      renderSpeechRuntime();
+      renderMediaConcurrency();
+    },
+    onError: (message) => {
+      voiceTestStatus.value = `音声テスト: エラー ${message}`;
+      recordSpeechStage('tts-end', `音声テスト onerror:${message}`);
+    },
+    onEnd: (reason) => {
+      if (token !== conversationGeneration) return;
+      recordSpeechStage('tts-end', `音声テスト ${reason}`);
+      recordSpeechStage('mouth-stop', `音声テスト ${reason}`);
+      state.mouthOpen = 0;
+      speechStopButton.disabled = true;
+      if (state.expression === 'TALK') applyReaction('RESPONSE_ENDED');
+      voiceTestStatus.value = reason === 'finished' ? '音声テスト: 再生終了(onend確認済み)' : `音声テスト: ${reason}`;
+      renderSpeechRuntime();
+      renderMediaConcurrency();
+    },
+  });
+  renderSpeechRuntime();
+  renderMediaConcurrency();
+  void pending;
+}
+
 function updateRecognitionButtons(): void {
   recognitionStartButton.disabled = !recognitionEngine.isSupported || recognitionEnabled || recognitionEngine.isActive;
   recognitionStopButton.disabled = !recognitionEngine.isActive && !recognitionEnabled;
 }
 
-function startVoiceRecognition(): void {
+function startVoiceRecognition(isResume = false): void {
   if (!debug || recognitionEngine.isActive) return;
   if (!recognitionEnabled && !recognitionConsent.checked) {
     recognitionStatus.value = 'オンライン音声認識の説明を確認し、保護者がチェックしてから開始してください。';
@@ -223,6 +353,11 @@ function startVoiceRecognition(): void {
   }
   if (!recognitionEngine.isSupported) {
     recognitionStatus.value = 'このブラウザーはWeb Speech音声認識に対応していません。手入力で会話を試せます。';
+    return;
+  }
+  if (speechEngine.shouldSuppressRecognition) {
+    recognitionStatus.value = '読み上げ中のためマイク再開を保留しています。';
+    recordSpeechStage('recognition-resume', 'TTS中のため開始を拒否');
     return;
   }
 
@@ -237,6 +372,10 @@ function startVoiceRecognition(): void {
       recognitionStatus.value = 'マイクON・日本語音声を認識しています。停止ボタンで終了できます。';
       updateRecognitionButtons();
       applyReaction('VOICE_INPUT_STARTED');
+      recordSpeechStage('microphone', '許可済み/音声入力開始');
+      recordSpeechStage('recognition-start', isResume ? '再開成功' : '開始イベント');
+      if (isResume) recordSpeechStage('recognition-resume', '開始成功');
+      renderMediaConcurrency();
     },
     onSpeechStart: () => {
       const receivedAt = performance.now();
@@ -244,6 +383,7 @@ function startVoiceRecognition(): void {
       submittedUtteranceEndedAt = 0;
       recognitionStatus.value = '声を検出しました。聞いています…';
       applyReaction('UTTERANCE_DETECTED');
+      recordSpeechStage('voice-detected', '発話あり');
       voiceReactionMs = performance.now() - receivedAt;
       updateConversationTiming();
     },
@@ -256,9 +396,13 @@ function startVoiceRecognition(): void {
     },
     onInterim: (text) => {
       recognitionInterim.value = `途中認識: ${text || '--'}`;
+      recordSpeechStage('interim-result', text ? `${text.length}文字(未確定)` : '空');
     },
     onError: (code, message) => {
       recognitionEnabled = false;
+      recordSpeechStage('microphone', `失敗:${code}`);
+      recordSpeechStage('recognition-start', `失敗:${code}`);
+      if (isResume) recordSpeechStage('recognition-resume', `失敗:${code}・手動再開が必要`);
       const detail = code === 'not-allowed' || code === 'service-not-allowed'
         ? 'マイクまたは音声認識が許可されませんでした。Safariのサイト設定をご確認ください。'
         : code === 'network'
@@ -271,6 +415,7 @@ function startVoiceRecognition(): void {
       updateRecognitionButtons();
       recognitionInterim.value = '途中認識: --';
       if (finalText) {
+        recordSpeechStage('final-result', `${finalText.length}文字`);
         recognitionFinal.value = `最終認識: ${finalText}`;
         recognitionStatus.value = '認識できました。短い返事を考えています…';
         if (!speechEndHandled) {
@@ -285,6 +430,7 @@ function startVoiceRecognition(): void {
       if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
       if (recognitionEnabled) recognitionStatus.value = '発話を認識できませんでした。もう一度マイクで会話を開始してください。';
       recognitionEnabled = false;
+      recordSpeechStage('final-result', '最終結果なし');
       scheduleIdleSleep();
       updateRecognitionButtons();
     },
@@ -299,9 +445,11 @@ function startVoiceRecognition(): void {
       recognitionStatus.value = '音声認識を開始できませんでした。設定を確認して再試行してください。';
     }
   } else {
+    if (!isResume) recordSpeechStage('recognition-start', '開始要求');
     recognitionStatus.value = 'Safariにマイク許可を求めています…';
   }
   updateRecognitionButtons();
+  renderMediaConcurrency();
 }
 
 function stopVoiceRecognition(): void {
@@ -311,7 +459,10 @@ function stopVoiceRecognition(): void {
   recognitionStatus.value = 'マイクを停止しました。OuchiColonは音声を保存していません。';
   recognitionInterim.value = '途中認識: --';
   updateRecognitionButtons();
+  recordSpeechStage('recognition-resume', 'マイク停止・自動再開禁止');
+  renderMediaConcurrency();
   if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
+  renderMediaConcurrency();
   scheduleIdleSleep();
 }
 
@@ -508,7 +659,11 @@ function frame(now: number): void {
   }
   renderer.draw(state, now);
   const fps = fpsMeter.addFrame(now);
-  if (fps !== null) fpsOutput.value = `描画 ${fps} FPS / 検出 ${detectionFps.toFixed(1)} FPS / 遅延 ${detectionLatencyMs} ms`;
+  if (fps !== null) {
+    latestRenderFps = fps;
+    fpsOutput.value = `描画 ${fps} FPS / 検出 ${detectionFps.toFixed(1)} FPS / 遅延 ${detectionLatencyMs} ms`;
+    renderMediaConcurrency();
+  }
   if (debug && detectorActive) {
     trackingCoordinates.value = `顔座標: ${trackingCoordinates.value.replace(/^顔座標: /, '').split(' / 視線')[0]} / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
   }
@@ -535,7 +690,8 @@ conversationInput.addEventListener('keydown', (event) => {
   }
 });
 speechStopButton.addEventListener('click', () => speechEngine.stop());
-recognitionStartButton.addEventListener('click', startVoiceRecognition);
+voiceTestButton.addEventListener('click', testColonVoice);
+recognitionStartButton.addEventListener('click', () => startVoiceRecognition());
 recognitionStopButton.addEventListener('click', stopVoiceRecognition);
 recognitionConsent.addEventListener('change', () => {
   if (!recognitionConsent.checked && recognitionEnabled) stopVoiceRecognition();
@@ -555,6 +711,9 @@ recognitionStatus.value = recognitionEngine.isSupported
   ? '保護者がオンライン音声認識に同意し、開始ボタンを押すとマイクを使用します。'
   : 'このブラウザーはWeb Speech音声認識に対応していません。手入力で会話を試せます。';
 updateRecognitionButtons();
+renderSpeechRuntime();
+renderMediaConcurrency();
+renderSpeechDiagnostics();
 scheduleIdleSleep();
 updateTrackingButtons();
 document.querySelector('#gaze-left')!.addEventListener('click', () => { targetGazeX = -1; });
