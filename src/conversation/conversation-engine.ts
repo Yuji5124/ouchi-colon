@@ -162,7 +162,7 @@ const GENERIC_REPLY = 'そうなんだね。もう少し教えてくれる？';
 
 export class RuleBasedConversationEngine implements ConversationEngine {
   reply(input: string, context: ConversationContext): ConversationResult {
-    const trimmed = input.trim();
+    let trimmed = input.trim();
     if (PRIVACY_PATTERN.test(trimmed)) {
       return { text: PRIVACY_REPLY, topic: 'safety', context: { topic: context.topic, turn: context.turn + 1 } };
     }
@@ -170,9 +170,35 @@ export class RuleBasedConversationEngine implements ConversationEngine {
       return { text: SAFETY_REPLY, topic: 'safety', context: { topic: context.topic, turn: context.turn + 1 } };
     }
 
+    const repairPrefix = /^(?:ちがう|違う|やっぱり|えっと|あ|そうじゃなくて)[、。\s　]*/;
+    const isRepair = repairPrefix.test(trimmed);
+    if (isRepair) {
+      const corrected = trimmed.replace(repairPrefix, '').replace(/^(?:ちがう|違う|やっぱり|えっと|あ|そうじゃなくて)[、。\s　]*/, '').trim();
+      if (corrected.length >= 2 && RULES.some((candidate) => candidate.match.test(corrected))) trimmed = corrected;
+      else if (corrected.length < 2 || /^(?:やっぱり|えっと|あ|そうじゃなくて)$/.test(corrected)) {
+        return { text: 'うん、ゆっくりでいいよ。どうしたの？', topic: context.topic ?? 'daily', context: { topic: context.topic, turn: context.turn + 1 } };
+      } else trimmed = corrected;
+    }
+
+    if (/^(?:もう一回|もういっかい|もう一度|もっかい)$/.test(trimmed)) {
+      return { text: context.topic ? 'もちろん。もう一回お話しするね。' : 'もちろん。どのお話を聞きたい？', topic: 'repeat', context: { topic: context.topic, turn: context.turn + 1 } };
+    }
+    if (/^(?:わかんない|わからない|わかんないよ|わからないよ)$/.test(trimmed)) {
+      return { text: context.topic ? 'そっか。いっしょにゆっくり考えよう。' : 'そっか。何がわからないか、ゆっくり教えてね。', topic: context.topic ?? 'repeat', context: { topic: context.topic, turn: context.turn + 1 } };
+    }
+    if (/^(?:うん|うんうん|そう|そうだよ|はい|いや|ううん|ちがう|違う)$/.test(trimmed)) {
+      if (!context.topic) return { text: trimmed === 'いや' || trimmed === 'ううん' ? 'そっか。教えてくれてありがとう。' : 'そうなんだね。', topic: 'daily', context: { topic: null, turn: context.turn + 1 } };
+      const negative = /^(?:いや|ううん|ちがう|違う)$/.test(trimmed);
+      const text = context.topic === 'greeting'
+        ? (negative ? 'そっか。じゃあ、何のお話にしようか？' : 'うんうん。どんなことを話そうか？')
+        : negative ? 'そっか。じゃあ、どんなのがいい？' : 'うんうん。もう少し聞かせて？';
+      return { text, topic: context.topic, context: { topic: context.topic, turn: context.turn + 1 } };
+    }
+
     const rule = RULES.find((candidate) => candidate.match.test(trimmed));
     if (!rule) {
-      return { text: GENERIC_REPLY, topic: context.topic ?? 'daily', context: { topic: context.topic, turn: context.turn + 1 } };
+      const text = isRepair ? 'うん、そうなんだね。どういうことか教えてくれる？' : GENERIC_REPLY;
+      return { text, topic: context.topic ?? 'daily', context: { topic: context.topic, turn: context.turn + 1 } };
     }
 
     const sameTopic = context.topic === rule.topic && context.turn > 0;

@@ -1,5 +1,6 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { FpsMeter } from './app/fps-meter';
+import { LatencySamples } from './app/latency-samples';
 import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
@@ -39,6 +40,7 @@ const nativeTtsDiagnostic = new NativeTtsDiagnostic(
   nativeSpeechPort,
   (text) => new SpeechSynthesisUtterance(text) as unknown as DiagnosticUtterance,
 );
+const latencySamples = new LatencySamples(200);
 let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
 let conversationGeneration = 0;
 let idleSleepTimer = 0;
@@ -55,6 +57,12 @@ const reactionEvents: string[] = [];
 let detectionFps = 0;
 let detectionLatencyMs = 0;
 let latestRenderFps: number | null = null;
+let interimReactionSent = false;
+let pendingVisualReactionAt: number | null = null;
+let utteranceEndAt: number | null = null;
+let ttsRequestedAt: number | null = null;
+let mouthMotionStartedAt: number | null = null;
+let ttsEndTurnCount = 0;
 
 type SpeechStage =
   | 'microphone' | 'recognition-start' | 'voice-detected' | 'interim-result' | 'final-result'
@@ -122,6 +130,14 @@ const diagnosticPlatformOutput = document.querySelector<HTMLOutputElement>('#tts
 const diagnosticVoicesOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-voices')!;
 const diagnosticResultOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-result')!;
 const diagnosticEventsOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-events')!;
+const voiceChoice = document.querySelector<HTMLSelectElement>('#voice-choice')!;
+const voiceProfile = document.querySelector<HTMLSelectElement>('#voice-profile')!;
+const voiceRate = document.querySelector<HTMLInputElement>('#voice-rate')!;
+const voicePitch = document.querySelector<HTMLInputElement>('#voice-pitch')!;
+const voiceVolume = document.querySelector<HTMLInputElement>('#voice-volume')!;
+const voiceAuditionButton = document.querySelector<HTMLButtonElement>('#voice-audition')!;
+const voiceSelectorStatus = document.querySelector<HTMLOutputElement>('#voice-selector-status')!;
+const latencyOutput = document.querySelector<HTMLOutputElement>('#latency-summary')!;
 let diagnosticOwner: 'native' | 'wrapper' | null = null;
 let diagnosticEvents: string[] = [];
 let workerCacheStatus = '未確認';
@@ -195,13 +211,43 @@ function renderMediaConcurrency(): void {
 }
 
 speechEngine.onVoicesChanged(() => {
+  renderVoiceChoices();
   recordSpeechStage('tts-request', `voice一覧更新:${speechEngine.voiceStatus}`);
   renderSpeechRuntime();
 });
 
+const VOICE_PROFILES: Record<string, { rate: number; pitch: number; volume: number }> = {
+  gentle: { rate: 0.88, pitch: 1.08, volume: 1 },
+  energetic: { rate: 0.96, pitch: 1.22, volume: 1 },
+  calm: { rate: 0.82, pitch: 0.98, volume: 0.92 },
+};
+
+function renderVoiceChoices(): void {
+  const previous = voiceChoice.value;
+  const japanese = speechEngine.voices.filter((voice) => voice.lang.toLowerCase().startsWith('ja'));
+  voiceChoice.replaceChildren(new Option('自動（従来設定）', ''));
+  for (const voice of japanese) voiceChoice.add(new Option(`${voice.name} (${voice.lang})`, voice.voiceURI));
+  voiceChoice.value = japanese.some((voice) => voice.voiceURI === previous) ? previous : '';
+  if (japanese.length === 0) voiceSelectorStatus.value = '日本語voiceが見つかりません。自動のja-JP設定で試します。';
+}
+
+function selectedSpeechSettings() {
+  return { voiceURI: voiceChoice.value || undefined, rate: Number(voiceRate.value), pitch: Number(voicePitch.value), volume: Number(voiceVolume.value) };
+}
+
+function renderLatencySummary(): void {
+  const line = (name: string, label: string): string => {
+    const value = latencySamples.summary(name);
+    return `${label} n=${value.count} 中央値=${value.median?.toFixed(0) ?? '--'}ms p95=${value.p95?.toFixed(0) ?? '--'}ms`;
+  };
+  latencyOutput.value = `20ターン連続会話チェック: TTS onend ${ttsEndTurnCount}/20（再生の可聴確認は実機で別途） / ${line('reaction', '発話イベント→描画更新')}; ${line('final', '発話終了→認識確定')}; ${line('generation', '確定→返答生成')}; ${line('tts', 'TTS要求→onstart')}; ${line('turn', '発話終了→音声onstart')}; ${line('resume', 'TTS終了→認識再開要求')}`;
+}
+
 function applyReaction(event: ReactionEvent): void {
+  const reactionAt = performance.now();
   const reaction = reactionEngine.handle(event, performance.now());
-  setExpression(reaction.expression === 'LISTENING' ? 'THINK' : reaction.expression);
+  setExpression(reaction.expression === 'LISTENING' || reaction.expression === 'HEARING' ? 'THINK' : reaction.expression);
+  if ((event === 'UTTERANCE_DETECTED' || event === 'INTERIM_ACTIVITY') && pendingVisualReactionAt === null) pendingVisualReactionAt = reactionAt;
   if (reaction.blink) {
     state.blink = 1;
     nextBlink = performance.now() + 2400 + Math.random() * 3900;
@@ -226,11 +272,17 @@ function scheduleIdleSleep(): void {
 
 function updateConversationTiming(): void {
   conversationTiming.value = `返答生成: ${replyGenerationMs.toFixed(1)} ms / TTS開始: ${ttsStartMs === null ? '--' : `${ttsStartMs.toFixed(1)} ms`} / 発話終了→音声: ${ttsStartDelayMs === null ? '--' : `${ttsStartDelayMs.toFixed(1)} ms`} / 音声イベント→表情: ${voiceReactionMs === null ? '--' : `${voiceReactionMs.toFixed(2)} ms`}`;
+  renderLatencySummary();
 }
 
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
+  if (reason === 'finished' && voiceResponseActive) {
+    ttsEndTurnCount += 1;
+    renderLatencySummary();
+  }
   applyReaction('RESPONSE_ENDED');
   state.mouthOpen = 0;
+  mouthMotionStartedAt = null;
   speechStopButton.disabled = true;
   talking = false;
   recordSpeechStage('mouth-stop', reason);
@@ -248,9 +300,12 @@ function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: nu
   recordSpeechStage('recognition-resume', voiceResponseActive && recognitionEnabled ? '一度だけ再開を要求' : '対象外/利用者停止');
   if (voiceResponseActive && recognitionEnabled && reason !== 'stopped') {
     voiceResponseActive = false;
+    const finishedAt = performance.now();
     window.setTimeout(() => {
       if (token !== conversationGeneration || !debug || !recognitionEnabled || speechEngine.shouldSuppressRecognition) return;
       startVoiceRecognition(true);
+      latencySamples.record('resume', performance.now() - finishedAt);
+      renderLatencySummary();
     }, 250);
   } else {
     voiceResponseActive = false;
@@ -275,6 +330,7 @@ function speakReply(text: string, token: number): void {
   }
 
   let responseFinished = false;
+  ttsRequestedAt = performance.now();
   void speechEngine.speak(text, {
     onStart: () => {
       if (token !== conversationGeneration) return;
@@ -282,6 +338,9 @@ function speakReply(text: string, token: number): void {
       recordSpeechStage('mouth-start', '口パクを開始');
       ttsStartMs = performance.now() - submittedUtteranceEndedAt;
       ttsStartDelayMs = ttsStartMs;
+      if (ttsRequestedAt !== null) latencySamples.record('tts', performance.now() - ttsRequestedAt);
+      if (utteranceEndAt !== null) latencySamples.record('turn', performance.now() - utteranceEndAt);
+      mouthMotionStartedAt = performance.now();
       updateConversationTiming();
       applyReaction('RESPONSE_STARTED');
       speechStopButton.disabled = false;
@@ -300,7 +359,7 @@ function speakReply(text: string, token: number): void {
       recordSpeechStage('tts-end', reason === 'finished' ? 'onend' : reason === 'stopped' ? 'cancel' : 'onerror');
       finishReactionResponse(reason, token);
     },
-  });
+  }, selectedSpeechSettings());
   renderSpeechRuntime();
   renderMediaConcurrency();
 }
@@ -328,6 +387,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   const generationStart = performance.now();
   const result = conversationEngine.reply(text, conversationContext);
   replyGenerationMs = performance.now() - generationStart;
+  latencySamples.record('generation', replyGenerationMs);
   conversationContext = result.context;
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
@@ -362,7 +422,7 @@ function testColonVoice(): void {
   submittedUtteranceEndedAt = performance.now();
   recordSpeechStage('tts-request', '音声テスト 14文字');
   voiceTestStatus.value = '音声テスト: 開始待ち(onstart前)';
-  const pending = speechEngine.speak('こんにちは！コロンだよ！', {
+  const pending = speechEngine.speak('こんにちは！コロンだよ！きょうはなにしてあそぶ？', {
     onStart: () => {
       if (token !== conversationGeneration) return;
       recordSpeechStage('tts-start', '音声テスト onstart');
@@ -391,7 +451,8 @@ function testColonVoice(): void {
       renderSpeechRuntime();
       renderMediaConcurrency();
     },
-  });
+  }, selectedSpeechSettings());
+  voiceSelectorStatus.value = `試聴中の選択: ${speechEngine.currentVoice ? `${speechEngine.currentVoice.name} (${speechEngine.currentVoice.lang})` : '自動の既定音声'}。音声は端末で確認してください。`;
   renderSpeechRuntime();
   renderMediaConcurrency();
   void pending;
@@ -563,7 +624,9 @@ function startVoiceRecognition(isResume = false): void {
     onSpeechStart: () => {
       const receivedAt = performance.now();
       speechEndHandled = false;
+      interimReactionSent = false;
       submittedUtteranceEndedAt = 0;
+      utteranceEndAt = null;
       recognitionStatus.value = '声を検出しました。聞いています…';
       applyReaction('UTTERANCE_DETECTED');
       recordSpeechStage('voice-detected', '発話あり');
@@ -574,12 +637,17 @@ function startVoiceRecognition(isResume = false): void {
       if (speechEndHandled) return;
       speechEndHandled = true;
       submittedUtteranceEndedAt = performance.now();
+      utteranceEndAt = submittedUtteranceEndedAt;
       recognitionStatus.value = '発話が終わりました。認識結果を待っています…';
       applyReaction('UTTERANCE_ENDED');
     },
     onInterim: (text) => {
       recognitionInterim.value = `途中認識: ${text || '--'}`;
       recordSpeechStage('interim-result', text ? `${text.length}文字(未確定)` : '空');
+      if (text && !interimReactionSent) {
+        interimReactionSent = true;
+        applyReaction('INTERIM_ACTIVITY');
+      }
     },
     onError: (code, message) => {
       recognitionEnabled = false;
@@ -598,6 +666,12 @@ function startVoiceRecognition(isResume = false): void {
       updateRecognitionButtons();
       recognitionInterim.value = '途中認識: --';
       if (finalText) {
+        const finalResultAt = performance.now();
+        if (utteranceEndAt !== null) latencySamples.record('final', finalResultAt - utteranceEndAt);
+        else {
+          utteranceEndAt = finalResultAt;
+        }
+        renderLatencySummary();
         recordSpeechStage('final-result', `${finalText.length}文字`);
         recognitionFinal.value = `最終認識: ${finalText}`;
         recognitionStatus.value = '認識できました。短い返事を考えています…';
@@ -834,11 +908,20 @@ function frame(now: number): void {
     nextBlink = now + 2400 + Math.random() * 3900;
   }
   state.blink = Math.max(0, state.blink - dt * 4);
+  if (pendingVisualReactionAt !== null) {
+    latencySamples.record('reaction', Math.max(0, now - pendingVisualReactionAt));
+    pendingVisualReactionAt = null;
+    renderLatencySummary();
+  }
   if (talking && state.expression === 'TALK') {
-    state.mouthOpen = 0.12 + (Math.sin(now / 115) + 1) * 0.31;
+    mouthMotionStartedAt ??= now;
+    state.mouthOpen = speechMouthTarget(now, mouthMotionStartedAt);
   } else if (speechEngine.isSpeaking && state.expression === 'TALK' && diagnosticOwner !== 'wrapper') {
-    state.mouthOpen = 0.12 + (Math.sin(now / 105) + 1) * 0.31;
+    mouthMotionStartedAt ??= now;
+    const target = speechMouthTarget(now, mouthMotionStartedAt);
+    state.mouthOpen += (target - state.mouthOpen) * Math.min(1, dt * 12);
   } else if (!debug) {
+    mouthMotionStartedAt = null;
     state.mouthOpen += (0 - state.mouthOpen) * Math.min(1, dt * 7);
   }
   renderer.draw(state, now);
@@ -852,6 +935,15 @@ function frame(now: number): void {
     trackingCoordinates.value = `顔座標: ${trackingCoordinates.value.replace(/^顔座標: /, '').split(' / 視線')[0]} / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
   }
   requestAnimationFrame(frame);
+}
+
+function speechMouthTarget(now: number, startedAt: number): number {
+  const elapsed = Math.max(0, now - startedAt);
+  const onset = Math.min(1, elapsed / 120);
+  const syllable = (Math.sin(elapsed / 83) + 1) / 2;
+  const secondary = (Math.sin(elapsed / 137 + 1.2) + 1) / 2;
+  const phrase = 0.55 + 0.45 * ((Math.sin(elapsed / 430 + 0.5) + 1) / 2);
+  return onset * (0.08 + phrase * (0.14 + syllable * 0.34 + secondary * 0.12));
 }
 
 buildDebugControls();
@@ -875,6 +967,27 @@ conversationInput.addEventListener('keydown', (event) => {
 });
 speechStopButton.addEventListener('click', () => speechEngine.stop());
 voiceTestButton.addEventListener('click', testColonVoice);
+voiceAuditionButton.addEventListener('click', testColonVoice);
+voiceProfile.addEventListener('change', () => {
+  const profile = VOICE_PROFILES[voiceProfile.value] ?? VOICE_PROFILES.gentle!;
+  voiceRate.value = String(profile.rate);
+  voicePitch.value = String(profile.pitch);
+  voiceVolume.value = String(profile.volume);
+  voiceSelectorStatus.value = `${voiceProfile.selectedOptions[0]?.textContent ?? '音声プロファイル'}を選びました。設定は仮値です。`;
+});
+voiceChoice.addEventListener('change', () => {
+  const voice = speechEngine.voices.find((candidate) => candidate.voiceURI === voiceChoice.value);
+  voiceSelectorStatus.value = voice
+    ? `${voice.name} (${voice.lang})を試聴できます。iPhoneで聴いて調整してください。`
+    : '自動選択です。従来のja-JP既定音声にフォールバックします。';
+});
+renderVoiceChoices();
+renderLatencySummary();
+document.querySelector<HTMLButtonElement>('#latency-clear')!.addEventListener('click', () => {
+  latencySamples.clear();
+  ttsEndTurnCount = 0;
+  renderLatencySummary();
+});
 nativeTtsRunButton.addEventListener('click', runNativeTtsDiagnostic);
 wrapperTtsRunButton.addEventListener('click', runWrapperTtsDiagnostic);
 diagnosticStopButton.addEventListener('click', stopTtsDiagnostic);

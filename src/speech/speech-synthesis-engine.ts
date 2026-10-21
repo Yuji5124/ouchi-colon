@@ -19,6 +19,13 @@ export interface SpeechCallbacks {
   onError?: (message: string) => void;
 }
 
+export interface SpeechVoiceSettings {
+  voiceURI?: string;
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+}
+
 function getBrowserPort(): SpeechPort | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return null;
   return window.speechSynthesis;
@@ -92,16 +99,20 @@ export class SpeechSynthesisEngine {
     }
   }
 
-  speak(text: string, callbacks: SpeechCallbacks = {}): Promise<boolean> {
+  speak(text: string, callbacks: SpeechCallbacks = {}, settings: SpeechVoiceSettings = {}): Promise<boolean> {
     if (!this.port || !text.trim()) return Promise.resolve(false);
     if (this.speaking || this.pending) this.stop();
 
     const utterance = this.utteranceFactory(text);
     utterance.lang = 'ja-JP';
-    utterance.rate = 0.88;
-    utterance.pitch = 1.08;
+    utterance.rate = clamp(settings.rate ?? 0.88, 0.5, 2);
+    utterance.pitch = clamp(settings.pitch ?? 1.08, 0, 2);
+    utterance.volume = clamp(settings.volume ?? 1, 0, 1);
     this.refreshVoices();
-    const japaneseVoice = this.voiceList.find((voice) => voice.lang.toLowerCase() === 'ja-jp')
+    const requestedVoice = settings.voiceURI
+      ? this.voiceList.find((voice) => voice.voiceURI === settings.voiceURI)
+      : undefined;
+    const japaneseVoice = requestedVoice ?? this.voiceList.find((voice) => voice.lang.toLowerCase() === 'ja-jp')
       ?? this.voiceList.find((voice) => voice.lang.toLowerCase().startsWith('ja'));
     this.selectedVoice = japaneseVoice ?? null;
     if (japaneseVoice) utterance.voice = japaneseVoice;
@@ -195,4 +206,8 @@ export class SpeechSynthesisEngine {
     callbacks.onEnd?.('stopped');
     settle?.(false);
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
 }

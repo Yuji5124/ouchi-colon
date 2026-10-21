@@ -20,6 +20,14 @@ test('voice and response events produce listen, surprise, think, and talk reacti
   assert.equal(engine.handle('RESPONSE_ENDED', 900).expression, 'SEARCH');
 });
 
+test('interim recognition changes the visual state without ending the turn', () => {
+  const engine = new ReactionEngine();
+  assert.equal(engine.handle('VOICE_INPUT_STARTED', 0).expression, 'LISTENING');
+  assert.equal(engine.handle('INTERIM_ACTIVITY', 20).expression, 'HEARING');
+  assert.equal(engine.isInteractionActive, true);
+  assert.equal(engine.handle('UTTERANCE_ENDED', 150).expression, 'THINK');
+});
+
 test('face events do not interrupt a conversation already in progress', () => {
   const engine = new ReactionEngine();
   engine.handle('VOICE_INPUT_STARTED', 0);

@@ -5,13 +5,14 @@ export type ReactionEvent =
   | 'FACE_LOST'
   | 'VOICE_INPUT_STARTED'
   | 'UTTERANCE_DETECTED'
+  | 'INTERIM_ACTIVITY'
   | 'UTTERANCE_ENDED'
   | 'RESPONSE_STARTED'
   | 'RESPONSE_ENDED'
   | 'IDLE_TIMEOUT'
   | 'WAKE';
 
-export type ReactionExpression = Expression | 'LISTENING';
+export type ReactionExpression = Expression | 'LISTENING' | 'HEARING';
 export type ReactionEffect = 'FACE_GREETING' | 'VOICE_SURPRISE' | 'SLEEP_WAKE' | null;
 
 export interface ReactionOutput {
@@ -65,6 +66,9 @@ export class ReactionEngine {
         this.expression = 'SURPRISE';
         effect = 'VOICE_SURPRISE';
         blink = true;
+        break;
+      case 'INTERIM_ACTIVITY':
+        if (this.interactionActive && (this.expression === 'LISTENING' || this.expression === 'SURPRISE')) this.expression = 'HEARING';
         break;
       case 'UTTERANCE_ENDED':
         this.interactionActive = true;

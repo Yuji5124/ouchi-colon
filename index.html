@@ -48,6 +48,17 @@
           <output id="recognition-final" aria-live="off">最終認識: --</output>
           <label class="debug__tts-consent"><input id="tts-enabled" type="checkbox" /> 保護者確認済み：iOSの日本語音声で返事を読み上げる</label>
           <small>音声合成はiOS/Safariの音声サービスを使用します。声の種類により端末外通信が行われる場合があります。読み上げを使わない場合はチェックを外してください。</small>
+          <details class="debug__voice-selector">
+            <summary>コロンの声を選ぶ</summary>
+            <label>端末の日本語音声 <select id="voice-choice"><option value="">自動（従来設定）</option></select></label>
+            <label>キャラクター音声 <select id="voice-profile"><option value="gentle">やさしいコロン</option><option value="energetic">元気なコロン</option><option value="calm">おっとりコロン</option></select></label>
+            <label>速さ <input id="voice-rate" type="range" min="0.7" max="1.2" step="0.01" value="0.88" /></label>
+            <label>高さ <input id="voice-pitch" type="range" min="0.8" max="1.5" step="0.01" value="1.08" /></label>
+            <label>音量 <input id="voice-volume" type="range" min="0.2" max="1" step="0.01" value="1" /></label>
+            <button id="voice-audition" type="button">この声を試聴</button>
+            <output id="voice-selector-status" aria-live="polite">設定は仮値です。iPhoneで聴いて調整してください。</output>
+            <small>音声はこの端末のSpeechSynthesisを使用します。設定は保存されません。ja音声が消えた場合は従来のja-JP既定音声へ戻ります。</small>
+          </details>
           <div class="debug__controls">
             <button id="voice-test" type="button">コロンの声をテスト</button>
             <input id="conversation-input" type="text" maxlength="120" autocomplete="off" placeholder="ここに話しかける文を入力" aria-label="会話テスト入力" />
@@ -59,6 +70,7 @@
           <output id="conversation-candidate" aria-live="off">返答候補: 先読み未実装（Phase 3C）</output>
           <output id="conversation-reply" aria-live="polite">確定返答: --</output>
           <output id="conversation-timing" aria-live="off">返答生成: -- / TTS開始: -- / 発話終了→音声: -- / 音声イベント→表情: --</output>
+          <output id="latency-summary" aria-live="off">応答速度: --</output>
           <output id="speech-runtime" aria-live="off">音声状態: --</output>
           <output id="speech-stages" aria-live="off">音声経路: --</output>
           <output id="speech-diagnostics" aria-live="off">診断履歴: --</output>
@@ -95,6 +107,7 @@
             <button data-reaction-event="IDLE_TIMEOUT" type="button">無反応 / SLEEP</button>
           </div>
           <output id="reaction-history" aria-live="off">リアクション履歴: --</output>
+          <button id="latency-clear" type="button">速度サンプルを消去（メモリ内）</button>
         </section>
         <output id="fps" class="debug__fps" aria-live="off">FPS: --</output>
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>

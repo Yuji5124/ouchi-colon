@@ -35,6 +35,33 @@ test('responds safely to danger and private-information prompts', () => {
   assert.match(name.text, /言わなくて大丈夫/);
 });
 
+test('short answers refer to the preceding topic without inventing meaning', () => {
+  const engine = new RuleBasedConversationEngine();
+  const noContext = engine.reply('うん', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(noContext.text, 'そうなんだね。');
+  const greeting = engine.reply('こんにちは', EMPTY_CONVERSATION_CONTEXT);
+  const contextualYes = engine.reply('うん', greeting.context);
+  assert.match(contextualYes.text, /話そう/);
+  assert.doesNotMatch(contextualYes.text, /好きな動物/);
+  const contextualNo = engine.reply('いや', greeting.context);
+  assert.match(contextualNo.text, /何のお話/);
+  const repeat = engine.reply('もういっかい', greeting.context);
+  assert.equal(repeat.topic, 'repeat');
+  assert.match(repeat.text, /もう一回/);
+  const unsure = engine.reply('わかんない', EMPTY_CONVERSATION_CONTEXT);
+  assert.match(unsure.text, /ゆっくり教えて/);
+});
+
+test('explicit repairs prioritize the corrected content and vague repairs ask gently', () => {
+  const engine = new RuleBasedConversationEngine();
+  const repair = engine.reply('ちがう、やっぱりねこがすき', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(repair.topic, 'animals');
+  const vague = engine.reply('えっと', EMPTY_CONVERSATION_CONTEXT);
+  assert.match(vague.text, /ゆっくりでいい/);
+  const correction = engine.reply('そうじゃなくて、ブロックで遊んだ', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(correction.topic, 'play');
+});
+
 test('never persists the conversation in browser storage', async () => {
   const source = await Promise.all([
     readFile(new URL('../src/conversation/conversation-engine.ts', import.meta.url), 'utf8'),

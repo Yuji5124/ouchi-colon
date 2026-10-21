@@ -6,6 +6,7 @@ class FakeUtterance {
   lang = '';
   rate = 1;
   pitch = 1;
+  volume = 1;
   voice?: SpeechSynthesisVoice;
   onstart: (() => void) | null = null;
   onboundary: (() => void) | null = null;
@@ -108,6 +109,29 @@ test('waits for voiceschanged and selects an available Japanese voice', async ()
   port.utterance().onstart?.();
   port.utterance().onend?.();
   assert.equal(await result, true);
+});
+
+test('applies optional voice settings and safely falls back if the selected voice vanished', async () => {
+  const port = new FakeSpeechPort();
+  const engine = new SpeechSynthesisEngine(port, factory);
+  const voice = { lang: 'ja-JP', name: 'Kid Voice', voiceURI: 'ja-kid' } as SpeechSynthesisVoice;
+  port.updateVoices([voice]);
+  const first = engine.speak('試聴', {}, { voiceURI: 'ja-kid', rate: 0.94, pitch: 1.2, volume: 0.7 });
+  assert.equal(port.utterance().voice, voice);
+  assert.equal(port.utterance().rate, 0.94);
+  assert.equal(port.utterance().pitch, 1.2);
+  assert.equal(port.utterance().volume, 0.7);
+  port.utterance().onstart?.();
+  port.utterance().onend?.();
+  assert.equal(await first, true);
+
+  const other = { lang: 'ja-JP', name: 'Default Voice', voiceURI: 'ja-default' } as SpeechSynthesisVoice;
+  port.updateVoices([other]);
+  const second = engine.speak('fallback', {}, { voiceURI: 'ja-kid' });
+  assert.equal(port.utterance().voice, other);
+  port.utterance().onstart?.();
+  port.utterance().onend?.();
+  assert.equal(await second, true);
 });
 
 test('does not report speech as started when the browser never fires onstart', async () => {
