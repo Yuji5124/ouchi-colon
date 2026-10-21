@@ -4,7 +4,7 @@
 
 ## 1. Existing application and constraints
 
-The local `main` checkout was fetched and compared with `origin/main`; both were at the Phase 3A commit when this work began. Existing tests covered the `ReactionEngine`, 100-rule in-memory `ConversationEngine`, `SpeechSynthesisEngine`, `FaceTrackingInput`, Canvas/PNG expressions, face tracker failures, and service-worker caching. GitHub Pages is built by `.github/workflows/pages.yml` on pushes to `main` using `npm ci` and `npm run build`.
+The working checkout at branch `work` was compared with fetched `origin/main`; both were at the Phase 3A commit when this work began. Existing tests covered the `ReactionEngine`, 100-rule in-memory `ConversationEngine`, `SpeechSynthesisEngine`, `FaceTrackingInput`, Canvas/PNG expressions, face tracker failures, and service-worker caching. GitHub Pages is built by `.github/workflows/pages.yml` on pushes to `main` using `npm ci` and `npm run build`.
 
 Phase 3B keeps those systems and adds one speech-recognition adapter. The existing face assets, renderer, face tracker, eight expressions, rule replies, speech-synthesis wrapper, and dependencies remain in place. No model, recognition service, or third-party code was added to the application bundle.
 
