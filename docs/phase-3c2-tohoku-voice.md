@@ -55,6 +55,8 @@ Chromium desktop, local Vite server, user-triggered lab load:
 - UI remained in a separate debug-only panel; no conversation, recognition, camera, reaction, image, or regular TTS code path was modified to use this engine.
 - Worker memory, Safari memory ceiling, face animation cadence during generation, heat, 20-turn stability, and offline reload: UNKNOWN.
 
+The production `vite preview` build was also exercised from the `/ouchi-colon/` base path: initialization 7,094 ms, generation 834 ms, WAV 418 KB, and the browser `playing` event 83 ms after the button action. That run had one sample per metric, so median/p95 are provisional `n=1` values; generated audio was not physically auditioned.
+
 The demo worker reports generation time, initialization time, WAV size, and playback-start event when available. Browsers do not expose a reliable per-worker heap measurement here, so memory remains UNKNOWN. The normal app does not fetch these assets on initial load. The existing Service Worker can cache same-origin GET requests when the experiment fetches them; offline replay is not yet confirmed.
 
 ## Phase gates and status
