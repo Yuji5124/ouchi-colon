@@ -69,7 +69,7 @@ The timing field “音声イベント→表情” measures JavaScript handling 
 * `npm test`: passed, 41 tests total (the existing 35 remain; 6 recognition-adapter tests were added).
 * `npm run typecheck`, `npm run build`, and `git diff --check`: passed.
 * Vite's production build emitted a 44.99 kB JavaScript application chunk (15.38 kB gzip) plus the existing 154.81 kB face-tracker chunk (46.24 kB gzip). The new speech adapter adds no model or library chunk. These are build artifact sizes, not CPU or latency benchmarks.
-* The `?debug=1` release and HTTP 200 status are **UNKNOWN** until the Pages workflow and deployed URL can be checked. This executor's restricted HTTP policy does not allow direct requests to the `github.io` host.
+* GitHub Pages workflow run [#13](https://github.com/Yuji5124/ouchi-colon/actions/runs/39548343351) completed successfully for commit `797703a`. The deployed app URL is expected to be [https://yuji5124.github.io/ouchi-colon/](https://yuji5124.github.io/ouchi-colon/). An HTTP 200 check from this executor is **UNKNOWN** because the restricted HTTP policy does not allow direct requests to the `github.io` host.
 
 ## 6. Next research questions
 
