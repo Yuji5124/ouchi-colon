@@ -18,7 +18,7 @@ self.addEventListener('message', (event) => {
     return;
   }
   if (message?.type === 'init') void initialize();
-  if (message?.type === 'synthesize') void synthesize(message.text, message.requestId);
+  if (message?.type === 'synthesize') void synthesize(message.text, message.requestId, message.purpose);
 });
 
 function send(type, detail = {}, transfer = []) {
@@ -160,7 +160,7 @@ async function downloadModel() {
   moduleInstance.FS.writeFile(MODEL_PATH, bytes);
 }
 
-async function synthesize(text, requestId) {
+async function synthesize(text, requestId, purpose) {
   if (!ready || busy) {
     send('error', { stage: 'synthesize', requestId, message: ready ? '別の音声を生成中です。' : '先にエンジンを初期化してください。' });
     return;
@@ -175,9 +175,9 @@ async function synthesize(text, requestId) {
     if (result !== 1) throw new Error('音声を生成できませんでした。入力文を短くして再試行してください。');
     const wav = moduleInstance.FS.readFile(WAVE_PATH);
     const transferable = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength);
-    send('generated', { requestId, generationMs, byteLength: wav.byteLength, wav: transferable }, [transferable]);
+    send('generated', { requestId, purpose, generationMs, byteLength: wav.byteLength, wav: transferable }, [transferable]);
   } catch (error) {
-    send('error', { stage: 'synthesize', requestId, message: safeMessage(error) });
+    send('error', { stage: 'synthesize', requestId, purpose, message: safeMessage(error) });
   } finally {
     busy = false;
   }

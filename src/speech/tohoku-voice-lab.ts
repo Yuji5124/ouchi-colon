@@ -11,6 +11,7 @@ export type TohokuLabEvent = {
   requestId?: number;
   wav?: ArrayBuffer;
   stage?: string;
+  purpose?: 'audition' | 'benchmark' | 'conversation';
 };
 
 export interface TohokuWorkerPort {
@@ -70,7 +71,7 @@ export class TohokuVoiceLab {
     return promise;
   }
 
-  async generate(text: string): Promise<TohokuLabEvent> {
+  async generate(text: string, purpose: 'audition' | 'benchmark' | 'conversation' = 'audition'): Promise<TohokuLabEvent> {
     if (this.pendingSynthesis) throw new Error('音声を生成中です。');
     if (this.state !== 'ready' && this.state !== 'generated') throw new Error('先にTOHOKU VOICE LABを初期化してください。');
     const cleanText = text.trim();
@@ -81,7 +82,7 @@ export class TohokuVoiceLab {
     const promise = new Promise<TohokuLabEvent>((resolve, reject) => {
       this.pendingSynthesis = { resolve, reject };
     });
-    this.worker!.postMessage({ type: 'synthesize', text: cleanText, requestId });
+    this.worker!.postMessage({ type: 'synthesize', text: cleanText, requestId, purpose });
     return promise;
   }
 

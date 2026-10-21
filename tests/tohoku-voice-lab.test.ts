@@ -43,11 +43,12 @@ test('initializes the optional worker only on explicit action and reports measur
 test('passes a dynamic Japanese text to the worker and retains only in-memory WAV results', async () => {
   const { lab, workers } = createLab();
   await startReadyLab(lab, workers);
-  const generated = lab.generate('こんにちは！');
+  const generated = lab.generate('こんにちは！', 'conversation');
   const worker = workers[0]!;
   const request = worker.messages.at(-1) as { type: string; text: string; requestId: number };
   assert.equal(request.type, 'synthesize');
   assert.equal(request.text, 'こんにちは！');
+  assert.equal(request.purpose, 'conversation');
   const wav = new ArrayBuffer(4);
   worker.emit({ type: 'generated', requestId: request.requestId, generationMs: 42, byteLength: 4, wav });
   assert.equal((await generated).wav, wav);
