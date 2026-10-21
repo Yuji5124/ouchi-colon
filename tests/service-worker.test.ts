@@ -111,6 +111,38 @@ test('service worker caches app assets and approved face detector resources offl
   assert.match(await offlineWasmBinary.then((response) => response.text()), /^network:/);
   assert.equal(networkRequests, 4, 'the cached WASM binary is served while offline');
 
+  offline = false;
+  const tohokuDictionaryRequest = {
+    method: 'GET',
+    mode: 'cors',
+    url: `${origin}/ouchi-colon/openjtalk/open_jtalk_dic_utf_8-1.11.bin`,
+  };
+  let tohokuDictionaryResponse!: Promise<Response>;
+  listeners.get('fetch')!({ request: tohokuDictionaryRequest, respondWith(promise: Promise<Response>) { tohokuDictionaryResponse = promise; } });
+  assert.match(await tohokuDictionaryResponse.then((response) => response.text()), /^network:/);
+  assert.ok(await caches.match(tohokuDictionaryRequest), 'the large Open JTalk dictionary is cached only after its first lazy fetch');
+  offline = true;
+  let offlineTohokuDictionary!: Promise<Response>;
+  listeners.get('fetch')!({ request: tohokuDictionaryRequest, respondWith(promise: Promise<Response>) { offlineTohokuDictionary = promise; } });
+  assert.match(await offlineTohokuDictionary.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 5, 'the fetched Open JTalk dictionary is served offline');
+
+  offline = false;
+  const tohokuWasmRequest = {
+    method: 'GET',
+    mode: 'cors',
+    url: `${origin}/ouchi-colon/openjtalk/open_jtalk.wasm`,
+  };
+  let tohokuWasmResponse!: Promise<Response>;
+  listeners.get('fetch')!({ request: tohokuWasmRequest, respondWith(promise: Promise<Response>) { tohokuWasmResponse = promise; } });
+  await tohokuWasmResponse;
+  assert.ok(await caches.match(tohokuWasmRequest), 'the lazily loaded Open JTalk WASM is cached');
+  offline = true;
+  let offlineTohokuWasm!: Promise<Response>;
+  listeners.get('fetch')!({ request: tohokuWasmRequest, respondWith(promise: Promise<Response>) { offlineTohokuWasm = promise; } });
+  assert.match(await offlineTohokuWasm.then((response) => response.text()), /^network:/);
+  assert.equal(networkRequests, 6, 'cached Open JTalk WASM is served offline');
+
   let unrelatedExternalIntercepted = false;
   listeners.get('fetch')!({
     request: { method: 'GET', mode: 'cors', url: 'https://example.com/unrelated.js' },
@@ -166,7 +198,7 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v12');
+  const current = await open('ouchicolon-shell-v13');
   await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
@@ -184,5 +216,5 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v12');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v13');
 });

@@ -2,6 +2,8 @@
 
 Checked 2026-10-21. This is a source/package and license review, not a Safari or iPhone 11 execution test. No Open JTalk files or models were added to OuchiColon.
 
+**Historical result:** the model-provenance and implementation status below were updated by [Phase 3C.2](phase-3c2-tohoku-voice.md). The direct upstream Tohoku repository and CC BY 4.0 notice have since been verified, and a separate lazy-loaded browser Worker now produces dynamic WAV in desktop Chromium. The prior UNKNOWN about the source repository's license and the prior “no files added” conclusion applied only to the 3C.1 snapshot. The absent model file committed by MIKARO still means byte identity with its operator-supplied copy is UNKNOWN. iPhone Safari remains unverified.
+
 ## Findings
 
 ### MIKARO reference

@@ -53,6 +53,13 @@ body { overscroll-behavior: none; }
 .debug__tts-diagnostic { display: grid; gap: 6px; padding: 8px; border: 1px solid #e3d4bd; border-radius: 10px; }
 .debug__tts-diagnostic p { margin: 0; color: #6f5b48; }
 .debug__tts-diagnostic output { font-size: 13px; overflow-wrap: anywhere; }
+.debug__voice-lab { display: grid; gap: 8px; padding: 8px; border: 1px solid #e3d4bd; border-radius: 10px; }
+.debug__voice-lab p { margin: 0; color: #6f5b48; }
+.debug__voice-lab output { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.debug__voice-lab label { display: grid; gap: 4px; }
+.debug__voice-lab select,
+.debug__voice-lab input { width: 100%; min-width: 0; padding: 7px; border: 1px solid #d4c2a6; border-radius: 8px; color: #3b281c; background: #fff; font: inherit; }
+.debug__voice-lab button:disabled { opacity: 0.5; }
 .debug__voice-selector { display: grid; gap: 6px; padding: 8px; border: 1px solid #e3d4bd; border-radius: 10px; }
 .debug__voice-selector label { display: grid; grid-template-columns: 130px minmax(120px, 1fr); align-items: center; gap: 8px; }
 .debug__voice-selector select { max-width: 100%; min-width: 0; padding: 6px; border: 1px solid #d4c2a6; border-radius: 8px; font: inherit; }

@@ -108,6 +108,34 @@
           </div>
           <output id="reaction-history" aria-live="off">リアクション履歴: --</output>
           <button id="latency-clear" type="button">速度サンプルを消去（メモリ内）</button>
+          <details class="debug__voice-lab">
+            <summary>TOHOKU VOICE LAB</summary>
+            <p>実験用Open JTalk / TOHOKU Happy。通常会話のTTSとは独立しています。開始操作でWASM・圧縮辞書（約23.6 MB）・Happy音響モデル（約1.64 MB）を取得します。辞書の展開領域は約103 MBで、WASM処理メモリは別に必要です。端末のメモリ量はSafariから取得できません。文章・音声は保存・送信しません。</p>
+            <small>声モデル: Intelligent Communication Network (Ito-Nose) Laboratory, Tohoku University, tohoku-f01-happy.htsvoice。CC BY 4.0（モデル自体の変更なし）。<a href="https://github.com/icn-lab/htsvoice-tohoku-f01" target="_blank" rel="noreferrer">モデル出典</a> / <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">ライセンス</a>。辞書・Open JTalk・HTS Engineの著作権表示はライセンス資料に同梱しています。</small>
+            <div class="debug__controls">
+              <button id="tohoku-init" type="button">Happyモデルを読み込む</button>
+              <button id="tohoku-stop" type="button" disabled>実験を停止</button>
+              <button id="tohoku-fallback" type="button">既存iOS TTSで試す</button>
+            </div>
+            <output id="tohoku-status" aria-live="polite">未初期化。読み込みにはネットワーク接続が必要です。</output>
+            <output id="tohoku-models" aria-live="off">TOHOKU Neutral: 実装保留 / TOHOKU Happy: 利用可能 / TOHOKU Sad: 実装保留 / TOHOKU Angry: 実装保留</output>
+            <label>試聴文
+              <select id="tohoku-sample">
+                <option>こんにちは！コロンだよ！きょうはなにしてあそぶ？</option>
+                <option>わあ！すごいね！もっとおしえて！</option>
+                <option>きょうはどんなことがあったの？</option>
+              </select>
+            </label>
+            <label>自由入力（日本語・180文字まで）<input id="tohoku-text" type="text" maxlength="180" autocomplete="off" placeholder="ここに音声合成する文を入力" /></label>
+            <div class="debug__controls">
+              <button id="tohoku-generate-sample" type="button" disabled>試聴文を生成</button>
+              <button id="tohoku-generate-text" type="button" disabled>入力文を生成</button>
+              <button id="tohoku-play" type="button" disabled>生成音声を再生</button>
+            </div>
+            <output id="tohoku-metrics" aria-live="off">初期化: -- / 生成時間: -- / 再生開始: -- / 生成音声: -- / memory: UNKNOWN</output>
+            <output id="tohoku-error" aria-live="polite"></output>
+            <small>iOS Safariの再生許可を保つため、生成後の再生は別ボタン操作です。HappyのiPhone実機成功後にNeutral・Sad・Angryを追加します。失敗時は通常会話のiOS標準TTSをそのまま利用できます。</small>
+          </details>
         </section>
         <output id="fps" class="debug__fps" aria-live="off">FPS: --</output>
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>
