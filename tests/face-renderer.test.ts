@@ -122,7 +122,10 @@ test('gaze input translates the independent highlight layer', async () => {
   const { renderer, canvas } = await createRenderer();
   renderer.draw(state({ gazeX: 0.8, gazeY: -0.4 }), 1000);
   assert.ok(canvas.context.calls.some((call) => call.image.url.endsWith('/eyes/highlight.png')));
-  assert.ok(canvas.context.translations.some(([x, y]) => Math.abs(x - 35.52) < 0.0001 && Math.abs(y + 16.44) < 0.0001));
+  assert.ok(canvas.context.translations.some(([x, y]) => Math.abs(x - 49.728) < 0.0001 && Math.abs(y + 16.44) < 0.0001));
+  canvas.context.translations = [];
+  renderer.draw(state({ gazeX: -0.8 }), 1100);
+  assert.ok(canvas.context.translations.some(([x]) => Math.abs(x + 35.52) < 0.0001));
 });
 
 test('missing images fall back to Canvas drawing without throwing', async () => {
