@@ -30,6 +30,8 @@ body { overscroll-behavior: none; }
   font-size: 14px;
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
 }
 .debug[hidden] { display: none; }
 .debug__top, .debug__controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -43,6 +45,11 @@ body { overscroll-behavior: none; }
 .debug__tracking { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e3d4bd; }
 .debug__tracking output { font-size: 13px; }
 .debug__tracking button:disabled { opacity: 0.55; }
+.debug__conversation { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e3d4bd; }
+.debug__conversation p { margin: 0; color: #6f5b48; }
+.debug__conversation output { font-size: 13px; }
+.debug__conversation input[type="text"] { min-width: 180px; flex: 1; padding: 8px; border: 1px solid #d4c2a6; border-radius: 8px; font: inherit; }
+.debug__tts-consent { display: flex; align-items: center; gap: 6px; }
 .debug--minimized {
   left: 50%;
   width: min(340px, calc(100vw - 24px));
@@ -52,6 +59,7 @@ body { overscroll-behavior: none; }
 .debug--minimized .debug__top { margin: 0; justify-content: flex-end; }
 .debug--minimized .debug__top strong,
 .debug--minimized .debug__expressions,
+.debug--minimized .debug__conversation,
 .debug--minimized > .debug__controls,
 .debug--minimized .debug__tracking > strong,
 .debug--minimized .debug__tracking > .debug__controls,
@@ -61,6 +69,3 @@ body { overscroll-behavior: none; }
 .debug--minimized .debug__tracking { margin: 4px 0 0; padding: 0; border: 0; }
 .debug--minimized .debug__tracking output { font-size: 13px; }
 .camera-source { position: fixed; z-index: -1; left: -2px; top: -2px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-@media (orientation: portrait) {
-  .debug { max-height: calc(100dvh - 24px); overflow: auto; }
-}

@@ -3,6 +3,9 @@ import { FpsMeter } from './app/fps-meter';
 import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
+import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, type ConversationContext } from './conversation/conversation-engine';
+import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
+import { SpeechSynthesisEngine, type SpeechEndReason } from './speech/speech-synthesis-engine';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -21,9 +24,21 @@ let cameraActive = false;
 let detectorActive = false;
 let trackingStarting = false;
 let trackingSawFace = false;
-let reacquiredIdleTimer = 0;
+let trackingFaceKnown = false;
 const fpsMeter = new FpsMeter();
 const faceStabilizer = new FaceTrackingStabilizer();
+const reactionEngine = new ReactionEngine();
+const conversationEngine = new RuleBasedConversationEngine();
+const speechEngine = new SpeechSynthesisEngine();
+let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
+let conversationGeneration = 0;
+let idleSleepTimer = 0;
+let faceReactionTimer = 0;
+let submittedUtteranceEndedAt = 0;
+let replyGenerationMs = 0;
+let ttsStartMs: number | null = null;
+let ttsStartDelayMs: number | null = null;
+const reactionEvents: string[] = [];
 let detectionFps = 0;
 let detectionLatencyMs = 0;
 
@@ -39,6 +54,126 @@ const detectorStopButton = document.querySelector<HTMLButtonElement>('#detector-
 const trackingStatus = document.querySelector<HTMLOutputElement>('#tracking-status')!;
 const trackingCoordinates = document.querySelector<HTMLOutputElement>('#tracking-coordinates')!;
 const mirrorHorizontal = document.querySelector<HTMLInputElement>('#mirror-horizontal')!;
+const conversationInput = document.querySelector<HTMLInputElement>('#conversation-input')!;
+const conversationSendButton = document.querySelector<HTMLButtonElement>('#conversation-send')!;
+const conversationReply = document.querySelector<HTMLOutputElement>('#conversation-reply')!;
+const conversationTiming = document.querySelector<HTMLOutputElement>('#conversation-timing')!;
+const speechStatus = document.querySelector<HTMLOutputElement>('#speech-status')!;
+const speechStopButton = document.querySelector<HTMLButtonElement>('#speech-stop')!;
+const ttsEnabled = document.querySelector<HTMLInputElement>('#tts-enabled')!;
+const reactionHistory = document.querySelector<HTMLOutputElement>('#reaction-history')!;
+
+function applyReaction(event: ReactionEvent): void {
+  const reaction = reactionEngine.handle(event, performance.now());
+  setExpression(reaction.expression === 'LISTENING' ? 'THINK' : reaction.expression);
+  if (reaction.blink) {
+    state.blink = 1;
+    nextBlink = performance.now() + 2400 + Math.random() * 3900;
+  }
+  if (reaction.mouthOpen > 0) state.mouthOpen = reaction.mouthOpen;
+  reactionEvents.push(`${event} → ${reaction.expression}`);
+  if (reactionEvents.length > 8) reactionEvents.shift();
+  reactionHistory.value = `リアクション履歴: ${reactionEvents.join(' / ')}`;
+
+  if (event === 'FACE_FOUND' || event === 'WAKE') {
+    window.clearTimeout(faceReactionTimer);
+    faceReactionTimer = window.setTimeout(() => {
+      if (state.expression === 'HAPPY' && !reactionEngine.isInteractionActive) setExpression('IDLE');
+    }, 950);
+  }
+}
+
+function scheduleIdleSleep(): void {
+  window.clearTimeout(idleSleepTimer);
+  idleSleepTimer = window.setTimeout(() => applyReaction('IDLE_TIMEOUT'), 60_000);
+}
+
+function updateConversationTiming(): void {
+  conversationTiming.value = `返答生成: ${replyGenerationMs.toFixed(1)} ms / TTS開始: ${ttsStartMs === null ? '--' : `${ttsStartMs.toFixed(1)} ms`} / 発話終了→音声: ${ttsStartDelayMs === null ? '--' : `${ttsStartDelayMs.toFixed(1)} ms`}`;
+}
+
+function finishReactionResponse(reason: SpeechEndReason | 'text-only'): void {
+  applyReaction('RESPONSE_ENDED');
+  state.mouthOpen = 0;
+  speechStopButton.disabled = true;
+  if (reason === 'finished') speechStatus.value = '読み上げが終わりました。音声は保存していません。';
+  if (reason === 'stopped') speechStatus.value = '読み上げを停止しました。';
+  scheduleIdleSleep();
+}
+
+async function speakReply(text: string, token: number): Promise<void> {
+  ttsStartMs = null;
+  ttsStartDelayMs = null;
+  updateConversationTiming();
+  if (!ttsEnabled.checked) {
+    speechStatus.value = '読み上げOFF。返答は文字で表示しています。';
+    applyReaction('RESPONSE_STARTED');
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
+    if (token === conversationGeneration) finishReactionResponse('text-only');
+    return;
+  }
+
+  if (!speechEngine.isSupported) {
+    speechStatus.value = 'このSafariでは音声合成を利用できません。文字の返答は引き続き使えます。';
+    applyReaction('RESPONSE_STARTED');
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
+    if (token === conversationGeneration) finishReactionResponse('text-only');
+    return;
+  }
+
+  let responseFinished = false;
+  const spoken = await speechEngine.speak(text, {
+    onStart: () => {
+      if (token !== conversationGeneration) return;
+      ttsStartMs = performance.now() - submittedUtteranceEndedAt;
+      ttsStartDelayMs = ttsStartMs;
+      updateConversationTiming();
+      applyReaction('RESPONSE_STARTED');
+      speechStopButton.disabled = false;
+      speechStatus.value = 'iOS日本語音声で読み上げています。マイク入力は使用していません。';
+    },
+    onBoundary: () => {
+      if (token === conversationGeneration) state.mouthOpen = 0.2 + Math.random() * 0.3;
+    },
+    onError: (message) => { speechStatus.value = `読み上げエラー: ${message}`; },
+    onEnd: (reason) => {
+      if (token !== conversationGeneration || responseFinished) return;
+      responseFinished = true;
+      finishReactionResponse(reason);
+    },
+  });
+
+  if (!spoken && !responseFinished && token === conversationGeneration) {
+    speechStatus.value = '読み上げを開始できませんでした。返答は文字で表示しています。';
+    applyReaction('RESPONSE_STARTED');
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 350));
+    if (token === conversationGeneration && !responseFinished) {
+      responseFinished = true;
+      finishReactionResponse('text-only');
+    }
+  }
+}
+
+async function submitConversation(): Promise<void> {
+  if (!debug) return;
+  const text = conversationInput.value.trim();
+  if (!text) return;
+  const token = ++conversationGeneration;
+  speechEngine.stop();
+  conversationInput.value = '';
+  scheduleIdleSleep();
+  applyReaction('VOICE_INPUT_STARTED');
+  applyReaction('UTTERANCE_DETECTED');
+  applyReaction('UTTERANCE_ENDED');
+  submittedUtteranceEndedAt = performance.now();
+  const generationStart = performance.now();
+  const result = conversationEngine.reply(text, conversationContext);
+  replyGenerationMs = performance.now() - generationStart;
+  conversationContext = result.context;
+  conversationReply.value = `確定返答: ${result.text}`;
+  updateConversationTiming();
+  await speakReply(result.text, token);
+}
 
 function renderTrackingStatus(detail: string): void {
   trackingStatus.value = `カメラ ${cameraActive ? 'ON' : 'OFF'} / 検出 ${detectorActive ? 'ON' : 'OFF'} / ${detail}`;
@@ -48,11 +183,11 @@ function onFaceTrackingInput(input: FaceTrackingInput): void {
   if (!detectorActive) return;
   const stableInput = faceStabilizer.update(input);
   if (!stableInput.faceDetected) {
-    trackingSawFace = false;
     targetGazeX = 0;
     targetGazeY = 0;
-    window.clearTimeout(reacquiredIdleTimer);
-    setExpression('SEARCH');
+    if (!trackingFaceKnown || trackingSawFace) applyReaction('FACE_LOST');
+    trackingFaceKnown = true;
+    trackingSawFace = false;
     trackingCoordinates.value = `顔座標: -- / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
     renderTrackingStatus('顔を探しています');
     return;
@@ -65,11 +200,9 @@ function onFaceTrackingInput(input: FaceTrackingInput): void {
   renderTrackingStatus(`顔を追跡中・信頼度 ${Math.round(stableInput.confidence * 100)}%`);
   if (!trackingSawFace) {
     trackingSawFace = true;
-    setExpression('HAPPY');
-    window.clearTimeout(reacquiredIdleTimer);
-    reacquiredIdleTimer = window.setTimeout(() => {
-      if (detectorActive && trackingSawFace) setExpression('IDLE');
-    }, 1000);
+    trackingFaceKnown = true;
+    applyReaction('FACE_FOUND');
+    scheduleIdleSleep();
   }
 }
 
@@ -78,10 +211,11 @@ const faceTracker = new MediaPipeFaceTracker(
   (message) => {
     if (message.startsWith('顔検出でエラー')) {
       detectorActive = false;
+      if (trackingSawFace) applyReaction('FACE_LOST');
       trackingSawFace = false;
+      trackingFaceKnown = false;
       targetGazeX = 0;
       targetGazeY = 0;
-      setExpression('SEARCH');
       updateTrackingButtons();
     }
     trackingStatus.value = message;
@@ -125,6 +259,7 @@ async function startDetection(): Promise<void> {
     detectorActive = await faceTracker.startDetection();
     faceStabilizer.reset();
     trackingSawFace = false;
+    trackingFaceKnown = false;
   } catch (error) {
     detectorActive = false;
     trackingStatus.value = error instanceof DOMException ? cameraFailureMessage(error) : detectorFailureMessage(error);
@@ -137,11 +272,11 @@ async function startDetection(): Promise<void> {
 async function stopDetection(): Promise<void> {
   if (!detectorActive) return;
   detectorActive = false;
+  if (trackingSawFace) applyReaction('FACE_LOST');
   trackingSawFace = false;
-  window.clearTimeout(reacquiredIdleTimer);
+  trackingFaceKnown = false;
   targetGazeX = 0;
   targetGazeY = 0;
-  setExpression('IDLE');
   faceStabilizer.reset();
   await faceTracker.stopDetection();
   renderTrackingStatus('検出を停止しました');
@@ -153,12 +288,12 @@ async function stopCamera(): Promise<void> {
   if (!cameraActive && !detectorActive) return;
   detectorActive = false;
   cameraActive = false;
+  if (trackingSawFace) applyReaction('FACE_LOST');
   trackingSawFace = false;
-  window.clearTimeout(reacquiredIdleTimer);
+  trackingFaceKnown = false;
   targetGazeX = 0;
   targetGazeY = 0;
   faceStabilizer.reset();
-  setExpression('IDLE');
   await faceTracker.stopCamera();
   renderTrackingStatus('顔アニメーションは継続中です');
   trackingCoordinates.value = '顔座標: --';
@@ -176,7 +311,12 @@ function setDebug(value: boolean): void {
   debug = value;
   debugPanel.hidden = !value;
   document.body.classList.toggle('debug-on', value);
-  if (!value) void stopCamera();
+  if (!value) {
+    speechEngine.stop();
+    conversationGeneration += 1;
+    if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
+    void stopCamera();
+  }
 }
 
 function buildDebugControls(): void {
@@ -215,6 +355,8 @@ function frame(now: number): void {
   state.blink = Math.max(0, state.blink - dt * 4);
   if (talking && state.expression === 'TALK') {
     state.mouthOpen = 0.12 + (Math.sin(now / 115) + 1) * 0.31;
+  } else if (speechEngine.isSpeaking && state.expression === 'TALK') {
+    state.mouthOpen = 0.12 + (Math.sin(now / 105) + 1) * 0.31;
   } else if (!debug) {
     state.mouthOpen += (0 - state.mouthOpen) * Math.min(1, dt * 7);
   }
@@ -239,6 +381,26 @@ cameraStartButton.addEventListener('click', () => { void startCamera(); });
 cameraStopButton.addEventListener('click', () => { void stopCamera(); });
 detectorStartButton.addEventListener('click', () => { void startDetection(); });
 detectorStopButton.addEventListener('click', () => { void stopDetection(); });
+conversationSendButton.addEventListener('click', () => { void submitConversation(); });
+conversationInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    void submitConversation();
+  }
+});
+speechStopButton.addEventListener('click', () => speechEngine.stop());
+document.querySelectorAll<HTMLButtonElement>('[data-reaction-event]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const eventName = button.dataset.reactionEvent as ReactionEvent | undefined;
+    if (!eventName) return;
+    scheduleIdleSleep();
+    applyReaction(eventName);
+  });
+});
+speechStatus.value = speechEngine.isSupported
+  ? '音声合成に対応しています。読み上げはチェック後、送信操作でのみ開始します。'
+  : '音声合成は非対応です。文字入力で会話を試せます。';
+scheduleIdleSleep();
 updateTrackingButtons();
 document.querySelector('#gaze-left')!.addEventListener('click', () => { targetGazeX = -1; });
 document.querySelector('#gaze-center')!.addEventListener('click', () => { targetGazeX = 0; targetGazeY = 0; });
@@ -272,17 +434,29 @@ window.addEventListener('keydown', (event) => {
 
 canvas.addEventListener('pointerdown', () => {
   if (debug) return;
+  if (state.expression === 'SLEEP') {
+    applyReaction('WAKE');
+    scheduleIdleSleep();
+    return;
+  }
   setExpression('HAPPY');
   window.setTimeout(() => setExpression('IDLE'), 1300);
+  scheduleIdleSleep();
 });
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     talking = false;
+    speechEngine.stop();
+    conversationGeneration += 1;
+    if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
     void stopCamera();
   }
 });
-window.addEventListener('pagehide', () => { void stopCamera(); });
+window.addEventListener('pagehide', () => {
+  speechEngine.stop();
+  void stopCamera();
+});
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

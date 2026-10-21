@@ -35,6 +35,31 @@
           <label class="debug__mirror"><input id="mirror-horizontal" type="checkbox" checked /> 左右反転（顔の動きに合わせて調整）</label>
           <small>初回は検出モデル等の読み込みに通信を使います（約15 MB）。映像は表示・保存・送信せず端末内で処理します。端末が前面カメラを塞ぐ場合は少し下向きにしてください。</small>
         </div>
+        <section class="debug__conversation" aria-label="Phase 3A 会話テスト">
+          <strong>会話テスト / Phase 3A</strong>
+          <p>マイクと音声認識は未実装です。入力した文章は端末内のルールで返答します。会話内容は保存しません。</p>
+          <label class="debug__tts-consent"><input id="tts-enabled" type="checkbox" /> 保護者確認済み：iOSの日本語音声で返事を読み上げる</label>
+          <small>音声合成はiOS/Safariの音声サービスを使用します。声の種類により端末外通信が行われる場合があります。読み上げを使わない場合はチェックを外してください。</small>
+          <div class="debug__controls">
+            <input id="conversation-input" type="text" maxlength="120" autocomplete="off" placeholder="ここに話しかける文を入力" aria-label="会話テスト入力" />
+            <button id="conversation-send" type="button">送信して返事</button>
+            <button id="speech-stop" type="button" disabled>音声停止</button>
+          </div>
+          <output id="recognition-status" aria-live="off">音声認識: 未実装（Phase 3B）</output>
+          <output id="speech-status" aria-live="polite"></output>
+          <output id="conversation-candidate" aria-live="off">返答候補: 先読み未実装（Phase 3C）</output>
+          <output id="conversation-reply" aria-live="polite">確定返答: --</output>
+          <output id="conversation-timing" aria-live="off">返答生成: -- / TTS開始: -- / 発話終了→音声: --</output>
+          <div class="debug__controls" aria-label="リアクションイベントの手動テスト">
+            <button data-reaction-event="VOICE_INPUT_STARTED" type="button">音声入力開始</button>
+            <button data-reaction-event="UTTERANCE_DETECTED" type="button">発話検出</button>
+            <button data-reaction-event="UTTERANCE_ENDED" type="button">発話終了</button>
+            <button data-reaction-event="RESPONSE_STARTED" type="button">返答開始</button>
+            <button data-reaction-event="RESPONSE_ENDED" type="button">返答終了</button>
+            <button data-reaction-event="IDLE_TIMEOUT" type="button">無反応 / SLEEP</button>
+          </div>
+          <output id="reaction-history" aria-live="off">リアクション履歴: --</output>
+        </section>
         <output id="fps" class="debug__fps" aria-live="off">FPS: --</output>
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>
       </section>
