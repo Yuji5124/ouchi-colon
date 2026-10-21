@@ -1,7 +1,15 @@
-const CACHE = 'ouchicolon-shell-v10';
+const CACHE = 'ouchicolon-shell-v11';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
+const CACHE_PREFIX = 'ouchicolon-shell-';
+
+function isReplaceableShellEntry(request) {
+  const url = new URL(request.url);
+  return url.pathname === ROOT
+    || url.pathname === `${ROOT}manifest.webmanifest`
+    || new RegExp(`^${ROOT}assets/index-[^/]+\\.(js|css)$`).test(url.pathname);
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -10,9 +18,28 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))),
+    (async () => {
+      const keys = await caches.keys();
+      const destination = await caches.open(CACHE);
+      for (const key of keys.filter((name) => name.startsWith(CACHE_PREFIX) && name !== CACHE)) {
+        const oldCache = await caches.open(key);
+        for (const request of await oldCache.keys()) {
+          if (isReplaceableShellEntry(request)) continue;
+          if (await destination.match(request)) continue;
+          const response = await oldCache.match(request);
+          if (response) await destination.put(request, response);
+        }
+        await caches.delete(key);
+      }
+    })(),
   );
   self.clients.claim();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'GET_CACHE_VERSION') {
+    event.ports?.[0]?.postMessage({ cache: CACHE });
+  }
 });
 
 self.addEventListener('fetch', (event) => {

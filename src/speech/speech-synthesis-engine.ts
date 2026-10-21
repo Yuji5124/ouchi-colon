@@ -6,6 +6,7 @@ export interface SpeechPort {
   readonly speaking?: boolean;
   readonly pending?: boolean;
   addEventListener?(type: 'voiceschanged', listener: () => void): void;
+  resume?(): void;
 }
 
 export type SpeechEndReason = 'finished' | 'stopped' | 'error';
@@ -37,6 +38,7 @@ export class SpeechSynthesisEngine {
   private startedCurrent = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private voiceList: SpeechSynthesisVoice[] = [];
+  private selectedVoice: SpeechSynthesisVoice | null = null;
   private startTimer: ReturnType<typeof setTimeout> | null = null;
   private settleCurrent: ((spoken: boolean) => void) | null = null;
   private callbacks: SpeechCallbacks = {};
@@ -74,6 +76,7 @@ export class SpeechSynthesisEngine {
       : 'system-default';
   }
   get voices(): readonly SpeechSynthesisVoice[] { return this.voiceList; }
+  get currentVoice(): SpeechSynthesisVoice | null { return this.selectedVoice; }
   /** Phase 3B uses this to keep recognition stopped until TTS has ended. */
   get shouldSuppressRecognition(): boolean { return this.pending || this.speaking; }
 
@@ -100,6 +103,7 @@ export class SpeechSynthesisEngine {
     this.refreshVoices();
     const japaneseVoice = this.voiceList.find((voice) => voice.lang.toLowerCase() === 'ja-jp')
       ?? this.voiceList.find((voice) => voice.lang.toLowerCase().startsWith('ja'));
+    this.selectedVoice = japaneseVoice ?? null;
     if (japaneseVoice) utterance.voice = japaneseVoice;
 
     const generation = ++this.generation;
@@ -140,7 +144,7 @@ export class SpeechSynthesisEngine {
         if (generation === this.generation) this.callbacks.onBoundary?.();
       };
       utterance.onend = () => {
-        if (generation !== this.generation) return;
+        if (generation !== this.generation || terminalEventHandled) return;
         if (!this.startedCurrent) {
           this.callbacks.onError?.('音声開始イベント前に再生が終了しました');
           finish(false, 'error');
@@ -149,6 +153,7 @@ export class SpeechSynthesisEngine {
         finish(true, 'finished');
       };
       utterance.onerror = (event) => {
+        if (generation !== this.generation || terminalEventHandled) return;
         if (generation === this.generation) this.callbacks.onError?.(event.error || '音声を再生できませんでした');
         finish(false, 'error');
       };
@@ -157,8 +162,8 @@ export class SpeechSynthesisEngine {
         this.startTimer = setTimeout(() => {
           if (generation !== this.generation || !this.pending) return;
           this.callbacks.onError?.('一定時間内に音声開始イベントがありませんでした');
-          try { this.port?.cancel(); } catch { /* Clear local state below. */ }
           finish(false, 'error');
+          try { this.port?.cancel(); } catch { /* Local state is already released. */ }
         }, this.startTimeoutMs);
         this.port!.speak(utterance);
       } catch (error) {

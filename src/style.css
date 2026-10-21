@@ -50,6 +50,9 @@ body { overscroll-behavior: none; }
 .debug__conversation output { font-size: 13px; }
 .debug__conversation input[type="text"] { min-width: 180px; flex: 1; padding: 8px; border: 1px solid #d4c2a6; border-radius: 8px; font: inherit; }
 .debug__tts-consent { display: flex; align-items: center; gap: 6px; }
+.debug__tts-diagnostic { display: grid; gap: 6px; padding: 8px; border: 1px solid #e3d4bd; border-radius: 10px; }
+.debug__tts-diagnostic p { margin: 0; color: #6f5b48; }
+.debug__tts-diagnostic output { font-size: 13px; overflow-wrap: anywhere; }
 .debug--minimized {
   left: 50%;
   width: min(340px, calc(100vw - 24px));

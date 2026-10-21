@@ -7,6 +7,7 @@ import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, type Conversat
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { SpeechSynthesisEngine, type SpeechEndReason } from './speech/speech-synthesis-engine';
+import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -32,6 +33,12 @@ const reactionEngine = new ReactionEngine();
 const conversationEngine = new RuleBasedConversationEngine();
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
+const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
+  ? window.speechSynthesis as unknown as DiagnosticSpeechPort : null;
+const nativeTtsDiagnostic = new NativeTtsDiagnostic(
+  nativeSpeechPort,
+  (text) => new SpeechSynthesisUtterance(text) as unknown as DiagnosticUtterance,
+);
 let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
 let conversationGeneration = 0;
 let idleSleepTimer = 0;
@@ -105,6 +112,56 @@ const speechRuntimeOutput = document.querySelector<HTMLOutputElement>('#speech-r
 const speechStagesOutput = document.querySelector<HTMLOutputElement>('#speech-stages')!;
 const speechDiagnosticsOutput = document.querySelector<HTMLOutputElement>('#speech-diagnostics')!;
 const mediaConcurrencyOutput = document.querySelector<HTMLOutputElement>('#media-concurrency')!;
+const nativeVoiceMode = document.querySelector<HTMLSelectElement>('#native-voice-mode')!;
+const nativeCancelFirst = document.querySelector<HTMLInputElement>('#native-cancel-first')!;
+const nativeTtsRunButton = document.querySelector<HTMLButtonElement>('#native-tts-run')!;
+const wrapperTtsRunButton = document.querySelector<HTMLButtonElement>('#wrapper-tts-run')!;
+const diagnosticStopButton = document.querySelector<HTMLButtonElement>('#tts-diagnostic-stop')!;
+const diagnosticResumeButton = document.querySelector<HTMLButtonElement>('#tts-diagnostic-resume')!;
+const diagnosticPlatformOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-platform')!;
+const diagnosticVoicesOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-voices')!;
+const diagnosticResultOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-result')!;
+const diagnosticEventsOutput = document.querySelector<HTMLOutputElement>('#tts-diagnostic-events')!;
+let diagnosticOwner: 'native' | 'wrapper' | null = null;
+let diagnosticEvents: string[] = [];
+let workerCacheStatus = '未確認';
+let diagnosticPollingTimer = 0;
+
+function startDiagnosticPolling(): void {
+  window.clearInterval(diagnosticPollingTimer);
+  diagnosticPollingTimer = window.setInterval(renderTtsDiagnostic, 300);
+}
+
+function stopDiagnosticPolling(): void {
+  window.clearInterval(diagnosticPollingTimer);
+  diagnosticPollingTimer = 0;
+}
+
+function browserSpeechState(): string {
+  const synth = nativeSpeechPort;
+  const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches;
+  const mode = standalone ? 'ホーム画面PWA' : 'Safariタブ/ブラウザー';
+  const visibility = document.visibilityState;
+  return `対応=${Boolean(synth)} / paused=${synth?.paused ?? '--'} / pending=${synth?.pending ?? '--'} / speaking=${synth?.speaking ?? '--'} / ページ=${visibility} / 表示形態=${mode} / SW=${workerCacheStatus} / カメラ=${cameraActive ? 'ON' : 'OFF'} / マイク=${recognitionEngine.isActive ? 'ON' : 'OFF'}`;
+}
+
+function renderTtsDiagnostic(): void {
+  diagnosticPlatformOutput.value = `Web Speech / ${browserSpeechState()}`;
+  const voices = nativeTtsDiagnostic.voices;
+  const japanese = voices.filter((voice) => voice.lang.toLowerCase().startsWith('ja'));
+  const voiceSummary = japanese.length
+    ? japanese.map((voice) => `${voice.name} (${voice.lang})${voice === speechEngine.currentVoice || `${voice.name} (${voice.lang})` === nativeTtsDiagnostic.currentSelectedVoice ? ' [選択]' : ''}`).join('、')
+    : '利用可能な日本語voiceなし';
+  diagnosticVoicesOutput.value = `日本語voice: ${voiceSummary} / engine選択=${speechEngine.currentVoice ? `${speechEngine.currentVoice.name} (${speechEngine.currentVoice.lang})` : 'なし'} / native選択=${nativeTtsDiagnostic.currentSelectedVoice}`;
+  diagnosticEventsOutput.value = `イベント(今回・最大12件): ${diagnosticEvents.length ? diagnosticEvents.join(' → ') : '--'}`;
+}
+
+function appendDiagnosticEvent(event: string): void {
+  diagnosticEvents.push(event.replace(/[\r\n|]/g, ' ').slice(0, 100));
+  if (diagnosticEvents.length > 12) diagnosticEvents.shift();
+  renderTtsDiagnostic();
+}
 
 function renderSpeechDiagnostics(): void {
   speechStagesOutput.value = `音声経路: ${Object.entries(SPEECH_STAGE_LABELS)
@@ -338,6 +395,132 @@ function testColonVoice(): void {
   renderSpeechRuntime();
   renderMediaConcurrency();
   void pending;
+}
+
+function runNativeTtsDiagnostic(): void {
+  if (!ttsEnabled.checked) {
+    diagnosticResultOutput.value = '診断は未実行: 保護者確認の音声チェックを入れてください。';
+    return;
+  }
+  if (diagnosticOwner || nativeTtsDiagnostic.isActive) {
+    diagnosticResultOutput.value = '診断は未実行: 先行する音声診断を停止してから、新しい操作で再試行してください。';
+    return;
+  }
+  if (speechEngine.isSpeaking || speechEngine.isPending || nativeSpeechPort?.speaking || nativeSpeechPort?.pending) {
+    diagnosticResultOutput.value = '診断は未実行: 既存音声キューが動作中です。停止ボタンを押し、状態が停止してから別の操作で試してください。';
+    return;
+  }
+  const mode = nativeVoiceMode.value as DiagnosticVoiceMode;
+  diagnosticOwner = 'native';
+  startDiagnosticPolling();
+  diagnosticEvents = [];
+  diagnosticResultOutput.value = `直接Web APIを要求: ${mode} / cancel前=${nativeCancelFirst.checked} / 起動時の状態を確認中`;
+  appendDiagnosticEvent(`request ${mode} cancel=${nativeCancelFirst.checked}`);
+  renderTtsDiagnostic();
+  void nativeTtsDiagnostic.run('こんにちは。コロンだよ。', mode, {
+    cancelBefore: nativeCancelFirst.checked,
+    onEvent: (event: NativeDiagnosticEvent) => {
+      appendDiagnosticEvent(`${event.type} ${event.elapsedMs.toFixed(0)}ms${event.error ? ` error=${event.error}` : ''}`);
+      diagnosticResultOutput.value = event.type === 'onstart'
+        ? `直接Web API: onstart ${event.elapsedMs.toFixed(0)}ms / 再生イベント待機中`
+        : diagnosticResultOutput.value;
+    },
+  }).then((result) => {
+    stopDiagnosticPolling();
+    diagnosticOwner = null;
+    diagnosticResultOutput.value = `直接Web API結果: ${result.outcome} / onstart=${result.onstart} / onend=${result.onend} / 開始=${result.startDelayMs?.toFixed(0) ?? '--'}ms / timeout=${result.timeoutMs}ms / voice=${result.selectedVoice} / error=${result.error ?? '--'} / utterance保持=${nativeTtsDiagnostic.hasUtteranceReference}`;
+    appendDiagnosticEvent(`結果 ${result.outcome}`);
+  });
+}
+
+function runWrapperTtsDiagnostic(): void {
+  if (!ttsEnabled.checked) {
+    diagnosticResultOutput.value = '診断は未実行: 保護者確認の音声チェックを入れてください。';
+    return;
+  }
+  if (diagnosticOwner || speechEngine.isPending || speechEngine.isSpeaking) {
+    diagnosticResultOutput.value = '診断は未実行: 先行する音声診断を停止してから、新しい操作で再試行してください。';
+    return;
+  }
+  if (nativeSpeechPort?.speaking || nativeSpeechPort?.pending) {
+    diagnosticResultOutput.value = '診断は未実行: ブラウザー音声キューが動作中です。停止後に再試行してください。';
+    return;
+  }
+  diagnosticOwner = 'wrapper';
+  startDiagnosticPolling();
+  diagnosticEvents = [];
+  const requestedAt = performance.now();
+  let wrapperStartedAt: number | null = null;
+  let wrapperError: string | null = null;
+  diagnosticResultOutput.value = 'OuchiColon SpeechSynthesisEngineへ直接要求しました。onstartを待っています。';
+  appendDiagnosticEvent(`wrapper request ${speechEngine.voiceStatus}`);
+  renderTtsDiagnostic();
+  void speechEngine.speak('こんにちは。コロンだよ。', {
+    onStart: () => {
+      wrapperStartedAt = performance.now();
+      appendDiagnosticEvent(`wrapper onstart ${(performance.now() - requestedAt).toFixed(0)}ms`);
+      diagnosticResultOutput.value = `engine: onstart ${(performance.now() - requestedAt).toFixed(0)}ms / 終了イベント待機中 / voice=${speechEngine.currentVoice ? `${speechEngine.currentVoice.name} (${speechEngine.currentVoice.lang})` : '既定'}`;
+      renderTtsDiagnostic();
+    },
+    onError: (message) => {
+      wrapperError = message;
+      appendDiagnosticEvent(`wrapper onerror ${message}`);
+    },
+    onEnd: (reason) => {
+      stopDiagnosticPolling();
+      diagnosticOwner = null;
+      diagnosticResultOutput.value = `engine結果: ${reason} / onstart=${wrapperStartedAt !== null} / onend=${reason === 'finished'} / 開始=${wrapperStartedAt === null ? '--' : `${(wrapperStartedAt - requestedAt).toFixed(0)}ms`} / timeout=10000ms / voice=${speechEngine.currentVoice ? `${speechEngine.currentVoice.name} (${speechEngine.currentVoice.lang})` : '既定'} / error=${wrapperError ?? '--'} / browser paused=${speechEngine.isPaused} pending=${speechEngine.browserPending} speaking=${speechEngine.browserSpeaking} / utterance保持=${speechEngine.hasUtteranceReference}`;
+      appendDiagnosticEvent(`wrapper ${reason}`);
+      renderSpeechRuntime();
+    },
+  });
+  renderTtsDiagnostic();
+}
+
+function stopTtsDiagnostic(): void {
+  if (diagnosticOwner === 'native') nativeTtsDiagnostic.stopFromUserGesture();
+  else if (diagnosticOwner === 'wrapper') speechEngine.stop();
+  else {
+    try { nativeSpeechPort?.cancel(); } catch { /* Explicit stop remains a recoverable diagnostic action. */ }
+  }
+  appendDiagnosticEvent('user cancel()');
+  renderTtsDiagnostic();
+}
+
+function resumeTtsDiagnostic(): void {
+  const result = nativeTtsDiagnostic.resumeFromUserGesture();
+  diagnosticResultOutput.value = `resume()操作: ${result} / paused=${nativeSpeechPort?.paused ?? '--'} / pending=${nativeSpeechPort?.pending ?? '--'} / speaking=${nativeSpeechPort?.speaking ?? '--'}`;
+  appendDiagnosticEvent(`resume ${result}`);
+  renderTtsDiagnostic();
+}
+
+function queryServiceWorkerVersion(): void {
+  const controller = navigator.serviceWorker?.controller;
+  if (!controller) {
+    workerCacheStatus = '制御なし';
+    renderTtsDiagnostic();
+    return;
+  }
+  workerCacheStatus = `応答待ち(${new URL(controller.scriptURL).pathname})`;
+  renderTtsDiagnostic();
+  const channel = new MessageChannel();
+  const timeout = window.setTimeout(() => {
+    channel.port1.close();
+    workerCacheStatus = 'バージョン応答なし';
+    renderTtsDiagnostic();
+  }, 1200);
+  channel.port1.onmessage = (event: MessageEvent<{ cache?: string }>) => {
+    window.clearTimeout(timeout);
+    channel.port1.close();
+    workerCacheStatus = event.data.cache ?? '応答形式不明';
+    renderTtsDiagnostic();
+  };
+  try { controller.postMessage({ type: 'GET_CACHE_VERSION' }, [channel.port2]); }
+  catch {
+    window.clearTimeout(timeout);
+    workerCacheStatus = '問い合わせ失敗';
+    renderTtsDiagnostic();
+  }
 }
 
 function updateRecognitionButtons(): void {
@@ -603,6 +786,7 @@ function setDebug(value: boolean): void {
   debugPanel.hidden = !value;
   document.body.classList.toggle('debug-on', value);
   if (!value) {
+    nativeTtsDiagnostic.stopFromUserGesture();
     stopVoiceRecognition();
     speechEngine.stop();
     conversationGeneration += 1;
@@ -652,7 +836,7 @@ function frame(now: number): void {
   state.blink = Math.max(0, state.blink - dt * 4);
   if (talking && state.expression === 'TALK') {
     state.mouthOpen = 0.12 + (Math.sin(now / 115) + 1) * 0.31;
-  } else if (speechEngine.isSpeaking && state.expression === 'TALK') {
+  } else if (speechEngine.isSpeaking && state.expression === 'TALK' && diagnosticOwner !== 'wrapper') {
     state.mouthOpen = 0.12 + (Math.sin(now / 105) + 1) * 0.31;
   } else if (!debug) {
     state.mouthOpen += (0 - state.mouthOpen) * Math.min(1, dt * 7);
@@ -691,6 +875,10 @@ conversationInput.addEventListener('keydown', (event) => {
 });
 speechStopButton.addEventListener('click', () => speechEngine.stop());
 voiceTestButton.addEventListener('click', testColonVoice);
+nativeTtsRunButton.addEventListener('click', runNativeTtsDiagnostic);
+wrapperTtsRunButton.addEventListener('click', runWrapperTtsDiagnostic);
+diagnosticStopButton.addEventListener('click', stopTtsDiagnostic);
+diagnosticResumeButton.addEventListener('click', resumeTtsDiagnostic);
 recognitionStartButton.addEventListener('click', () => startVoiceRecognition());
 recognitionStopButton.addEventListener('click', stopVoiceRecognition);
 recognitionConsent.addEventListener('change', () => {
@@ -714,6 +902,10 @@ updateRecognitionButtons();
 renderSpeechRuntime();
 renderMediaConcurrency();
 renderSpeechDiagnostics();
+renderTtsDiagnostic();
+nativeSpeechPort?.addEventListener?.('voiceschanged', renderTtsDiagnostic);
+navigator.serviceWorker?.addEventListener('controllerchange', queryServiceWorkerVersion);
+queryServiceWorkerVersion();
 scheduleIdleSleep();
 updateTrackingButtons();
 document.querySelector('#gaze-left')!.addEventListener('click', () => { targetGazeX = -1; });
@@ -759,7 +951,9 @@ canvas.addEventListener('pointerdown', () => {
 });
 
 document.addEventListener('visibilitychange', () => {
+  renderTtsDiagnostic();
   if (document.hidden) {
+    nativeTtsDiagnostic.stopFromUserGesture();
     talking = false;
     stopVoiceRecognition();
     speechEngine.stop();
@@ -769,6 +963,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 window.addEventListener('pagehide', () => {
+  nativeTtsDiagnostic.stopFromUserGesture();
   recognitionEnabled = false;
   recognitionEngine.abort();
   speechEngine.stop();
@@ -776,6 +971,12 @@ window.addEventListener('pagehide', () => {
 });
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  let hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const hasController = Boolean(navigator.serviceWorker.controller);
+    if (hadController && hasController) location.reload();
+    hadController = hasController;
+  });
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/ouchi-colon/sw.js', { scope: '/ouchi-colon/' }).then(async () => {
       await navigator.serviceWorker.ready;

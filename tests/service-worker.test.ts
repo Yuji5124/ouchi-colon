@@ -123,3 +123,66 @@ test('service worker caches app assets and approved face detector resources offl
   listeners.get('fetch')!({ request: navigation, respondWith(promise: Promise<Response>) { offlinePage = promise; } });
   assert.match(await offlinePage.then((response) => response.text()), /^shell:/);
 });
+
+test('service worker upgrades the shell while preserving cached face and model resources', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const cachesByName = new Map<string, Map<string, Response>>();
+  const keyOf = (request: string | { url: string }) => new URL(typeof request === 'string' ? request : request.url, origin).href;
+  const open = async (name: string) => {
+    let entries = cachesByName.get(name);
+    if (!entries) { entries = new Map(); cachesByName.set(name, entries); }
+    return {
+      async keys() { return [...entries!.keys()].map((url) => new Request(url)); },
+      async match(request: string | { url: string }) { return entries!.get(keyOf(request))?.clone(); },
+      async put(request: string | { url: string }, response: Response) { entries!.set(keyOf(request), response.clone()); },
+      async addAll(paths: string[]) { for (const path of paths) entries!.set(keyOf(path), new Response(`new:${path}`)); },
+    };
+  };
+  const old = await open('ouchicolon-shell-v10');
+  await old.put(`${origin}/ouchi-colon/`, new Response('old shell'));
+  await old.put(`${origin}/ouchi-colon/assets/index-old123.js`, new Response('old app js'));
+  await old.put(`${origin}/ouchi-colon/assets/face/eyes/open.png`, new Response('preserved face'));
+  await old.put('https://storage.googleapis.com/mediapipe-models/face_detector/model.tflite', new Response('preserved model'));
+  await open('unrelated-cache');
+
+  const listeners = new Map<string, (event: any) => void>();
+  const caches = {
+    async open(name: string) { return open(name); },
+    async keys() { return [...cachesByName.keys()]; },
+    async delete(name: string) { return cachesByName.delete(name); },
+    async match(request: string | { url: string }) {
+      for (const entries of cachesByName.values()) {
+        const response = entries.get(keyOf(request));
+        if (response) return response.clone();
+      }
+      return undefined;
+    },
+  };
+  const self = {
+    location: { origin },
+    addEventListener(name: string, listener: (event: any) => void) { listeners.set(name, listener); },
+    skipWaiting() {},
+    clients: { claim() {} },
+  };
+  runInNewContext(source, { self, caches, URL, Request, Response });
+
+  const current = await open('ouchicolon-shell-v11');
+  await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest']);
+  let activation!: Promise<void>;
+  listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
+  await activation;
+
+  const shell = await caches.match(`${origin}/ouchi-colon/`);
+  assert.equal(await shell?.text(), 'new:/ouchi-colon/');
+  assert.equal(await caches.match(`${origin}/ouchi-colon/assets/index-old123.js`), undefined, 'old entry bundle is removed');
+  assert.equal(await (await caches.match(`${origin}/ouchi-colon/assets/face/eyes/open.png`))?.text(), 'preserved face');
+  assert.equal(await (await caches.match('https://storage.googleapis.com/mediapipe-models/face_detector/model.tflite'))?.text(), 'preserved model');
+  assert.ok(cachesByName.has('unrelated-cache'), 'unrelated origin cache is untouched');
+  assert.ok(!cachesByName.has('ouchicolon-shell-v10'), 'only this app old cache is migrated and removed');
+  let workerVersion: unknown;
+  listeners.get('message')!({
+    data: { type: 'GET_CACHE_VERSION' },
+    ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
+  });
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v11');
+});

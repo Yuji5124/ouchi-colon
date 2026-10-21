@@ -21,8 +21,9 @@ class FakeSpeechPort implements SpeechPort {
   pending = false;
   voiceList: SpeechSynthesisVoice[] = [];
   voiceListener: (() => void) | null = null;
+  cancelHook: (() => void) | null = null;
   speak(utterance: SpeechSynthesisUtterance): void { this.current = utterance; this.pending = true; }
-  cancel(): void { this.cancelled = true; }
+  cancel(): void { this.cancelled = true; this.cancelHook?.(); }
   getVoices(): SpeechSynthesisVoice[] { return this.voiceList; }
   addEventListener(_type: 'voiceschanged', listener: () => void): void { this.voiceListener = listener; }
   updateVoices(voices: SpeechSynthesisVoice[]): void { this.voiceList = voices; this.voiceListener?.(); }
@@ -136,4 +137,26 @@ test('treats end-before-start as a playback failure', async () => {
   assert.equal(await result, false);
   assert.deepEqual(reasons, ['error']);
   assert.equal(engine.isSpeaking, false);
+});
+
+test('a new request after cancel ignores stale cancel callbacks from the old utterance', async () => {
+  const port = new FakeSpeechPort();
+  const engine = new SpeechSynthesisEngine(port, factory);
+  const oldEvents: string[] = [];
+  const first = engine.speak('一つ目', { onError: () => oldEvents.push('error'), onEnd: (reason) => oldEvents.push(reason) });
+  const oldUtterance = port.utterance();
+  port.cancelHook = () => oldUtterance.onerror?.({ error: 'canceled' });
+  const second = engine.speak('二つ目');
+  assert.equal(port.cancelled, true);
+  assert.deepEqual(oldEvents, ['stopped']);
+  const newUtterance = port.utterance();
+  oldUtterance.onend?.();
+  oldUtterance.onerror?.({ error: 'late-cancel' });
+  assert.equal(engine.isPending, true);
+  assert.equal(engine.hasUtteranceReference, true);
+  newUtterance.onstart?.();
+  newUtterance.onend?.();
+  assert.equal(await first, false);
+  assert.equal(await second, true);
+  assert.deepEqual(oldEvents, ['stopped']);
 });

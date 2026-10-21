@@ -63,6 +63,29 @@
           <output id="speech-stages" aria-live="off">音声経路: --</output>
           <output id="speech-diagnostics" aria-live="off">診断履歴: --</output>
           <output id="media-concurrency" aria-live="off">カメラ / 認識 / TTS: --</output>
+          <details class="debug__tts-diagnostic">
+            <summary>TTS単独診断（会話・認識・表情を使わず、各ボタン1回ずつ比較）</summary>
+            <p>iOS Safariは音声合成の開始にもユーザー操作を要求します。音声競合を避けるため、マイク・カメラを止めた状態の比較から始めてください。</p>
+            <label>直接APIの音声条件
+              <select id="native-voice-mode">
+                <option value="safari-default">A Safari標準・ja-JP・voice未指定</option>
+                <option value="explicit-japanese">B 利用可能な日本語voiceを明示</option>
+                <option value="no-language">C lang / voiceとも未指定</option>
+              </select>
+            </label>
+            <label class="debug__tts-consent"><input id="native-cancel-first" type="checkbox" /> 比較用：再生直前にcancel()を呼ぶ（通常はOFF）</label>
+            <div class="debug__controls">
+              <button id="native-tts-run" type="button">TTS単独診断：Web API</button>
+              <button id="wrapper-tts-run" type="button">TTS単独診断：アプリengine</button>
+              <button id="tts-diagnostic-stop" type="button">音声を停止</button>
+              <button id="tts-diagnostic-resume" type="button">pausedならresume</button>
+            </div>
+            <small>停止後の再試行は、停止ボタンの後に別途Web API／engineボタンを押してください。Fはpaused表示のときだけ個別に試します。G/Hはマイク停止・カメラ停止をそれぞれ操作してから再生し、状態を比較してください。</small>
+            <output id="tts-diagnostic-platform" aria-live="off">Web Speech / ページ状態: --</output>
+            <output id="tts-diagnostic-voices" aria-live="off">日本語voice: --</output>
+            <output id="tts-diagnostic-result" aria-live="polite">診断: --</output>
+            <output id="tts-diagnostic-events" aria-live="off">イベント: --</output>
+          </details>
           <div class="debug__controls" aria-label="リアクションイベントの手動テスト">
             <button data-reaction-event="VOICE_INPUT_STARTED" type="button">音声入力開始</button>
             <button data-reaction-event="UTTERANCE_DETECTED" type="button">発話検出</button>
