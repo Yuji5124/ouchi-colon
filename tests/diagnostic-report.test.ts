@@ -4,11 +4,11 @@ import { createDiagnosticReport } from '../src/app/diagnostic-report.ts';
 
 test('diagnostic report includes operational status and timing only', () => {
   const report = createDiagnosticReport({
-    appVersion: '0.1.0', commit: 'abc1234', serviceWorker: 'ouchicolon-shell-v18',
+    appVersion: '0.1.0', commit: 'abc1234', serviceWorker: 'ouchicolon-shell-v19',
     voiceEngine: 'TOHOKU Happy', tohokuModel: 'ready', microphone: 'OFF', camera: 'ON',
     lastGenerationMs: 138, lastPlaybackStartMs: 12, conversationTurns: 4, errorCode: 'none', fallbackCount: 1, microphoneResume: 'started',
     conversationEngine: 'natural', conversationTopic: 'things', conversationIntent: 'report', replyType: 'REACT',
-    recentQuestionRate: 0.2, duplicateReplyCount: 0, conversationFallbackCount: 0,
+    recentQuestionRate: 0.2, duplicateReplyCount: 0, conversationFallbackCount: 0, vadMode: 'OFF', vadComparisonSamples: 0,
   });
   assert.match(report, /TOHOKU Happy/);
   assert.match(report, /138 ms/);
@@ -26,7 +26,7 @@ test('diagnostic report handles unavailable values and strips line breaks', () =
     tohokuModel: 'not loaded', microphone: 'OFF', camera: 'OFF', lastGenerationMs: null,
     lastPlaybackStartMs: Number.NaN, conversationTurns: 0, errorCode: '', fallbackCount: 0, microphoneResume: 'blocked:session-changed\nunsafe',
     conversationEngine: 'natural', conversationTopic: 'unknown', conversationIntent: 'unknown', replyType: 'UNKNOWN',
-    recentQuestionRate: null, duplicateReplyCount: 0, conversationFallbackCount: 0,
+    recentQuestionRate: null, duplicateReplyCount: 0, conversationFallbackCount: 0, vadMode: 'OFF', vadComparisonSamples: 0,
   });
   assert.match(report, /0.1.0 private/);
   assert.match(report, /UNKNOWN/);

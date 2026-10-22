@@ -19,6 +19,8 @@ export interface DiagnosticReportInput {
   recentQuestionRate: number | null;
   duplicateReplyCount: number;
   conversationFallbackCount: number;
+  vadMode: string;
+  vadComparisonSamples: number;
 }
 
 const safe = (value: string): string => String(value ?? 'UNKNOWN').replace(/[\r\n]/g, ' ').slice(0, 160);
@@ -45,5 +47,6 @@ export function createDiagnosticReport(input: DiagnosticReportInput): string {
     `直近の質問率: ${input.recentQuestionRate === null ? 'UNKNOWN' : `${Math.round(Math.max(0, Math.min(1, input.recentQuestionRate)) * 100)}%`}`,
     `直近の重複返答数: ${Math.max(0, Math.floor(input.duplicateReplyCount))}`,
     `会話フォールバック回数: ${Math.max(0, Math.floor(input.conversationFallbackCount))}`,
+    `VAD比較: ${safe(input.vadMode)} / 沈黙候補→最終認識の計測数=${Math.max(0, Math.floor(input.vadComparisonSamples))}`,
   ].join('\n');
 }

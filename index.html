@@ -99,6 +99,16 @@
           <output id="conversation-reply" aria-live="polite">確定返答: --</output>
           <output id="conversation-timing" aria-live="off">返答生成: -- / TTS開始: -- / 発話終了→音声: -- / 音声イベント→表情: --</output>
           <output id="latency-summary" aria-live="off">応答速度: --</output>
+          <details class="debug__advanced" id="vad-experiment">
+            <summary>発話終了の比較実験（ローカルVAD・任意）</summary>
+            <p>従来方式はSafariのWeb Speechイベントを使います。VAD比較は保護者が明示的に開始した場合だけ別の音声入力を開き、音量から「沈黙候補」を計測します。音声認識の停止・確定・返答開始には一切使いません。Safariで認識と同時に使えるかは実機確認が必要です。</p>
+            <div class="debug__controls"><button id="vad-start" type="button">VAD比較を開始</button><button id="vad-stop" type="button" disabled>VAD比較を停止</button></div>
+            <output id="vad-status" aria-live="polite">VAD: 停止中（従来方式）</output>
+            <output id="vad-metrics" aria-live="off">VAD沈黙候補→最終認識: UNKNOWN / 品質率: 実機での手動確認が必要</output>
+            <output id="latency-ab-results" aria-live="off">A/B結果: --</output>
+            <div class="debug__controls" aria-label="保護者による比較結果の記録"><button data-latency-observation="cutOff" type="button">途中切れ +1</button><button data-latency-observation="misrecognized" type="button">誤認識 +1</button><button data-latency-observation="doubleReply" type="button">二重返答 +1</button></div>
+            <small>音声認識結果の良否は自動判定できないため、上のボタンで実際に確認した事象を記録します。無反応・認識エラー・マイク再開成功はイベントから集計します。</small>
+          </details>
           <details class="debug__advanced">
           <summary>音声・システムの詳細診断</summary>
           <output id="speech-runtime" aria-live="off">音声状態: --</output>

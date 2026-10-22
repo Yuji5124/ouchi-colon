@@ -2,6 +2,7 @@ import { FaceRenderer, expressions, type Expression, type FaceState } from './ch
 import { FpsMeter } from './app/fps-meter';
 import { LatencySamples } from './app/latency-samples';
 import { TurnLatencySegments } from './app/turn-latency';
+import { ResponseLatencyTrial, type ResponseTrialCounter, type ResponseTrialMode } from './app/response-latency-trial';
 import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
@@ -9,6 +10,7 @@ import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, replyWithFallb
 import { NaturalConversationEngine } from './conversation/natural-conversation-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
+import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
 import { SpeechSynthesisEngine, type SpeechCallbacks, type SpeechEndReason } from './speech/speech-synthesis-engine';
 import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
 import { TohokuVoiceLab, type TohokuLabEvent, type TohokuWorkerPort } from './speech/tohoku-voice-lab';
@@ -57,6 +59,8 @@ const nativeTtsDiagnostic = new NativeTtsDiagnostic(
   (text) => new SpeechSynthesisUtterance(text) as unknown as DiagnosticUtterance,
 );
 const latencySamples = new LatencySamples(200);
+const localVadMonitor = new LocalVadMonitor();
+const responseLatencyTrial = new ResponseLatencyTrial();
 const currentTurnLatency = new TurnLatencySegments();
 let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
 let conversationGeneration = 0;
@@ -86,6 +90,9 @@ let latestRenderFps: number | null = null;
 let interimReactionSent = false;
 let pendingVisualReactionAt: number | null = null;
 let utteranceEndAt: number | null = null;
+let vadSpeechStartedAt: number | null = null;
+let vadEndCandidateAt: number | null = null;
+let activeLatencyTrialMode: ResponseTrialMode = 'A';
 let voiceDetectedAt: number | null = null;
 let finalRecognitionAt: number | null = null;
 let replyDecisionAt: number | null = null;
@@ -164,6 +171,11 @@ const appStateOutput = document.querySelector<HTMLOutputElement>('#app-state')!;
 const diagnosticCopyButton = document.querySelector<HTMLButtonElement>('#diagnostic-copy')!;
 const diagnosticCopyStatus = document.querySelector<HTMLOutputElement>('#diagnostic-copy-status')!;
 const diagnosticReportOutput = document.querySelector<HTMLOutputElement>('#diagnostic-report')!;
+const vadStartButton = document.querySelector<HTMLButtonElement>('#vad-start')!;
+const vadStopButton = document.querySelector<HTMLButtonElement>('#vad-stop')!;
+const vadStatusOutput = document.querySelector<HTMLOutputElement>('#vad-status')!;
+const vadMetricsOutput = document.querySelector<HTMLOutputElement>('#vad-metrics')!;
+const latencyAbOutput = document.querySelector<HTMLOutputElement>('#latency-ab-results')!;
 const mediaConcurrencyOutput = document.querySelector<HTMLOutputElement>('#media-concurrency')!;
 const nativeVoiceMode = document.querySelector<HTMLSelectElement>('#native-voice-mode')!;
 const nativeCancelFirst = document.querySelector<HTMLInputElement>('#native-cancel-first')!;
@@ -344,6 +356,8 @@ async function copyDiagnosticReport(): Promise<void> {
     recentQuestionRate: lastConversationQuality?.questionRate ?? null,
     duplicateReplyCount: lastConversationQuality?.duplicateReplyCount ?? 0,
     conversationFallbackCount: conversationFallbackReplyCount,
+    vadMode: localVadMonitor.isActive ? '実験ON（発話認識には非接続）' : 'OFF',
+    vadComparisonSamples: latencySamples.summary('vad-candidate-final').count,
   });
   if (!navigator.clipboard?.writeText) {
     diagnosticCopyStatus.value = 'クリップボード非対応です。下のテキストを長押ししてコピーしてください。';
@@ -422,7 +436,46 @@ function renderLatencySummary(): void {
   const directTotalText = directTotal === null
     ? `UNKNOWN（${finalRecognitionAt === null ? '発話または認識が未完了' : utteranceEndAt === null ? 'Safari onspeechend未受信' : '再生開始イベント未受信'}）`
     : `${directTotal.toFixed(0)}ms`;
-  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '認識イベント→描画更新')}; ${line('detected-final', '発話検出→最終認識')}; ${line('speechend-final', '発話終了→最終認識')}; ${line('final-reply', '最終認識→返答決定')}; ${line('generation', '返答選択処理')}; ${line('tohoku-generation', 'TOHOKU WASM生成時間')}; ${line('tohoku-generation-wall', '返答決定→TOHOKU生成完了')}; ${line('generated-start', '音声生成完了→再生開始')}; ${line('decision-start-tohoku', '返答決定→TOHOKU再生')}; ${line('decision-start-ios', '返答決定→iOS再生')}; ${line('decision-start-ios-fallback', '返答決定→iOS復帰再生')}; ${line('detected-start', '発話検出→再生開始')}; ${line('turn-tohoku', '発話終了→TOHOKU音声開始')}; ${line('turn-ios', '発話終了→iOS音声開始')}; ${line('turn-ios-fallback', '発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')} / 直近ターン 発話終了→再生開始=${directTotalText}・区間合計=${sum}・最長区間=${slowest}`;
+  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '認識イベント→描画更新')}; ${line('detected-final', '発話検出→最終認識')}; ${line('speechend-final', 'Safari発話終了→最終認識')}; ${line('final-reply', '最終認識→返答決定')}; ${line('generation', '返答選択処理')}; ${line('tohoku-generation', 'TOHOKU WASM生成時間')}; ${line('tohoku-generation-wall', '返答決定→TOHOKU生成完了')}; ${line('generated-start', '音声生成完了→再生開始')}; ${line('decision-start-tohoku', '返答決定→TOHOKU再生')}; ${line('decision-start-ios', '返答決定→iOS再生')}; ${line('decision-start-ios-fallback', '返答決定→iOS復帰再生')}; ${line('detected-start', '発話検出→再生開始')}; ${line('turn-tohoku', 'Safari発話終了→TOHOKU音声開始')}; ${line('turn-ios', 'Safari発話終了→iOS音声開始')}; ${line('turn-ios-fallback', 'Safari発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')} / 直近ターン Safari発話終了→再生開始=${directTotalText}・区間合計=${sum}・最長区間=${slowest}`;
+  renderVadMetrics();
+}
+
+function renderVadMetrics(): void {
+  const candidate = latencySamples.summary('vad-candidate-final');
+  vadMetricsOutput.value = `VAD沈黙候補確定→最終認識 n=${candidate.count} 直近=${candidate.last?.toFixed(0) ?? 'UNKNOWN'}ms 中央値=${candidate.median?.toFixed(0) ?? 'UNKNOWN'}ms p95=${candidate.p95?.toFixed(0) ?? 'UNKNOWN'}ms / 発話終了からの時間: UNKNOWN（沈黙候補は900ms静音確認後の時刻で、実際の発話終了ではない） / 認識途中切れ・誤認識率: 実機で手動比較 / 自動停止: なし`;
+  const timing = (name: string): string => {
+    const value = latencySamples.summary(name);
+    return value.count ? `${value.median?.toFixed(0)}ms/p95 ${value.p95?.toFixed(0)}ms n=${value.count}` : 'UNKNOWN';
+  };
+  const summary = (mode: ResponseTrialMode): string => {
+    const value = responseLatencyTrial.summary(mode);
+    const rate = (count: number, total: number): string => total ? `${count}/${total} (${Math.round(count / total * 100)}%)` : `UNKNOWN (0/${total})`;
+    const resumeTotal = value.resumeSuccess + value.resumeFailure;
+    return `${mode}: 発話=${value.turns} / 無反応=${value.noResponse} / 認識エラー=${value.recognitionErrors} / マイク再開成功率=${rate(value.resumeSuccess, resumeTotal)} / 手動 途中切れ=${rate(value.cutOff, value.turns)}・誤認識=${rate(value.misrecognized, value.turns)}・二重返答=${rate(value.doubleReply, value.turns)}`;
+  };
+  latencyAbOutput.value = `${summary('A')} ｜ ${summary('B')} / 発話検出→最終認識 A=${timing('detected-final-A')} B=${timing('detected-final-B')} / Safari発話終了→最終認識 A=${timing('speechend-final-A')} B=${timing('speechend-final-B')} / Safari発話終了→再生開始 A=${timing('turn-tohoku-A')} B=${timing('turn-tohoku-B')} / 計測中=${localVadMonitor.isActive ? 'B（VAD追加）' : 'A（従来方式）'}`;
+}
+
+function handleVadEvent(event: VadEndpointEvent): void {
+  if (event.type === 'error') {
+    vadStatusOutput.value = `VADエラー: ${event.reason}（音声認識は継続）`;
+    return;
+  }
+  if (voiceResponseActive) return;
+  if (event.type === 'speech-start') {
+    vadSpeechStartedAt = event.at;
+    vadEndCandidateAt = null;
+    vadStatusOutput.value = 'VAD: 発話らしい音を検出（ローカル音量のみ）';
+    return;
+  }
+  if (vadSpeechStartedAt === null) return;
+  vadEndCandidateAt = event.at;
+  vadStatusOutput.value = 'VAD: 900msの静音候補を確認（認識を止めず最終結果を待機）';
+}
+
+function updateVadButtons(): void {
+  vadStartButton.disabled = localVadMonitor.isActive;
+  vadStopButton.disabled = !localVadMonitor.isActive;
 }
 
 function recordTurnInterval(name: string, sample: string, startedAt: number | null, endedAt: number | null): boolean {
@@ -726,6 +779,7 @@ function scheduleRecognitionResume(token: number, session: number, retry = 0, de
     }
     if (blocked) {
       lastMicrophoneResumeStatus = blocked === 'speech-output-busy' ? 'failed:busy-timeout' : `blocked:${blocked}`;
+      if (blocked === 'speech-output-busy') responseLatencyTrial.record(activeLatencyTrialMode, 'resumeFailure');
       recordSpeechStage('recognition-resume', `再開拒否:${blocked}`);
       if (blocked === 'speech-output-busy') {
         recognitionEnabled = false;
@@ -845,6 +899,7 @@ function speakReply(text: string, token: number): void {
       latencySamples.recordBetween('detected-start', voiceDetectedAt, playbackStartedAt);
       if (utteranceEndAt !== null) {
         recordTurnInterval('speech-end-to-playback', `turn-${activeReplyEngineForTurn}`, utteranceEndAt, playbackStartedAt);
+        latencySamples.recordBetween(`turn-${activeReplyEngineForTurn}-${activeLatencyTrialMode}`, utteranceEndAt, playbackStartedAt);
       }
       recordTurnInterval('reply-to-playback', `decision-start-${activeReplyEngineForTurn}`, replyDecisionAt, playbackStartedAt);
       mouthMotionStartedAt = performance.now();
@@ -1231,19 +1286,24 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       recordSpeechStage('recognition-start', isResume ? '再開成功' : '開始イベント');
       if (isResume) {
         lastMicrophoneResumeStatus = 'started';
+        responseLatencyTrial.record(activeLatencyTrialMode, 'resumeSuccess');
         recordSpeechStage('recognition-resume', 'マイク再開成功');
         setVisibleAppState('マイク再開成功・音声認識中');
       }
+      renderVadMetrics();
       renderMediaConcurrency();
     },
     onSpeechStart: () => {
       consecutiveEmptyRecognitionResults = 0;
       const receivedAt = performance.now();
+      activeLatencyTrialMode = localVadMonitor.isActive ? 'B' : 'A';
+      responseLatencyTrial.record(activeLatencyTrialMode, 'turns');
       speechEndHandled = false;
       interimReactionSent = false;
       submittedUtteranceEndedAt = null;
       utteranceEndAt = null;
       voiceDetectedAt = receivedAt;
+      vadEndCandidateAt = null;
       finalRecognitionAt = null;
       replyDecisionAt = null;
       tohokuGenerationFinishedAt = null;
@@ -1255,6 +1315,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       recordSpeechStage('voice-detected', '発話あり');
       voiceReactionMs = performance.now() - receivedAt;
       updateConversationTiming();
+      renderVadMetrics();
     },
     onSpeechEnd: () => {
       if (speechEndHandled) return;
@@ -1274,6 +1335,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       }
     },
     onError: (code, message) => {
+      responseLatencyTrial.record(activeLatencyTrialMode, 'recognitionErrors');
       lastErrorCode = `SPEECH_RECOGNITION_${code.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
       const action = recognitionErrorAction(code, networkRecoveryCount);
       if (action === 'recover-quietly') {
@@ -1303,8 +1365,10 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       recognitionStatus.value = message ? `${detail} ${message}` : detail;
       if (isResume && action === 'stop') {
         lastMicrophoneResumeStatus = `failed:${code}`;
+        responseLatencyTrial.record(activeLatencyTrialMode, 'resumeFailure');
         recordSpeechStage('recognition-resume', `再開失敗:${code}`);
       }
+      renderVadMetrics();
       updateRecognitionButtons();
     },
     onEnd: (finalText) => {
@@ -1316,10 +1380,17 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
         pendingNetworkRecovery = false;
         const finalResultAt = performance.now();
         finalRecognitionAt = finalResultAt;
+        latencySamples.recordBetween(`detected-final-${activeLatencyTrialMode}`, voiceDetectedAt, finalResultAt);
+        if (vadSpeechStartedAt !== null && vadEndCandidateAt !== null && vadEndCandidateAt >= vadSpeechStartedAt && vadEndCandidateAt <= finalResultAt) {
+          latencySamples.recordBetween('vad-candidate-final', vadEndCandidateAt, finalResultAt);
+        }
+        vadSpeechStartedAt = null;
+        vadEndCandidateAt = null;
         latencySamples.recordBetween('detected-final', voiceDetectedAt, finalResultAt);
         if (utteranceEndAt !== null) {
           latencySamples.recordBetween('final', utteranceEndAt, finalResultAt);
           recordTurnInterval('speech-end-to-final', 'speechend-final', utteranceEndAt, finalResultAt);
+          latencySamples.recordBetween(`speechend-final-${activeLatencyTrialMode}`, utteranceEndAt, finalResultAt);
         } else {
           currentTurnLatency.markUnavailable('speech-end-to-final', 'Safari onspeechend event was not received');
         }
@@ -1339,6 +1410,8 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
         void respondToConversation(finalText, true);
         return;
       }
+      responseLatencyTrial.record(activeLatencyTrialMode, 'noResponse');
+      renderVadMetrics();
       if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
       recordSpeechStage('final-result', '最終結果なし');
       scheduleIdleSleep();
@@ -1690,8 +1763,37 @@ renderVoiceChoices();
 renderLatencySummary();
 document.querySelector<HTMLButtonElement>('#latency-clear')!.addEventListener('click', () => {
   latencySamples.clear();
+  responseLatencyTrial.clear();
   ttsEndTurnCount = 0;
   renderLatencySummary();
+});
+document.querySelectorAll<HTMLButtonElement>('[data-latency-observation]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const counter = button.dataset.latencyObservation as ResponseTrialCounter | undefined;
+    if (counter === 'cutOff' || counter === 'misrecognized' || counter === 'doubleReply') {
+      responseLatencyTrial.record(localVadMonitor.isActive ? 'B' : 'A', counter);
+      renderVadMetrics();
+    }
+  });
+});
+vadStartButton.addEventListener('click', () => {
+  if (!debug || localVadMonitor.isActive) return;
+  vadStatusOutput.value = 'VAD: 音声入力の許可を待っています…（音声認識は変更しません）';
+  void localVadMonitor.start(handleVadEvent).then(() => {
+    vadStatusOutput.value = 'VAD: 計測中（端末内RMS・音声非保存）';
+    updateVadButtons();
+  }).catch((error: unknown) => {
+    vadStatusOutput.value = `VADを開始できません: ${error instanceof Error ? error.message : '不明なエラー'}（既存音声認識は継続）`;
+    updateVadButtons();
+  });
+  updateVadButtons();
+});
+vadStopButton.addEventListener('click', () => {
+  localVadMonitor.stop();
+  vadSpeechStartedAt = null;
+  vadEndCandidateAt = null;
+  vadStatusOutput.value = 'VAD: 停止中（従来方式）';
+  updateVadButtons();
 });
 tohokuInitButton.addEventListener('click', () => { void initializeTohokuLab(); });
 tohokuConversationEnableButton.addEventListener('click', () => { void enableTohokuConversationAudio(); });
@@ -1834,6 +1936,11 @@ canvas.addEventListener('pointerdown', () => {
 document.addEventListener('visibilitychange', () => {
   renderTtsDiagnostic();
   if (document.hidden) {
+    localVadMonitor.stop();
+    vadSpeechStartedAt = null;
+    vadEndCandidateAt = null;
+    vadStatusOutput.value = 'VAD: ページ非表示のため停止';
+    updateVadButtons();
     nativeTtsDiagnostic.stopFromUserGesture();
     talking = false;
     stopVoiceRecognition();
@@ -1845,6 +1952,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 window.addEventListener('pagehide', () => {
+  localVadMonitor.stop();
   nativeTtsDiagnostic.stopFromUserGesture();
   recognitionEnabled = false;
   recognitionEngine.abort();
