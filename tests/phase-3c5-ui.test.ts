@@ -11,6 +11,9 @@ test('debug UI keeps controls behind debug mode and exposes safe quick diagnosti
   assert.match(html, /id="recognition-start"/);
   assert.match(html, /id="camera-start"/);
   assert.match(html, /summary>音声・システムの詳細診断/);
+  assert.match(html, /id="conversation-engine-mode"/);
+  assert.match(html, /新エンジン（友達らしい返答）/);
+  assert.match(html, /id="conversation-quality"/);
 });
 
 test('PWA manifest declares face-derived install icons at supported sizes', async () => {

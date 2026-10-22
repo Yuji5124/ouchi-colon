@@ -50,6 +50,13 @@
             <button id="detector-start" type="button" disabled>顔検出ON</button>
             <button id="detector-stop" type="button" disabled>顔検出OFF</button>
           </div>
+          <label>会話エンジン
+            <select id="conversation-engine-mode">
+              <option value="natural" selected>新エンジン（友達らしい返答）</option>
+              <option value="legacy">従来エンジン（比較用）</option>
+            </select>
+          </label>
+          <output id="conversation-quality" aria-live="off">会話品質診断: --</output>
           <output id="tracking-status" aria-live="polite">停止中。開始すると前面カメラを使用します。</output>
           <output id="tracking-coordinates" aria-live="off">顔座標: --</output>
           <label class="debug__mirror"><input id="mirror-horizontal" type="checkbox" checked /> 左右反転（顔の動きに合わせて調整）</label>

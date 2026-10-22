@@ -1,21 +1,58 @@
 export type ConversationTopic =
   | 'greeting' | 'daily' | 'play' | 'animals' | 'food' | 'weather'
-  | 'happy' | 'sad' | 'scared' | 'surprised' | 'repeat' | 'bedtime';
+  | 'happy' | 'sad' | 'scared' | 'surprised' | 'repeat' | 'bedtime' | 'things';
 
 export interface ConversationContext {
-  /** Only the most recent topic and turn counter are kept in memory. */
+  /** Short session-only memory; it is never persisted or sent to a server. */
   topic: ConversationTopic | null;
   turn: number;
+  subject?: string | null;
+  action?: string | null;
+  feature?: string | null;
+  intent?: ConversationIntent;
+  recentReplyTypes?: ReplyType[];
+  recentReplyIds?: string[];
+  lastReplyWasQuestion?: boolean;
+  assistantQuestionFocus?: 'activity' | 'object' | 'color' | 'general' | null;
+}
+
+export type ConversationIntent = 'greeting' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'unknown';
+export type ReplyType = 'REACT' | 'ACKNOWLEDGE' | 'SHARE' | 'IMAGINE' | 'QUESTION' | 'PLAY';
+
+export interface ConversationQuality {
+  intent: ConversationIntent;
+  replyType: ReplyType;
+  questionRate: number;
+  duplicateReplyCount: number;
+  contextUsed: boolean;
+  fallback: boolean;
 }
 
 export interface ConversationResult {
   text: string;
   topic: ConversationTopic | 'safety';
   context: ConversationContext;
+  quality?: ConversationQuality;
 }
 
 export interface ConversationEngine {
   reply(input: string, context: ConversationContext): ConversationResult;
+}
+
+export function replyWithFallback(engine: ConversationEngine, input: string, context: ConversationContext): { result: ConversationResult; failed: boolean } {
+  try {
+    return { result: engine.reply(input, context), failed: false };
+  } catch {
+    return {
+      result: {
+        text: 'ごめんね、コロンちょっと考え中！もう一度お話ししよう！',
+        topic: context.topic ?? 'daily',
+        context: { ...context, turn: context.turn + 1 },
+        quality: { intent: 'unknown', replyType: 'ACKNOWLEDGE', questionRate: 0, duplicateReplyCount: 0, contextUsed: Boolean(context.subject), fallback: true },
+      },
+      failed: true,
+    };
+  }
 }
 
 interface ConversationRule {
@@ -159,6 +196,12 @@ const PRIVACY_PATTERN = /名前|フルネーム|パスワード|住所|電話番
 const SAFETY_REPLY = '話してくれてありがとう。それはひとりで抱えなくていいよ。近くにいる保護者や信頼できる大人に、今すぐ話そうね。';
 const PRIVACY_REPLY = '名前や住所などは、ここで言わなくて大丈夫だよ。個人のことは保護者といっしょに確認しようね。';
 const GENERIC_REPLY = 'そうなんだね。もう少し教えてくれる？';
+
+export function protectedConversationReply(input: string): { text: string; topic: 'safety' } | null {
+  if (PRIVACY_PATTERN.test(input)) return { text: PRIVACY_REPLY, topic: 'safety' };
+  if (SAFETY_PATTERN.test(input)) return { text: SAFETY_REPLY, topic: 'safety' };
+  return null;
+}
 
 export class RuleBasedConversationEngine implements ConversationEngine {
   reply(input: string, context: ConversationContext): ConversationResult {

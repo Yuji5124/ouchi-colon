@@ -4,7 +4,8 @@ import { LatencySamples } from './app/latency-samples';
 import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
-import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, type ConversationContext } from './conversation/conversation-engine';
+import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, replyWithFallback, type ConversationContext, type ConversationEngine, type ConversationQuality, type ConversationResult } from './conversation/conversation-engine';
+import { NaturalConversationEngine } from './conversation/natural-conversation-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { SpeechSynthesisEngine, type SpeechCallbacks, type SpeechEndReason } from './speech/speech-synthesis-engine';
@@ -38,7 +39,12 @@ let trackingFaceKnown = false;
 const fpsMeter = new FpsMeter();
 const faceStabilizer = new FaceTrackingStabilizer();
 const reactionEngine = new ReactionEngine();
-const conversationEngine = new RuleBasedConversationEngine();
+const legacyConversationEngine = new RuleBasedConversationEngine();
+const naturalConversationEngine = new NaturalConversationEngine();
+let conversationEngineMode: 'natural' | 'legacy' = 'natural';
+let lastConversationQuality: ConversationQuality | null = null;
+let lastConversationTopic: string = 'unknown';
+let conversationFallbackReplyCount = 0;
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
 const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
@@ -127,6 +133,8 @@ const mirrorHorizontal = document.querySelector<HTMLInputElement>('#mirror-horiz
 const conversationInput = document.querySelector<HTMLInputElement>('#conversation-input')!;
 const conversationSendButton = document.querySelector<HTMLButtonElement>('#conversation-send')!;
 const conversationReply = document.querySelector<HTMLOutputElement>('#conversation-reply')!;
+const conversationEngineSelect = document.querySelector<HTMLSelectElement>('#conversation-engine-mode')!;
+const conversationQualityOutput = document.querySelector<HTMLOutputElement>('#conversation-quality')!;
 const conversationTiming = document.querySelector<HTMLOutputElement>('#conversation-timing')!;
 const recognitionConsent = document.querySelector<HTMLInputElement>('#recognition-consent')!;
 const recognitionStartButton = document.querySelector<HTMLButtonElement>('#recognition-start')!;
@@ -321,6 +329,13 @@ async function copyDiagnosticReport(): Promise<void> {
     errorCode: lastErrorCode,
     fallbackCount: tohokuConversationFallbacks,
     microphoneResume: lastMicrophoneResumeStatus,
+    conversationEngine: conversationEngineMode,
+    conversationTopic: lastConversationTopic,
+    conversationIntent: lastConversationQuality?.intent ?? 'unknown',
+    replyType: lastConversationQuality?.replyType ?? 'UNKNOWN',
+    recentQuestionRate: lastConversationQuality?.questionRate ?? null,
+    duplicateReplyCount: lastConversationQuality?.duplicateReplyCount ?? 0,
+    conversationFallbackCount: conversationFallbackReplyCount,
   });
   if (!navigator.clipboard?.writeText) {
     diagnosticCopyStatus.value = 'クリップボード非対応です。下のテキストを長押ししてコピーしてください。';
@@ -645,6 +660,11 @@ function updateConversationTiming(): void {
   renderLatencySummary();
 }
 
+function renderConversationQuality(result: ConversationResult, quality: ConversationQuality | null): void {
+  const recentQuestionRate = quality ? `${Math.round(quality.questionRate * 100)}%` : 'UNKNOWN（従来エンジン）';
+  conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / 意図=${quality?.intent ?? '未分類'} / 返答=${quality?.replyType ?? '未分類'} / 直近質問率=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / フォールバック累計=${conversationFallbackReplyCount}`;
+}
+
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
   const completed = turnCompletionGate.complete(token, conversationGeneration, () => {
     finishReactionResponseOnce(reason, token);
@@ -900,10 +920,21 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     submittedUtteranceEndedAt = performance.now();
   }
   const generationStart = performance.now();
-  const result = conversationEngine.reply(text, conversationContext);
+  const engine: ConversationEngine = conversationEngineMode === 'natural' ? naturalConversationEngine : legacyConversationEngine;
+  const safeReply = replyWithFallback(engine, text, conversationContext);
+  const result: ConversationResult = safeReply.result;
+  const quality: ConversationQuality | null = result.quality ?? null;
+  if (safeReply.failed) {
+    conversationFallbackReplyCount += 1;
+    lastErrorCode = 'CONVERSATION_ENGINE_FALLBACK';
+  }
+  if (quality?.fallback && !safeReply.failed) conversationFallbackReplyCount += 1;
+  lastConversationQuality = quality;
+  lastConversationTopic = result.topic;
   replyGenerationMs = performance.now() - generationStart;
   latencySamples.record('generation', replyGenerationMs);
-  conversationContext = result.context;
+  conversationContext = { ...conversationContext, ...result.context };
+  renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
   updateConversationTiming();
@@ -1465,6 +1496,9 @@ function setDebug(value: boolean): void {
     resetTohokuConversationAudio('デバッグ画面を閉じました。再表示後、保護者がTOHOKU音声を再有効化してください。', false);
     conversationGeneration += 1;
     conversationContext = { topic: null, turn: 0 };
+    lastConversationQuality = null;
+    lastConversationTopic = 'unknown';
+    conversationFallbackReplyCount = 0;
     conversationInput.value = '';
     recognitionInterim.value = '途中認識: --';
     recognitionFinal.value = '最終認識: --';
@@ -1562,6 +1596,11 @@ cameraStopButton.addEventListener('click', () => { void stopCamera(); });
 detectorStartButton.addEventListener('click', () => { void startDetection(); });
 detectorStopButton.addEventListener('click', () => { void stopDetection(); });
 conversationSendButton.addEventListener('click', () => { void submitConversation(); });
+conversationEngineSelect.value = conversationEngineMode;
+conversationEngineSelect.addEventListener('change', () => {
+  conversationEngineMode = conversationEngineSelect.value === 'legacy' ? 'legacy' : 'natural';
+  conversationQualityOutput.value = `会話エンジン: ${conversationEngineMode === 'natural' ? '新エンジン' : '従来エンジン'}。現在の短期文脈は端末内メモリに保持しています。`;
+});
 conversationInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
