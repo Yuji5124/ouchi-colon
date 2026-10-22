@@ -432,6 +432,7 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
       };
       tohokuAudio.onended = () => { tohokuStatus.value = '再生終了。音声データはメモリ内にあり、再生ボタンで再試聴できます。'; };
       tohokuAudio.onerror = () => {
+        lastErrorCode = 'TOHOKU_PREVIEW_PLAYBACK_FAILED';
         tohokuStatus.value = '生成音声の再生に失敗しました。既存iOS TTSで比較できます。';
         tohokuError.value = '生成したWAVをSafariで再生できませんでした。';
         tohokuPlayStopButton.disabled = true;
@@ -447,6 +448,7 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
     renderTohokuMetrics();
   }
   if (event.type === 'error') {
+    lastErrorCode = `TOHOKU_${String(event.stage ?? 'LAB').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
     tohokuError.value = `${event.stage ?? '実験'}エラー: ${event.message ?? '不明なエラー'}`;
     tohokuStatus.value = `${tohokuVoiceLab.status} 既存のiOS標準TTSは通常会話で引き続き利用できます。`;
     const available = tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated';
@@ -738,6 +740,8 @@ function speakReply(text: string, token: number): void {
     },
     onBoundary: () => { /* Mouth animation follows the actual onstart/onend interval. */ },
     onError: (message) => {
+      lastErrorCode = replyVoiceMode === 'tohoku' ? 'TOHOKU_PLAYBACK_FAILED' : 'IOS_TTS_ERROR';
+      setVisibleAppState(`エラー: ${lastErrorCode}`);
       recordSpeechStage('tts-end', `onerror:${message}`);
       speechStatus.value = `読み上げエラー: ${message}`;
     },
@@ -1251,6 +1255,8 @@ async function startCamera(): Promise<void> {
     renderTrackingStatus('カメラ映像は画面に表示されません');
   } catch (error) {
     cameraActive = false;
+    lastErrorCode = 'CAMERA_START_FAILED';
+    setVisibleAppState(`エラー: ${lastErrorCode}`);
     trackingStatus.value = cameraFailureMessage(error);
   } finally {
     trackingStarting = false;
@@ -1270,6 +1276,8 @@ async function startDetection(): Promise<void> {
     trackingFaceKnown = false;
   } catch (error) {
     detectorActive = false;
+    lastErrorCode = error instanceof DOMException ? 'CAMERA_PERMISSION_FAILED' : 'FACE_DETECTOR_START_FAILED';
+    setVisibleAppState(`エラー: ${lastErrorCode}`);
     trackingStatus.value = error instanceof DOMException ? cameraFailureMessage(error) : detectorFailureMessage(error);
   } finally {
     trackingStarting = false;
