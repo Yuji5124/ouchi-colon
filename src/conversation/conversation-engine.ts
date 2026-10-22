@@ -5,6 +5,7 @@ export type ConversationTopic =
 export interface ConversationContext {
   /** Short session-only memory; it is never persisted or sent to a server. */
   topic: ConversationTopic | null;
+  category?: string;
   turn: number;
   subject?: string | null;
   action?: string | null;
@@ -16,7 +17,7 @@ export interface ConversationContext {
   assistantQuestionFocus?: 'activity' | 'object' | 'color' | 'general' | null;
 }
 
-export type ConversationIntent = 'greeting' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'unknown';
+export type ConversationIntent = 'greeting' | 'farewell' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'preference' | 'preference-negative' | 'wish' | 'proposal' | 'unknown';
 export type ReplyType = 'REACT' | 'ACKNOWLEDGE' | 'SHARE' | 'IMAGINE' | 'QUESTION' | 'PLAY';
 
 export interface ConversationQuality {
@@ -26,6 +27,9 @@ export interface ConversationQuality {
   duplicateReplyCount: number;
   contextUsed: boolean;
   fallback: boolean;
+  category?: string;
+  ruleId?: string;
+  fallbackReason?: string | null;
 }
 
 export interface ConversationResult {
@@ -265,4 +269,4 @@ export interface LocalLLMConversationEngine extends ConversationEngine {
   readonly kind: 'local-llm';
 }
 
-export const EMPTY_CONVERSATION_CONTEXT: ConversationContext = { topic: null, turn: 0 };
+export const EMPTY_CONVERSATION_CONTEXT: ConversationContext = { topic: null, category: undefined, turn: 0 };

@@ -9,6 +9,7 @@ import {
   type ReplyType,
 } from './conversation-engine.ts';
 import { chooseReplyType, repeatedReplyCount } from './conversation-policy.ts';
+import { candidateFor, CONVERSATION_ENTITIES, matchConversationLibrary, escapeRegex, type ConversationCategory, type ConversationLibraryEntry } from './library/index.ts';
 
 interface ParsedUtterance {
   original: string;
@@ -19,6 +20,10 @@ interface ParsedUtterance {
   topic: ConversationTopic;
   corrected: boolean;
   fallback: boolean;
+  category: ConversationCategory | 'unknown';
+  ruleId: string | null;
+  fallbackReason: string | null;
+  libraryEntry: ConversationLibraryEntry | null;
 }
 
 const SUBJECTS: readonly [RegExp, string, ConversationTopic][] = [
@@ -38,6 +43,11 @@ const SUBJECTS: readonly [RegExp, string, ConversationTopic][] = [
   [/おやつ|ごはん/, 'ごはん', 'food'], [/食べもの|食べ物/, '食べもの', 'food'],
   [/ボール/, 'ボール', 'play'], [/ぬいぐるみ/, 'ぬいぐるみ', 'play'], [/おもちゃ/, 'おもちゃ', 'play'],
   [/お人形|人形/, 'お人形', 'play'], [/レゴ/, 'レゴ', 'play'],
+  ...CONVERSATION_ENTITIES.map((item): [RegExp, string, ConversationTopic] => [
+    new RegExp(`(?:${item.aliases.map(escapeRegex).sort((a, b) => b.length - a.length).join('|')})`),
+    item.canonical,
+    item.topic,
+  ]),
 ];
 
 const COLORS: readonly [RegExp, string][] = [
@@ -60,60 +70,58 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   const corrected = correctionPrefix.test(text);
   if (corrected) text = text.replace(correctionPrefix, '').trim();
 
-  if (corrected && (!text || /^(?:ちがう|違う)$/.test(text))) {
-    return { original: input, intent: 'correction', subject: null, action: null, feature: null, topic: previous.topic ?? 'daily', corrected: true, fallback: false };
-  }
-
-  const protectedReply = protectedConversationReply(text);
-  if (protectedReply) return { original: input, intent: 'unknown', subject: null, action: null, feature: null, topic: 'daily', corrected, fallback: false };
-  if (/こんにちは|おはよう|こんばんは|やっほ|ただいま|はじめまして/.test(text)) {
-    return { original: input, intent: 'greeting', subject: null, action: null, feature: null, topic: 'greeting', corrected, fallback: false };
-  }
-  if (/もう一回|もういっかい|もう一度|もっかい|聞こえない|なんて言った/.test(text)) {
-    return { original: input, intent: 'repeat', subject: previous.subject ?? null, action: previous.action ?? null, feature: previous.feature ?? null, topic: 'repeat', corrected, fallback: false };
-  }
-  if (/^(?:いや|ううん|やだ|いやだ|やめて|したくない|ちがう|違う)$/.test(text)) {
-    return { original: input, intent: 'refusal', subject: previous.subject ?? null, action: previous.action ?? null, feature: previous.feature ?? null, topic: previous.topic ?? 'daily', corrected, fallback: false };
-  }
-  if (/^(?:うん|うんうん|そう|そうだよ|はい|いいよ|いいね)$/.test(text)) {
-    return { original: input, intent: 'short-answer', subject: previous.subject ?? null, action: previous.action ?? null, feature: previous.feature ?? null, topic: previous.topic ?? 'daily', corrected, fallback: false };
-  }
-  if (/[？?]$|どうして|なんで|なに|何|どこ|だれ|誰|いつ|かな[？?]?$/.test(input.trim())) {
-    return { original: input, intent: 'question', subject: extractSubject(text)?.subject ?? previous.subject ?? null, action: previous.action ?? null, feature: previous.feature ?? null, topic: extractSubject(text)?.topic ?? previous.topic ?? 'daily', corrected, fallback: false };
-  }
-  if (/して|してよ|してね|してほしい|歌って|お話して|遊ぼう|遊んで/.test(text)) {
-    return { original: input, intent: 'request', subject: extractSubject(text)?.subject ?? previous.subject ?? null, action: null, feature: null, topic: extractSubject(text)?.topic ?? previous.topic ?? 'play', corrected, fallback: false };
-  }
-  if (/こわ|怖|かなしい|悲し|さみしい|寂し|いやだった|うれし|嬉し|たのし|楽しい/.test(text)) {
-    const topic: ConversationTopic = /こわ|怖/.test(text) ? 'scared' : /かなしい|悲し|さみしい|寂し|いやだった/.test(text) ? 'sad' : 'happy';
-    return { original: input, intent: 'emotion', subject: extractSubject(text)?.subject ?? null, action: null, feature: null, topic, corrected, fallback: false };
-  }
-
   const found = extractSubject(text);
   let subject = found?.subject ?? null;
   let topic = found?.topic ?? previous.topic ?? 'daily';
-  let action: string | null = /作っ|つくっ|組み立て/.test(text) ? '作った'
-    : /見つけ|みつけ/.test(text) ? '見つけた'
-      : /食べ|たべ/.test(text) ? '食べた'
-        : /遊ん|あそん/.test(text) ? '遊んだ'
-          : /走っ|走って/.test(text) ? '走った'
-            : /見た|みた|いた/.test(text) ? '見た' : null;
-  const feature = firstMatch(text, COLORS) ?? (/大き|おおき/.test(text) ? '大きい' : /小さ|ちいさ/.test(text) ? '小さい' : /いっぱい|たくさん|たくさん/.test(text) ? 'たくさん' : null);
+  let action: string | null = /作ろう|つくろう/.test(text) ? '作ろう'
+    : /作っ|つくっ|組み立て/.test(text) ? '作った'
+      : /見つけ|みつけ/.test(text) ? '見つけた'
+        : /食べ/.test(text) ? /たい/.test(text) ? '食べたい' : /よう/.test(text) ? '食べよう' : '食べた'
+          : /飲みたい/.test(text) ? '飲みたい' : /飲ん|のん/.test(text) ? '飲んだ'
+            : /遊ぼう|あそぼう/.test(text) ? '遊ぼう'
+              : /遊ん|あそん/.test(text) ? '遊んだ'
+                : /走っ|走って/.test(text) ? '走った'
+                  : /見た|みた|いた/.test(text) ? '見た' : null;
+  const feature = firstMatch(text, COLORS) ?? (/大き|おおき/.test(text) ? '大きい' : /小さ|ちいさ/.test(text) ? '小さい' : /いっぱい|たくさん/.test(text) ? 'たくさん' : null);
 
-  if (corrected && subject) {
-    // A correction replaces the stale referent; no previous object is carried forward.
-    action = /作っ|つくっ/.test(text) ? '作った' : action;
-  } else if (!action && subject && previous.assistantQuestionFocus === 'activity') action = '遊んだ';
-  else if (!action && subject && previous.assistantQuestionFocus === 'object') action = '作った';
-  else if (!action && subject === 'おうち' && previous.subject === 'ブロック') action = '作った';
-  if (!subject && /大き|おおき|小さ|ちいさ/.test(text)) subject = previous.subject ?? null;
+  if (!subject && /大き|おおき|小さ|ちいさ|赤い|あかい|青い|あおい|黄色|きいろ/.test(text)) subject = previous.subject ?? null;
   if (!found && subject) topic = previous.topic ?? 'daily';
+  if (!action && subject && previous.assistantQuestionFocus === 'activity') action = '遊んだ';
+  if (!action && subject && previous.assistantQuestionFocus === 'object') action = '作った';
+  if (!action && subject === 'おうち' && previous.subject === 'ブロック') action = '作った';
 
-  if (/うれし|嬉し|たのし|楽しい|かなしい|悲し|こわ|怖/.test(text)) {
-    return { original: input, intent: 'emotion', subject, action, feature, topic, corrected, fallback: !subject };
-  }
-  const hasSignal = Boolean(found || action || feature || /今日|きょう|幼稚園|保育園/.test(text));
-  return { original: input, intent: hasSignal ? corrected ? 'correction' : 'report' : 'unknown', subject, action, feature, topic, corrected, fallback: !hasSignal };
+  let intent: ConversationIntent = 'unknown';
+  if (corrected) intent = 'correction';
+  else if (/もう一回|もういっかい|もう一度|もっかい|聞こえない|なんて言った/.test(text)) intent = 'repeat';
+  else if (/^(?:いや|ううん|やだ|いやだ|やめて|したくない)$/.test(text)) intent = 'refusal';
+  else if (/^(?:うん|うんうん|そう|そうだよ|はい|いいよ|いいね)$/.test(text)) intent = 'short-answer';
+  else if (/^(?:ばいばい|バイバイ|またね|さようなら|じゃあね|おやすみ|ねるね)$/.test(text)) intent = 'farewell';
+  else if (/こんにちは|こんちは|おはよう|おはよ|こんばんは|こんばんわ|やっほ|ただいま|はじめまして/.test(text)) intent = 'greeting';
+  else if (/[？?]$|どうして|なんで|何で|なに|何|どこ|だれ|誰|いつ|かな$|どういうこと/.test(input.trim())) intent = 'question';
+  else if (/して|してよ|してね|してほしい|歌って|お話して|遊んで|コロン.*(?:きて|来て)/.test(text)) intent = 'request';
+  else if (/こわ|怖|かなしい|悲し|さみしい|寂し|いやだった|うれし|嬉し|たのし|楽しかっ|楽しい|つかれ|疲れ|ねむ|眠い|痛い|いたい/.test(text)) intent = 'emotion';
+  else if (/(?:好き|すき|大好き|だいすき)じゃない|(?:嫌い|きらい|大嫌い|だいきらい)/.test(text)) intent = 'preference-negative';
+  else if (/好き|すき|大好き|だいすき/.test(text)) intent = 'preference';
+  else if (/たい(?:な|よ|の)?$|ほしい|欲しい/.test(text)) intent = 'wish';
+  else if (/作ろう|つくろう|食べよう|飲もう|遊ぼう|あそぼう|しよう|やろう|しない[？?]?$/.test(text)) intent = 'proposal';
+  else if (found || action || feature || /今日|きょう|保育園|幼稚園/.test(text)) intent = 'report';
+  else if (previous.lastReplyWasQuestion && text.length <= 8 && subject) intent = 'report';
+
+  if (intent === 'preference' || intent === 'preference-negative') subject ??= previous.subject ?? null;
+  if (intent === 'emotion') topic = /こわ|怖/.test(text) ? 'scared' : /かなしい|悲し|さみしい|寂し|いやだった/.test(text) ? 'sad' : 'happy';
+  if (intent === 'greeting' || intent === 'farewell') topic = 'greeting';
+  if (intent === 'question' && !found) topic = previous.topic ?? 'daily';
+
+  const library = matchConversationLibrary(input.trim(), intent, previous);
+  const category = library.category === 'unknown' ? previous.category as ConversationCategory | undefined ?? 'unknown' : library.category;
+  const hasSignal = intent !== 'unknown' || Boolean(found || action || feature);
+  return {
+    original: input, intent, subject, action, feature, topic, corrected,
+    fallback: !hasSignal || (intent === 'unknown' && library.category === 'unknown'),
+    category, ruleId: library.entry?.id ?? (intent === 'correction' ? 'context.correction' : intent === 'short-answer' && previous.category ? 'context.short-answer' : null),
+    fallbackReason: intent === 'unknown' ? library.fallbackReason : null,
+    libraryEntry: library.entry,
+  };
 }
 
 function formatSubject(parsed: ParsedUtterance): string {
@@ -134,10 +142,34 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     if (/コロン.*乗/.test(parsed.original)) {
       return { text: '乗りたい！コロンは窓から景色を見る係！', focus: null, fallback: false };
     }
+    if (parsed.category === 'about-colon') {
+      if (/好き|すき|大好き|だいすき/.test(parsed.original)) return { text: 'うれしいな！コロンもあなたとお話しするのが好きだよ！', focus: null, fallback: false };
+      if (/名前|だれ|誰|なにもの|何者/.test(parsed.original)) return { text: 'コロンは、お話しするキャラクターだよ！', focus: null, fallback: false };
+      if (/なんさい|何歳|いくつ/.test(parsed.original)) return { text: 'コロンは年をとらないキャラクターなんだ。', focus: null, fallback: false };
+      if (/食べ|飲/.test(parsed.original)) return { text: 'コロンは食べたり飲んだりしないけど、食べ物のお話は好きだよ！', focus: null, fallback: false };
+      if (/寝|ねる|眠/.test(parsed.original)) return { text: 'コロンは眠らないけど、おやすみのお話は好きだよ！', focus: null, fallback: false };
+      if (/見え|見た|みえる/.test(parsed.original)) return { text: 'コロンは周りの物は見えないんだ。お話で教えてね！', focus: null, fallback: false };
+    }
+    if (parsed.category === 'food-drink' && parsed.subject) return { text: `コロンは食べないけど、${subject}のお話を聞くのは好きだよ！`, focus: null, fallback: false };
+    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
+    if (candidate) return { text: candidate, focus: null, fallback: false };
     return { text: `うーん、コロンも考え中！いっしょに考えてみよう！`, focus: null, fallback: false };
   }
   if (parsed.intent === 'greeting') {
-    return { text: turn % 2 ? 'やっほー！コロン、わくわくしてきた！' : 'こんにちは！会えてうれしいな！', focus: null, fallback: false };
+    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
+    return { text: candidate ?? (turn % 2 ? 'やっほー！コロン、わくわくしてきた！' : 'こんにちは！会えてうれしいな！'), focus: null, fallback: false };
+  }
+  if (parsed.intent === 'farewell') {
+    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
+    return { text: candidate ?? 'またお話ししようね！ばいばい！', focus: null, fallback: false };
+  }
+  if (parsed.intent === 'preference') return { text: `${subject}が好きなんだね！好きな気持ちが伝わってきたよ！`, focus: null, fallback: false };
+  if (parsed.intent === 'preference-negative') return { text: `そっか、${subject}は好きじゃないんだね。教えてくれてありがとう！`, focus: null, fallback: false };
+  if (parsed.intent === 'wish') return { text: `${subject}がいいんだね！いつかできるといいね！`, focus: null, fallback: false };
+  if (parsed.intent === 'proposal') {
+    if (parsed.category === 'food-drink') return { text: `いいね！${subject}のお料理ごっこをしよう！`, focus: null, fallback: false };
+    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
+    return { text: candidate ?? `いいね！${subject}でごっこ遊びしよう！`, focus: null, fallback: false };
   }
   if (parsed.intent === 'refusal') return { text: 'そっか、いやなんだね。無理しなくていいよ。', focus: null, fallback: false };
   if (parsed.intent === 'repeat') return { text: context.subject ? `もちろん！${subject}のお話を、ゆっくりもう一回するね。` : 'もちろん！どのお話をもう一回しようか？', focus: context.subject ? null : 'general', fallback: false };
@@ -152,7 +184,21 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
   }
   if (parsed.intent === 'emotion') {
     if (parsed.topic === 'sad' || parsed.topic === 'scared') return { text: 'そうだったんだね。近くの保護者にもお話ししてね。', focus: null, fallback: false };
+    if (/楽しかっ|たのしかっ/.test(parsed.original)) {
+      return { text: `${context.subject ?? 'それ'}、楽しかったんだね！`, focus: null, fallback: false };
+    }
+    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
+    if (candidate) return { text: candidate, focus: null, fallback: false };
     return { text: 'うれしい気持ち、コロンにも伝わったよ！', focus: null, fallback: false };
+  }
+  if (parsed.intent === 'report' && parsed.subject && parsed.action) {
+    const replies = parsed.action === '食べた' ? [`${subject}を食べたんだね！おいしそう！`, `${subject}を食べたんだ！どんな味だった？`, `${subject}を食べたんだね。おなかもにこにこかな！`]
+      : parsed.action === '飲んだ' ? [`${subject}を飲んだんだね！`, `${subject}を飲んで、のどがすっきりしたかな！`, `${subject}を飲んだんだ！いいね！`]
+        : parsed.action === '遊んだ' ? [`${parsed.subject === 'ブロック' ? 'ブロックで' : `${subject}と`}遊んだんだね！楽しそう！`, `${subject}と遊んだんだ！いい時間だったね！`, `${subject}で遊んだんだね。コロンもわくわく！`]
+          : parsed.action === '作った' ? [`${subject}を作ったんだね！すてき！`, `${subject}ができたんだ！かっこいいね！`, `${subject}を作ったの！コロンも見てみたいな！`]
+            : parsed.action === '見つけた' && parsed.subject === 'クモの巣' ? ['クモのおうち、見つけたの！', 'クモの巣を見つけたんだね！', 'えー！クモのおうちがあったの！']
+              : parsed.action === '見た' || parsed.action === '見つけた' ? [`${coloredSubject}を見たんだね！`, `${coloredSubject}を見つけたんだ！`, `わあ、${coloredSubject}がいたんだね！`] : null;
+    if (replies) return { text: replies[turn % replies.length]!, focus: null, fallback: false };
   }
   if (parsed.intent === 'unknown') {
     if (type !== 'QUESTION') {
@@ -229,6 +275,10 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     };
     return { text: blockReplies[type] ?? 'ブロックのお話、わくわくするね！', focus: null, fallback: false };
   }
+  if (parsed.libraryEntry) {
+    const candidate = candidateFor(parsed.libraryEntry, type, turn, subject);
+    if (candidate) return { text: candidate, focus: type === 'QUESTION' ? 'general' : null, fallback: false };
+  }
   if (parsed.subject) {
     if (type === 'QUESTION' && parsed.topic === 'play') return { text: `それで何して遊んだの？`, focus: 'activity', fallback: false };
     if (type === 'QUESTION') return { text: `${subject}、どんなところが好き？`, focus: 'general', fallback: false };
@@ -243,7 +293,7 @@ export class NaturalConversationEngine implements ConversationEngine {
   reply(input: string, context: ConversationContext): ConversationResult {
     const protectedReply = protectedConversationReply(input.trim());
     if (protectedReply) {
-      return { text: protectedReply.text, topic: 'safety', context: { ...context, turn: context.turn + 1 }, quality: { intent: 'unknown', replyType: 'ACKNOWLEDGE', questionRate: 0, duplicateReplyCount: 0, contextUsed: false, fallback: false } };
+      return { text: protectedReply.text, topic: 'safety', context: { ...context, category: 'safety', turn: context.turn + 1 }, quality: { intent: 'emotion', replyType: 'ACKNOWLEDGE', questionRate: 0, duplicateReplyCount: 0, contextUsed: false, fallback: false, category: 'safety', ruleId: 'safety.protected-content', fallbackReason: null } };
     }
 
     const parsed = parseUtterance(input, context);
@@ -280,9 +330,13 @@ export class NaturalConversationEngine implements ConversationEngine {
       duplicateReplyCount: repeatedReplyCount(nextIds),
       contextUsed: Boolean(context.subject || context.action || context.feature || context.lastReplyWasQuestion || context.assistantQuestionFocus),
       fallback: reply.fallback || parsed.fallback,
+      category: parsed.category,
+      ruleId: parsed.ruleId ?? undefined,
+      fallbackReason: (reply.fallback || parsed.fallback) ? parsed.fallbackReason ?? (parsed.libraryEntry ? null : 'no-specific-response-rule') : null,
     };
     const nextContext: ConversationContext = {
       topic: parsed.topic,
+      category: parsed.category,
       turn: context.turn + 1,
       subject: parsed.subject ?? (parsed.corrected ? null : context.subject ?? null),
       action: parsed.action ?? (parsed.corrected ? null : context.action ?? null),

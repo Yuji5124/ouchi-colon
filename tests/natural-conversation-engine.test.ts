@@ -147,7 +147,7 @@ test('quality memory retains only bounded reply identifiers and session annotati
   assert.ok((context.recentReplyTypes?.length ?? 0) <= 10);
   assert.ok((context.recentReplyIds?.length ?? 0) <= 10);
   assert.deepEqual(Object.keys(context).sort(), [
-    'action', 'assistantQuestionFocus', 'feature', 'intent', 'lastReplyWasQuestion', 'recentReplyIds',
+    'action', 'assistantQuestionFocus', 'category', 'feature', 'intent', 'lastReplyWasQuestion', 'recentReplyIds',
     'recentReplyTypes', 'subject', 'topic', 'turn',
   ]);
   assert.doesNotMatch(JSON.stringify(context), /電車を見た/);

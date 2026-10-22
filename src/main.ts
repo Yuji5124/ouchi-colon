@@ -739,7 +739,7 @@ function updateConversationTiming(): void {
 
 function renderConversationQuality(result: ConversationResult, quality: ConversationQuality | null): void {
   const recentQuestionRate = quality ? `${Math.round(quality.questionRate * 100)}%` : 'UNKNOWN（従来エンジン）';
-  conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / 意図=${quality?.intent ?? '未分類'} / 返答=${quality?.replyType ?? '未分類'} / 質問率(直近10返答)=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / fallback累計=${conversationFallbackReplyCount}（内容不明/汎用=${conversationContentFallbackCount}・エンジン例外=${conversationEngineErrorFallbackCount}、デバッグセッション内）`;
+  conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / カテゴリー=${quality?.category ?? '未分類'} / 意図=${quality?.intent ?? '未分類'} / 適用ルール=${quality?.ruleId ?? 'なし'} / fallback理由=${quality?.fallbackReason ?? 'なし'} / 返答=${quality?.replyType ?? '未分類'} / 質問率(直近10返答)=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / fallback累計=${conversationFallbackReplyCount}（内容不明/汎用=${conversationContentFallbackCount}・エンジン例外=${conversationEngineErrorFallbackCount}、デバッグセッション内）`;
 }
 
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
