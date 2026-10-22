@@ -49,6 +49,7 @@ test('service worker caches app assets and approved face detector resources offl
   await installWork;
   assert.ok(await caches.match(`${origin}/ouchi-colon/`), 'app shell is cached during install');
   assert.ok(await caches.match(`${origin}/ouchi-colon/manifest.webmanifest`), 'manifest is cached during install');
+  assert.ok(await caches.match(`${origin}/ouchi-colon/icons/ouchicolon-192.png`), 'PWA icon is included in the app shell');
 
   const pngRequest = { method: 'GET', mode: 'cors', url: `${origin}/ouchi-colon/assets/face/eyes/open.png` };
   let networkResponse!: Promise<Response>;
@@ -198,8 +199,8 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v15');
-  await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest']);
+  const current = await open('ouchicolon-shell-v16');
+  await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest', '/ouchi-colon/icons/ouchicolon-192.png', '/ouchi-colon/icons/ouchicolon-512.png']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
   await activation;
@@ -216,5 +217,13 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v15');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v16');
+});
+
+test('service worker v16 replaces the app shell while retaining lazy TOHOKU assets', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  assert.match(source, /ouchicolon-shell-v16/);
+  assert.match(source, /cache\.addAll\(SHELL\)/);
+  assert.match(source, /if \(await destination\.match\(request\)\) continue/);
+  assert.match(source, /cache\.put\(request, copy\)/);
 });

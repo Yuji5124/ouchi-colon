@@ -31,17 +31,28 @@ body { overscroll-behavior: none; }
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   max-height: calc(100dvh - 24px);
+  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
   overflow: auto;
 }
 .debug[hidden] { display: none; }
 .debug__top, .debug__controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .debug__top { justify-content: space-between; margin-bottom: 10px; }
+.debug__top strong { display: inline-flex; align-items: center; gap: 7px; }
 .debug__expressions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.debug button { border: 1px solid #d4c2a6; border-radius: 9px; padding: 7px 10px; color: #3b281c; background: #fff; font: inherit; }
+.debug button { min-height: 44px; border: 1px solid #d4c2a6; border-radius: 9px; padding: 7px 10px; color: #3b281c; background: #fff; font: inherit; }
 .debug button:active { background: #f2ddc2; }
 .debug input { vertical-align: middle; }
+.icon { display: inline-block; width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.debug__quick, .debug__copy { display: grid; gap: 7px; margin: 8px 0; padding: 9px; border: 1px solid #e3d4bd; border-radius: 10px; }
+.debug__quick output, .debug__copy output { font-size: 13px; overflow-wrap: anywhere; }
+.debug__quick .debug__controls { gap: 6px; }
+.debug__quick label { display: flex; align-items: center; gap: 6px; min-height: 36px; }
+.debug__quick select { max-width: 100%; padding: 7px; border: 1px solid #d4c2a6; border-radius: 8px; color: #3b281c; background: #fff; font: inherit; }
+#diagnostic-report { user-select: text; white-space: pre-wrap; }
 .debug small { display: block; margin-top: 8px; color: #6f5b48; }
 .debug__fps { display: inline-block; margin-top: 8px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.debug__advanced { display: grid; gap: 7px; margin: 8px 0; padding: 8px; border: 1px solid #e3d4bd; border-radius: 10px; }
+.debug__advanced > summary, .debug details > summary { min-height: 32px; cursor: pointer; font-weight: 650; }
 .debug__tracking { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e3d4bd; }
 .debug__tracking output { font-size: 13px; }
 .debug__tracking button:disabled { opacity: 0.55; }
@@ -75,6 +86,8 @@ body { overscroll-behavior: none; }
 .debug--minimized .debug__top strong,
 .debug--minimized .debug__expressions,
 .debug--minimized .debug__conversation,
+.debug--minimized .debug__quick,
+.debug--minimized .debug__copy,
 .debug--minimized > .debug__controls,
 .debug--minimized .debug__tracking > strong,
 .debug--minimized .debug__tracking > .debug__controls,
@@ -84,3 +97,7 @@ body { overscroll-behavior: none; }
 .debug--minimized .debug__tracking { margin: 4px 0 0; padding: 0; border: 0; }
 .debug--minimized .debug__tracking output { font-size: 13px; }
 .camera-source { position: fixed; z-index: -1; left: -2px; top: -2px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .debug { top: max(6px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); width: min(560px, calc(100vw - 16px)); padding: 9px; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px); }
+  .debug__quick { gap: 4px; margin: 4px 0; padding: 6px; }
+}

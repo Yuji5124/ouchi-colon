@@ -12,6 +12,8 @@ import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtteranc
 import { TohokuVoiceLab, type TohokuLabEvent, type TohokuWorkerPort } from './speech/tohoku-voice-lab';
 import { runTohokuBenchmark, summarizeTohokuSamples, TohokuBenchmarkError } from './speech/tohoku-benchmark';
 import { TohokuConversationSpeech, WebAudioTohokuOutput } from './speech/tohoku-conversation-speech';
+import { createDiagnosticReport } from './app/diagnostic-report';
+import { canStartConversation, fallbackReplyVoice, INITIAL_REPLY_VOICE_MODE } from './speech/reply-voice-policy';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -74,6 +76,8 @@ let tohokuConversationFallbacks = 0;
 let tohokuConversationFailures = 0;
 let tohokuConversationTurnTracked = false;
 let tohokuConversationTurnFellBack = false;
+let visibleAppState = '保護者がTOHOKU Happyを準備してください';
+let lastErrorCode = 'なし';
 
 type SpeechStage =
   | 'microphone' | 'recognition-start' | 'voice-detected' | 'interim-result' | 'final-result'
@@ -131,6 +135,10 @@ const voiceTestButton = document.querySelector<HTMLButtonElement>('#voice-test')
 const speechRuntimeOutput = document.querySelector<HTMLOutputElement>('#speech-runtime')!;
 const speechStagesOutput = document.querySelector<HTMLOutputElement>('#speech-stages')!;
 const speechDiagnosticsOutput = document.querySelector<HTMLOutputElement>('#speech-diagnostics')!;
+const appStateOutput = document.querySelector<HTMLOutputElement>('#app-state')!;
+const diagnosticCopyButton = document.querySelector<HTMLButtonElement>('#diagnostic-copy')!;
+const diagnosticCopyStatus = document.querySelector<HTMLOutputElement>('#diagnostic-copy-status')!;
+const diagnosticReportOutput = document.querySelector<HTMLOutputElement>('#diagnostic-report')!;
 const mediaConcurrencyOutput = document.querySelector<HTMLOutputElement>('#media-concurrency')!;
 const nativeVoiceMode = document.querySelector<HTMLSelectElement>('#native-voice-mode')!;
 const nativeCancelFirst = document.querySelector<HTMLInputElement>('#native-cancel-first')!;
@@ -179,7 +187,7 @@ let tohokuAudioUrl: string | null = null;
 let tohokuAudio: HTMLAudioElement | null = null;
 let tohokuBenchmarkRunning = false;
 let tohokuBenchmarkCancelRequested = false;
-let replyVoiceMode: 'ios' | 'tohoku' = 'ios';
+let replyVoiceMode: 'ios' | 'tohoku' = INITIAL_REPLY_VOICE_MODE;
 let tohokuConversationActivated = false;
 let diagnosticOwner: 'native' | 'wrapper' | null = null;
 let diagnosticEvents: string[] = [];
@@ -251,6 +259,73 @@ function renderSpeechRuntime(): void {
   speechRuntimeOutput.value = `音声状態: ${local} / 選択=${selected} / TOHOKU音声有効=${tohokuConversationActivated} / paused=${speechEngine.isPaused} / browser speaking=${speechEngine.browserSpeaking} / pending=${speechEngine.browserPending} / ${voice}`;
 }
 
+function setVisibleAppState(value: string): void {
+  visibleAppState = value;
+  if (appStateOutput) appStateOutput.value = `状態: ${value}`;
+}
+
+const ACTION_ICONS: Record<string, string> = {
+  wave: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2-6 4 12 3-9 2 6h4" /></svg>',
+  mic: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8" /></svg>',
+  speaker: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12" /></svg>',
+  face: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 10h.01M16 10h.01M8 15q4 4 8 0" /></svg>',
+  gear: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.8l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.5-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.5.9l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1-.1 1.7Z" /></svg>',
+};
+
+function assembleQuickActions(): void {
+  const root = document.querySelector<HTMLElement>('#quick-actions');
+  if (!root) return;
+  const consentLabels = [recognitionConsent.closest('label'), ttsEnabled.closest('label')].filter((item): item is HTMLLabelElement => item instanceof HTMLLabelElement);
+  const engineLabel = replyVoiceEngineSelect.closest('label');
+  const items: Array<[HTMLButtonElement, string]> = [
+    [tohokuInitButton, 'wave'], [tohokuConversationEnableButton, 'speaker'],
+    [recognitionStartButton, 'mic'], [recognitionStopButton, 'mic'],
+    [cameraStartButton, 'face'], [cameraStopButton, 'face'],
+    [detectorStartButton, 'face'], [detectorStopButton, 'face'],
+    [speechStopButton, 'speaker'],
+  ];
+  const add = (item: HTMLButtonElement, icon: string): void => {
+    if (!item.querySelector('svg')) item.insertAdjacentHTML('afterbegin', ACTION_ICONS[icon]!);
+    root.append(item);
+  };
+  add(tohokuInitButton, 'wave');
+  add(tohokuConversationEnableButton, 'speaker');
+  for (const label of consentLabels) root.append(label);
+  if (engineLabel) root.append(engineLabel);
+  for (const [item, icon] of items.slice(2)) add(item, icon);
+  minimizeDebugButton.insertAdjacentHTML('afterbegin', ACTION_ICONS.face!);
+  replyVoiceEngineSelect.value = replyVoiceMode;
+}
+
+async function copyDiagnosticReport(): Promise<void> {
+  const report = createDiagnosticReport({
+    appVersion: __APP_VERSION__,
+    commit: __APP_COMMIT__,
+    serviceWorker: workerCacheStatus,
+    voiceEngine: replyVoiceMode === 'tohoku' ? 'TOHOKU Happy' : 'iOS標準TTS（フォールバック）',
+    tohokuModel: `${tohokuVoiceLab.state}${tohokuConversationActivated ? ' / 会話音声有効' : ' / 会話音声未有効'}`,
+    microphone: recognitionEngine.isActive ? 'ON' : 'OFF',
+    camera: cameraActive ? 'ON' : 'OFF',
+    lastGenerationMs: tohokuVoiceLab.lastGenerationMs,
+    lastPlaybackStartMs: ttsStartMs,
+    conversationTurns: ttsEndTurnCount,
+    errorCode: lastErrorCode,
+    fallbackCount: tohokuConversationFallbacks,
+  });
+  if (!navigator.clipboard?.writeText) {
+    diagnosticCopyStatus.value = 'クリップボード非対応です。下のテキストを長押ししてコピーしてください。';
+    diagnosticReportOutput.value = report;
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(report);
+    diagnosticCopyStatus.value = '診断結果をコピーしました。認識した文章・会話履歴は含みません。';
+  } catch {
+    diagnosticCopyStatus.value = '自動コピーできません。下のテキストを長押ししてコピーしてください。';
+    diagnosticReportOutput.value = report;
+  }
+}
+
 function renderMediaConcurrency(): void {
   const speaking = tohokuConversationSpeech.isBusy || speechEngine.isSpeaking || speechEngine.isPending;
   mediaConcurrencyOutput.value = `カメラ ${cameraActive ? 'ON' : 'OFF'} / 顔検出 ${detectorActive ? 'ON' : 'OFF'} / 認識 ${recognitionEngine.isActive ? 'ON' : 'OFF'} / TTS ${speaking ? '生成/再生中' : 'OFF'} / 描画 ${latestRenderFps?.toFixed(1) ?? '--'} FPS`;
@@ -260,16 +335,18 @@ function isAnySpeechActive(): boolean {
   return speechEngine.shouldSuppressRecognition || tohokuConversationSpeech.isBusy;
 }
 
-function resetTohokuConversationAudio(message: string): void {
+function resetTohokuConversationAudio(message: string, useIosFallback = true): void {
   tohokuConversationSpeech.close();
   talking = false;
   state.mouthOpen = 0;
   mouthMotionStartedAt = null;
   tohokuConversationActivated = false;
-  replyVoiceMode = 'ios';
-  replyVoiceEngineSelect.value = 'ios';
+  replyVoiceMode = useIosFallback ? fallbackReplyVoice() : INITIAL_REPLY_VOICE_MODE;
+  replyVoiceEngineSelect.value = replyVoiceMode;
   replyVoiceEngineSelect.options[1]!.disabled = true;
   tohokuConversationStatus.value = message;
+  setVisibleAppState(`${useIosFallback ? 'iOS音声へ切替' : 'TOHOKU再有効化待ち'}: ${message}`);
+  renderSpeechRuntime();
 }
 
 speechEngine.onVoicesChanged(() => {
@@ -337,7 +414,8 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
     tohokuInitButton.disabled = true;
     tohokuStopButton.disabled = false;
     tohokuConversationEnableButton.disabled = false;
-    tohokuConversationStatus.value = 'モデル準備完了。通常会話へ使う場合は、保護者が「会話用の音声を有効化」を押してください。';
+    tohokuConversationStatus.value = 'モデル準備完了。保護者が「会話用の音声を有効化」を押して試聴すると、TOHOKU Happyで会話を開始できます。';
+    setVisibleAppState('TOHOKUモデル準備完了・音声有効化待ち');
   }
   if (event.type === 'generated' && event.wav) {
     if (event.purpose !== 'conversation') {
@@ -378,6 +456,10 @@ tohokuVoiceLab.onEvent((event: TohokuLabEvent) => {
     tohokuBenchmarkButton.disabled = !available;
     tohokuStopButton.disabled = !available;
     if (!available) tohokuConversationEnableButton.disabled = true;
+    if (!available) {
+      lastErrorCode = `TOHOKU_${String(event.stage ?? 'INIT').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+      resetTohokuConversationAudio(`TOHOKU準備失敗 (${lastErrorCode})。iOS標準TTSへ切り替えました。`);
+    }
   }
 });
 
@@ -385,12 +467,15 @@ async function initializeTohokuLab(): Promise<void> {
   tohokuInitButton.disabled = true;
   tohokuError.value = '';
   tohokuStatus.value = 'Worker、WASM、圧縮辞書、Happyモデルを読み込んでいます。カメラとマイクを止めておくと端末負荷を抑えられます。';
+  setVisibleAppState('TOHOKUモデル読み込み中');
   try {
     await tohokuVoiceLab.initialize();
   } catch (error) {
-    tohokuStatus.value = `${tohokuVoiceLab.status} 通常会話はiOS標準TTSを維持しています。`;
+    lastErrorCode = 'TOHOKU_INIT_FAILED';
+    tohokuStatus.value = `${tohokuVoiceLab.status} 通常会話はiOS標準TTSへ切り替えます。`;
     tohokuError.value = error instanceof Error ? error.message : '初期化に失敗しました。';
     tohokuInitButton.disabled = false;
+    resetTohokuConversationAudio(`TOHOKUモデル初期化失敗 (${lastErrorCode})。iOS標準TTSへ切り替えました。`);
   }
 }
 
@@ -401,6 +486,7 @@ async function enableTohokuConversationAudio(): Promise<void> {
   }
   tohokuConversationEnableButton.disabled = true;
   tohokuConversationStatus.value = 'この操作で会話用音声を有効化し、確認のあいさつを生成して再生します…';
+  setVisibleAppState('TOHOKU確認音声を生成中');
   try {
     // The AudioContext is created and resume() is invoked synchronously in this user gesture.
     await tohokuConversationSpeech.unlock();
@@ -408,6 +494,7 @@ async function enableTohokuConversationAudio(): Promise<void> {
       talking = true;
       applyReaction('RESPONSE_STARTED');
       tohokuConversationStatus.value = '確認音声を再生中です。聞こえたか確認してください。';
+      setVisibleAppState('TOHOKU確認音声を再生中（端末で聞こえたか確認してください）');
     });
     talking = false;
     state.mouthOpen = 0;
@@ -421,13 +508,18 @@ async function enableTohokuConversationAudio(): Promise<void> {
     }
     tohokuConversationActivated = true;
     replyVoiceEngineSelect.options[1]!.disabled = false;
-    tohokuConversationStatus.value = '確認音声の再生イベントが完了しました。実際に聞こえたことを確認したら、会話の声からTOHOKU Happyを選んでください。';
+    replyVoiceMode = 'tohoku';
+    replyVoiceEngineSelect.value = 'tohoku';
+    tohokuConversationStatus.value = 'TOHOKU Happyの会話準備が完了しました。確認音声が聞こえたことを保護者が確認してから会話を開始してください。';
+    setVisibleAppState('TOHOKU Happy準備完了・会話開始待ち');
+    renderSpeechRuntime();
   } catch (error) {
     talking = false;
     state.mouthOpen = 0;
     tohokuConversationActivated = false;
     replyVoiceEngineSelect.options[1]!.disabled = true;
-    tohokuConversationStatus.value = `会話用音声を有効化できませんでした: ${error instanceof Error ? error.message : 'Web Audio非対応'} iOS標準TTSは引き続き使えます。`;
+    lastErrorCode = 'TOHOKU_AUDIO_UNLOCK_FAILED';
+    resetTohokuConversationAudio(`会話用音声を有効化できませんでした (${lastErrorCode})。iOS標準TTSへ切り替えました: ${error instanceof Error ? error.message : 'Web Audio非対応'}`);
   } finally {
     tohokuConversationEnableButton.disabled = tohokuVoiceLab.state !== 'ready' && tohokuVoiceLab.state !== 'generated';
     renderSpeechRuntime();
@@ -565,6 +657,10 @@ function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: nu
   if (reason === 'finished') speechStatus.value = '読み上げが終わりました。音声は保存していません。';
   if (reason === 'stopped') speechStatus.value = '読み上げを停止しました。';
   if (reason === 'error') speechStatus.value = '音声を開始または継続できませんでした。診断状態を確認してください。';
+  setVisibleAppState(reason === 'finished' && voiceResponseActive && recognitionEnabled
+    ? '音声終了・マイク再開中'
+    : reason === 'stopped' ? '音声停止・マイクは自動再開しません'
+      : reason === 'error' ? `エラー: ${lastErrorCode}` : '待機中');
   if (reason === 'stopped' && voiceResponseActive) {
     recognitionEnabled = false;
     recognitionStatus.value = '読み上げを停止しました。音声認識は自動再開しません。保護者が開始ボタンを押してください。';
@@ -594,6 +690,7 @@ function speakReply(text: string, token: number): void {
   activeReplyEngineForTurn = replyVoiceMode;
   updateConversationTiming();
   recordSpeechStage('tts-request', `返答${text.length}文字`);
+  setVisibleAppState('返答生成完了・音声出力準備中');
   if (!ttsEnabled.checked) {
     speechStatus.value = '読み上げOFF。返答は文字で表示しています。';
     finishReactionResponse('text-only', token);
@@ -637,6 +734,7 @@ function speakReply(text: string, token: number): void {
       speechStatus.value = replyVoiceMode === 'tohoku'
         ? 'TOHOKU Happyを再生中です。再生終了後に音声認識を再開します。'
         : 'iOS日本語音声で読み上げています。マイク入力は使用していません。';
+      setVisibleAppState(`再生中（${replyVoiceMode === 'tohoku' ? 'TOHOKU Happy' : 'iOS音声'} onstart確認・可聴は端末確認が必要）`);
     },
     onBoundary: () => { /* Mouth animation follows the actual onstart/onend interval. */ },
     onError: (message) => {
@@ -652,14 +750,15 @@ function speakReply(text: string, token: number): void {
   };
   if (replyVoiceMode === 'tohoku') {
     if (!tohokuConversationActivated || (tohokuVoiceLab.state !== 'ready' && tohokuVoiceLab.state !== 'generated')) {
-      speechStatus.value = 'TOHOKU Happyは準備されていません。iOS標準TTSへ切り替えて返答します。';
-      tohokuConversationTurnFellBack = tohokuConversationTurnTracked;
-      activeReplyEngineForTurn = 'ios-fallback';
-      replyVoiceMode = 'ios';
-      replyVoiceEngineSelect.value = 'ios';
-      speakWithNativeTts(text, callbacks);
+      speechStatus.value = 'TOHOKU Happyは未準備のため会話を開始できません。保護者が音声を準備してください。';
+      setVisibleAppState('TOHOKU未準備・会話開始を停止');
+      recognitionEnabled = false;
+      voiceResponseActive = false;
+      updateRecognitionButtons();
+      return;
     } else {
       speechStatus.value = 'TOHOKU Happyで返答音声を生成しています…';
+      setVisibleAppState('TOHOKU音声生成中');
       renderMediaConcurrency();
       void tohokuConversationSpeech.speak(text, callbacks.onStart ?? (() => undefined)).then((result) => {
         if (token !== conversationGeneration) return;
@@ -673,6 +772,8 @@ function speakReply(text: string, token: number): void {
         if (result.reason === 'error') {
           recordSpeechStage('tts-end', `TOHOKU失敗:${result.error ?? 'unknown'}`);
           speechStatus.value = `TOHOKU Happyを再生できません。iOS標準TTSへ切り替えます。${result.error ?? ''}`;
+          lastErrorCode = 'TOHOKU_GENERATION_OR_PLAYBACK_FAILED';
+          setVisibleAppState(`iOS音声へ切替: ${lastErrorCode}`);
           tohokuConversationStatus.value = `会話中の失敗からiOS標準TTSへ復帰しました: ${result.error ?? '不明なエラー'}`;
           resetTohokuConversationAudio(`会話中の失敗からiOS標準TTSへ復帰しました: ${result.error ?? '不明なエラー'} Happyモデルを再準備するまでiOS標準TTSを使います。`);
           replyVoiceMode = 'ios';
@@ -945,8 +1046,9 @@ function startVoiceRecognition(isResume = false): void {
     recognitionStatus.value = 'このブラウザーはWeb Speech音声認識に対応していません。手入力で会話を試せます。';
     return;
   }
-  if (replyVoiceMode === 'tohoku' && !tohokuConversationActivated) {
-    recognitionStatus.value = 'TOHOKU Happyの会話準備ができていません。iOS標準TTSへ戻すか、声モデルと音声を準備してください。';
+  if (!canStartConversation(replyVoiceMode, tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated', tohokuConversationActivated)) {
+    recognitionStatus.value = 'TOHOKU Happyが優先音声です。先に保護者がモデルを準備し、確認音声を再生してください。';
+    setVisibleAppState('TOHOKU未準備・会話開始を停止');
     return;
   }
   if (isAnySpeechActive()) {
@@ -960,10 +1062,12 @@ function startVoiceRecognition(isResume = false): void {
   recognitionInterim.value = '途中認識: --';
   recognitionFinal.value = '最終認識: --';
   recognitionStatus.value = 'マイクを開始しています…';
+  setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
   const result = recognitionEngine.start({
     onStart: () => {
       window.clearTimeout(idleSleepTimer);
       recognitionStatus.value = 'マイクON・日本語音声を認識しています。停止ボタンで終了できます。';
+      setVisibleAppState('音声認識中');
       updateRecognitionButtons();
       applyReaction('VOICE_INPUT_STARTED');
       recordSpeechStage('microphone', '許可済み/音声入力開始');
@@ -978,6 +1082,7 @@ function startVoiceRecognition(isResume = false): void {
       submittedUtteranceEndedAt = 0;
       utteranceEndAt = null;
       recognitionStatus.value = '声を検出しました。聞いています…';
+      setVisibleAppState('発話を検出・聞いています');
       applyReaction('UTTERANCE_DETECTED');
       recordSpeechStage('voice-detected', '発話あり');
       voiceReactionMs = performance.now() - receivedAt;
@@ -989,6 +1094,7 @@ function startVoiceRecognition(isResume = false): void {
       submittedUtteranceEndedAt = performance.now();
       utteranceEndAt = submittedUtteranceEndedAt;
       recognitionStatus.value = '発話が終わりました。認識結果を待っています…';
+      setVisibleAppState('発話終了・認識確定待ち');
       applyReaction('UTTERANCE_ENDED');
     },
     onInterim: (text) => {
@@ -1000,6 +1106,8 @@ function startVoiceRecognition(isResume = false): void {
       }
     },
     onError: (code, message) => {
+      lastErrorCode = `SPEECH_RECOGNITION_${code.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+      setVisibleAppState(`エラー: ${lastErrorCode}`);
       recognitionEnabled = false;
       recordSpeechStage('microphone', `失敗:${code}`);
       recordSpeechStage('recognition-start', `失敗:${code}`);
@@ -1025,6 +1133,7 @@ function startVoiceRecognition(isResume = false): void {
         recordSpeechStage('final-result', `${finalText.length}文字`);
         recognitionFinal.value = `最終認識: ${finalText}`;
         recognitionStatus.value = '認識できました。短い返事を考えています…';
+        setVisibleAppState('認識確定・返答生成中');
         if (!speechEndHandled) {
           speechEndHandled = true;
           submittedUtteranceEndedAt = performance.now();
@@ -1064,6 +1173,7 @@ function stopVoiceRecognition(): void {
   voiceResponseActive = false;
   recognitionEngine.abort();
   recognitionStatus.value = 'マイクを停止しました。OuchiColonは音声を保存していません。';
+  setVisibleAppState('マイク停止');
   recognitionInterim.value = '途中認識: --';
   updateRecognitionButtons();
   recordSpeechStage('recognition-resume', 'マイク停止・自動再開禁止');
@@ -1213,7 +1323,7 @@ function setDebug(value: boolean): void {
     nativeTtsDiagnostic.stopFromUserGesture();
     stopVoiceRecognition();
     speechEngine.stop();
-    resetTohokuConversationAudio('デバッグ画面を閉じました。通常会話はiOS標準TTSです。再表示後、保護者がTOHOKU音声を再有効化できます。');
+    resetTohokuConversationAudio('デバッグ画面を閉じました。再表示後、保護者がTOHOKU音声を再有効化してください。', false);
     conversationGeneration += 1;
     conversationContext = { topic: null, turn: 0 };
     conversationInput.value = '';
@@ -1300,9 +1410,12 @@ function speechMouthTarget(now: number, startedAt: number): number {
 buildDebugControls();
 setDebug(debug);
 document.querySelector('#close-debug')!.addEventListener('click', () => setDebug(false));
+assembleQuickActions();
+setVisibleAppState(visibleAppState);
+diagnosticCopyButton.addEventListener('click', () => { void copyDiagnosticReport(); });
 minimizeDebugButton.addEventListener('click', () => {
   const minimized = debugPanel.classList.toggle('debug--minimized');
-  minimizeDebugButton.textContent = minimized ? '設定' : '顔を見る';
+  minimizeDebugButton.innerHTML = `${minimized ? ACTION_ICONS.gear : ACTION_ICONS.face}${minimized ? '設定' : '顔を見る'}`;
   minimizeDebugButton.setAttribute('aria-label', minimized ? '設定パネルを開く' : '顔を見やすくする');
 });
 cameraStartButton.addEventListener('click', () => { void startCamera(); });
@@ -1350,7 +1463,7 @@ tohokuStopButton.addEventListener('click', () => {
   tohokuVoiceLab.stop();
   tohokuConversationSpeech.close();
   tohokuConversationActivated = false;
-  replyVoiceMode = 'ios';
+  replyVoiceMode = fallbackReplyVoice();
   replyVoiceEngineSelect.value = 'ios';
   replyVoiceEngineSelect.options[1]!.disabled = true;
   tohokuConversationEnableButton.disabled = true;
@@ -1488,7 +1601,7 @@ document.addEventListener('visibilitychange', () => {
     talking = false;
     stopVoiceRecognition();
     speechEngine.stop();
-    resetTohokuConversationAudio('ページが非表示になったため会話用音声を停止しました。戻ったら保護者が再度有効化してください。');
+    resetTohokuConversationAudio('ページが非表示になったため会話用音声を停止しました。戻ったら保護者が再度有効化してください。', false);
     conversationGeneration += 1;
     if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
     void stopCamera();
@@ -1499,7 +1612,7 @@ window.addEventListener('pagehide', () => {
   recognitionEnabled = false;
   recognitionEngine.abort();
   speechEngine.stop();
-  resetTohokuConversationAudio('ページを離れたため会話用音声を停止しました。');
+  resetTohokuConversationAudio('ページを離れたため会話用音声を停止しました。', false);
   void stopCamera();
 });
 

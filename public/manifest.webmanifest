@@ -9,5 +9,9 @@
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#fff4e1",
-  "theme_color": "#fff4e1"
+  "theme_color": "#fff4e1",
+  "icons": [
+    { "src": "/ouchi-colon/icons/ouchicolon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/ouchi-colon/icons/ouchicolon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
 }
