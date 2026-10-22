@@ -65,7 +65,7 @@ let lastMicrophoneResumeStatus = 'not requested';
 let responseFinishedAt: number | null = null;
 let idleSleepTimer = 0;
 let faceReactionTimer = 0;
-let submittedUtteranceEndedAt = 0;
+let submittedUtteranceEndedAt: number | null = null;
 let replyGenerationMs = 0;
 let ttsStartMs: number | null = null;
 let ttsStartDelayMs: number | null = null;
@@ -82,7 +82,10 @@ let latestRenderFps: number | null = null;
 let interimReactionSent = false;
 let pendingVisualReactionAt: number | null = null;
 let utteranceEndAt: number | null = null;
+let voiceDetectedAt: number | null = null;
+let finalRecognitionAt: number | null = null;
 let ttsRequestedAt: number | null = null;
+let tohokuGenerationFinishedAt: number | null = null;
 let mouthMotionStartedAt: number | null = null;
 let ttsEndTurnCount = 0;
 let tohokuConversationAttempts = 0;
@@ -402,9 +405,9 @@ function selectedSpeechSettings() {
 function renderLatencySummary(): void {
   const line = (name: string, label: string): string => {
     const value = latencySamples.summary(name);
-    return `${label} n=${value.count} 中央値=${value.median?.toFixed(0) ?? '--'}ms p95=${value.p95?.toFixed(0) ?? '--'}ms`;
+    return `${label} 直近=${value.last?.toFixed(0) ?? 'UNKNOWN'}ms 中央値=${value.median?.toFixed(0) ?? 'UNKNOWN'}ms p95=${value.p95?.toFixed(0) ?? 'UNKNOWN'}ms (n=${value.count})`;
   };
-  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '発話イベント→描画更新')}; ${line('final', '発話終了→認識確定')}; ${line('generation', '確定→返答生成')}; ${line('tohoku-generation', 'TOHOKU音声生成のみ')}; ${line('tts', 'TTS要求→再生開始')}; ${line('turn-tohoku', '発話終了→TOHOKU音声開始')}; ${line('turn-ios', '発話終了→iOS音声開始')}; ${line('turn-ios-fallback', '発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')}`;
+  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '認識イベント→描画更新')}; ${line('detected-final', '発話検出→最終認識')}; ${line('speechend-final', '発話終了→最終認識')}; ${line('final-reply', '最終認識→返答決定')}; ${line('generation', '返答選択処理')}; ${line('tohoku-generation-wall', '返答決定→TOHOKU生成完了')}; ${line('generated-start', '音声生成完了→再生開始')}; ${line('detected-start', '発話検出→再生開始')}; ${line('turn-tohoku', '発話終了→TOHOKU音声開始')}; ${line('turn-ios', '発話終了→iOS音声開始')}; ${line('turn-ios-fallback', '発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')}`;
 }
 
 function samplePercentile(samples: number[], percentile: number): number | null {
@@ -808,12 +811,18 @@ function speakReply(text: string, token: number): void {
       if (replyVoiceMode === 'tohoku') talking = true;
       recordSpeechStage('tts-start', 'onstart');
       recordSpeechStage('mouth-start', '口パクを開始');
-      ttsStartMs = performance.now() - submittedUtteranceEndedAt;
+      const playbackStartedAt = performance.now();
+      ttsStartMs = playbackStartedAt - (submittedUtteranceEndedAt ?? ttsRequestedAt ?? playbackStartedAt);
       ttsStartDelayMs = ttsStartMs;
       if (ttsRequestedAt !== null) latencySamples.record('tts', performance.now() - ttsRequestedAt);
+      if (tohokuGenerationFinishedAt !== null) {
+        latencySamples.recordBetween('generated-start', tohokuGenerationFinishedAt, playbackStartedAt);
+        tohokuGenerationFinishedAt = null;
+      }
+      latencySamples.recordBetween('detected-start', voiceDetectedAt, playbackStartedAt);
       if (utteranceEndAt !== null) {
-        latencySamples.record('turn', performance.now() - utteranceEndAt);
-        latencySamples.record(`turn-${activeReplyEngineForTurn}`, performance.now() - utteranceEndAt);
+        latencySamples.recordBetween('turn', utteranceEndAt, playbackStartedAt);
+        latencySamples.recordBetween(`turn-${activeReplyEngineForTurn}`, utteranceEndAt, playbackStartedAt);
       }
       mouthMotionStartedAt = performance.now();
       updateConversationTiming();
@@ -851,15 +860,20 @@ function speakReply(text: string, token: number): void {
       speechStatus.value = 'TOHOKU Happyで返答音声を生成しています…';
       setVisibleAppState('TOHOKU音声生成中');
       renderMediaConcurrency();
-      void tohokuConversationSpeech.speak(text, callbacks.onStart ?? (() => undefined)).then((result) => {
-        if (token !== conversationGeneration) return;
-        if (result.generationMs !== undefined) {
-          tohokuGenerationMs = result.generationMs;
-          latencySamples.record('tohoku-generation', result.generationMs);
-          tohokuGenerationSamples.push(result.generationMs);
-          renderLatencySummary();
-          renderTohokuMetrics();
+      tohokuGenerationFinishedAt = null;
+      const generationStartedAt = performance.now();
+      void tohokuConversationSpeech.speak(text, callbacks.onStart ?? (() => undefined), (generationMs) => {
+        tohokuGenerationFinishedAt = performance.now();
+        if (generationMs !== undefined) {
+          tohokuGenerationMs = generationMs;
+          latencySamples.record('tohoku-generation', generationMs);
+          tohokuGenerationSamples.push(generationMs);
         }
+        latencySamples.record('tohoku-generation-wall', performance.now() - generationStartedAt);
+        renderLatencySummary();
+        renderTohokuMetrics();
+      }).then((result) => {
+        if (token !== conversationGeneration) return;
         if (result.reason === 'error') {
           recordSpeechStage('tts-end', `TOHOKU失敗:${result.error ?? 'unknown'}`);
           speechStatus.value = `TOHOKU Happyを再生できません。iOS標準TTSへ切り替えます。${result.error ?? ''}`;
@@ -918,6 +932,8 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     applyReaction('UTTERANCE_DETECTED');
     applyReaction('UTTERANCE_ENDED');
     submittedUtteranceEndedAt = performance.now();
+    voiceDetectedAt = null;
+    finalRecognitionAt = null;
   }
   const generationStart = performance.now();
   const engine: ConversationEngine = conversationEngineMode === 'natural' ? naturalConversationEngine : legacyConversationEngine;
@@ -932,6 +948,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   lastConversationQuality = quality;
   lastConversationTopic = result.topic;
   replyGenerationMs = performance.now() - generationStart;
+  if (fromVoice) latencySamples.recordBetween('final-reply', finalRecognitionAt, performance.now());
   latencySamples.record('generation', replyGenerationMs);
   conversationContext = { ...conversationContext, ...result.context };
   renderConversationQuality(result, quality);
@@ -974,7 +991,7 @@ function testColonVoice(text = 'こんにちは！コロンだよ！きょうは
       if (token !== conversationGeneration) return;
       recordSpeechStage('tts-start', '音声テスト onstart');
       recordSpeechStage('mouth-start', '音声テスト口パク開始');
-      ttsStartMs = performance.now() - submittedUtteranceEndedAt;
+      ttsStartMs = performance.now() - (submittedUtteranceEndedAt ?? ttsRequestedAt ?? performance.now());
       ttsStartDelayMs = ttsStartMs;
       updateConversationTiming();
       applyReaction('RESPONSE_STARTED');
@@ -1196,8 +1213,11 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       const receivedAt = performance.now();
       speechEndHandled = false;
       interimReactionSent = false;
-      submittedUtteranceEndedAt = 0;
+      submittedUtteranceEndedAt = null;
       utteranceEndAt = null;
+      voiceDetectedAt = receivedAt;
+      finalRecognitionAt = null;
+      tohokuGenerationFinishedAt = null;
       recognitionStatus.value = '声を検出しました。聞いています…';
       setVisibleAppState('発話を検出・聞いています');
       applyReaction('UTTERANCE_DETECTED');
@@ -1264,10 +1284,15 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
         networkRecoveryCount = 0;
         pendingNetworkRecovery = false;
         const finalResultAt = performance.now();
-        if (utteranceEndAt !== null) latencySamples.record('final', finalResultAt - utteranceEndAt);
-        else {
-          utteranceEndAt = finalResultAt;
+        finalRecognitionAt = finalResultAt;
+        latencySamples.recordBetween('detected-final', voiceDetectedAt, finalResultAt);
+        if (utteranceEndAt !== null) {
+          latencySamples.recordBetween('final', utteranceEndAt, finalResultAt);
+          latencySamples.recordBetween('speechend-final', utteranceEndAt, finalResultAt);
         }
+        // If Safari omits onspeechend, use final recognition only as a display origin;
+        // do not record a speech-end metric from this inferred timestamp.
+        submittedUtteranceEndedAt = utteranceEndAt ?? finalResultAt;
         renderLatencySummary();
         recordSpeechStage('final-result', `${finalText.length}文字`);
         recognitionFinal.value = `最終認識: ${finalText}`;
@@ -1275,7 +1300,6 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
         setVisibleAppState('認識確定・返答生成中');
         if (!speechEndHandled) {
           speechEndHandled = true;
-          submittedUtteranceEndedAt = performance.now();
           applyReaction('UTTERANCE_ENDED');
         }
         voiceResponseActive = true;

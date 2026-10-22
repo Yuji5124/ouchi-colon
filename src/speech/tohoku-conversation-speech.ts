@@ -14,6 +14,8 @@ export interface TohokuAudioOutput {
   close(): void;
 }
 
+const audioContextState = (context: AudioContext): AudioContextState => context.state;
+
 /** Keeps Open JTalk generation and Web Audio playback separate from normal iOS TTS. */
 export class TohokuConversationSpeech {
   private generation = 0;
@@ -34,7 +36,7 @@ export class TohokuConversationSpeech {
     return this.audio.unlock();
   }
 
-  speak(text: string, onStart: () => void): Promise<TohokuReplyResult> {
+  speak(text: string, onStart: () => void, onGenerated?: (generationMs?: number) => void): Promise<TohokuReplyResult> {
     const generation = ++this.generation;
     this.requests += 1;
     const operation = this.queue.then(async (): Promise<TohokuReplyResult> => {
@@ -43,6 +45,7 @@ export class TohokuConversationSpeech {
         const generated = await this.lab.generate(text, 'conversation');
         if (generation !== this.generation) return { reason: 'stopped' };
         if (!generated.wav) throw new Error('Open JTalkからWAVが返りませんでした。');
+        onGenerated?.(generated.generationMs);
         this.playbackActive = true;
         let reason: 'finished' | 'stopped';
         try {
@@ -104,7 +107,14 @@ export class WebAudioTohokuOutput implements TohokuAudioOutput {
 
   async play(wav: ArrayBuffer, onStart: () => void): Promise<'finished' | 'stopped'> {
     const context = this.context;
-    if (!context || context.state !== 'running') throw new Error('会話用の音声が有効ではありません。保護者の有効化操作が必要です。');
+    if (!context || context.state === 'closed') throw new Error('会話用の音声が有効ではありません。保護者の有効化操作が必要です。');
+    // A previously unlocked context can become suspended when Safari is backgrounded
+    // or interrupted. Try one bounded resume before falling back to the caller.
+    if (context.state !== 'running') {
+      await context.resume();
+      const resumedState = audioContextState(context);
+      if (resumedState !== 'running') throw new Error('Web Audioが中断状態から復帰しませんでした。');
+    }
     const playbackGeneration = ++this.playbackGeneration;
     const buffer = await context.decodeAudioData(wav.slice(0));
     if (playbackGeneration !== this.playbackGeneration) return 'stopped';

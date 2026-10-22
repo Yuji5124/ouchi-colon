@@ -37,11 +37,13 @@ test('synthesizes a dynamic reply, starts playback, and waits for actual playbac
   const speech = new TohokuConversationSpeech(lab, output);
   await speech.unlock();
   let started = 0;
-  const result = await speech.speak('こんにちは、コロンだよ。', () => { started += 1; });
+  let generationTime: number | undefined;
+  const result = await speech.speak('こんにちは、コロンだよ。', () => { started += 1; }, (milliseconds) => { generationTime = milliseconds; });
   assert.equal(output.unlocked, true);
   assert.deepEqual(purposes, ['conversation']);
   assert.equal(output.plays.length, 1);
   assert.equal(started, 1);
+  assert.equal(generationTime, 138);
   assert.deepEqual(result, { reason: 'finished', generationMs: 138 });
   assert.equal(speech.isBusy, false);
 });
@@ -132,6 +134,34 @@ test('Web Audio unlocks from the explicit action and resolves playback from sour
   assert.equal(await stopped, 'stopped');
   output.close();
   assert.equal(state, 'closed');
+});
+
+test('resumes a previously unlocked AudioContext after interruption before playback', async () => {
+  class FakeSource {
+    onended: (() => void) | null = null;
+    connect(): void {}
+    disconnect(): void {}
+    start(): void {}
+    stop(): void {}
+  }
+  let state: AudioContextState = 'suspended';
+  let resumeCalls = 0;
+  const source = new FakeSource();
+  const context = {
+    get state() { return state; }, destination: {},
+    async resume() { resumeCalls += 1; state = 'running'; },
+    async close() { state = 'closed'; },
+    async decodeAudioData() { return { duration: 0.1 } as AudioBuffer; },
+    createBufferSource() { return source; },
+  } as unknown as AudioContext;
+  const output = new WebAudioTohokuOutput(() => context);
+  await output.unlock();
+  state = 'suspended'; // Simulate Safari interruption/background recovery.
+  const playback = output.play(new ArrayBuffer(4), () => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(resumeCalls, 2);
+  source.onended?.();
+  assert.equal(await playback, 'finished');
 });
 
 test('supports 20 serial dynamic replies on one warmed conversation engine', async () => {

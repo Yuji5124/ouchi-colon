@@ -4,7 +4,7 @@ import { createDiagnosticReport } from '../src/app/diagnostic-report.ts';
 
 test('diagnostic report includes operational status and timing only', () => {
   const report = createDiagnosticReport({
-    appVersion: '0.1.0', commit: 'abc1234', serviceWorker: 'ouchicolon-shell-v16',
+    appVersion: '0.1.0', commit: 'abc1234', serviceWorker: 'ouchicolon-shell-v17',
     voiceEngine: 'TOHOKU Happy', tohokuModel: 'ready', microphone: 'OFF', camera: 'ON',
     lastGenerationMs: 138, lastPlaybackStartMs: 12, conversationTurns: 4, errorCode: 'none', fallbackCount: 1, microphoneResume: 'started',
     conversationEngine: 'natural', conversationTopic: 'things', conversationIntent: 'report', replyType: 'REACT',
