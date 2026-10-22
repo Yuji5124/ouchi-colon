@@ -1,6 +1,7 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { FpsMeter } from './app/fps-meter';
 import { LatencySamples } from './app/latency-samples';
+import { TurnLatencySegments } from './app/turn-latency';
 import { FaceTrackingStabilizer, smoothGaze, toFaceGazeTarget, type FaceTrackingInput } from './vision/face-tracking-input';
 import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pipe-face-tracker';
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
@@ -45,6 +46,8 @@ let conversationEngineMode: 'natural' | 'legacy' = 'natural';
 let lastConversationQuality: ConversationQuality | null = null;
 let lastConversationTopic: string = 'unknown';
 let conversationFallbackReplyCount = 0;
+let conversationContentFallbackCount = 0;
+let conversationEngineErrorFallbackCount = 0;
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
 const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
@@ -54,6 +57,7 @@ const nativeTtsDiagnostic = new NativeTtsDiagnostic(
   (text) => new SpeechSynthesisUtterance(text) as unknown as DiagnosticUtterance,
 );
 const latencySamples = new LatencySamples(200);
+const currentTurnLatency = new TurnLatencySegments();
 let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
 let conversationGeneration = 0;
 const turnCompletionGate = new TurnCompletionGate();
@@ -84,6 +88,7 @@ let pendingVisualReactionAt: number | null = null;
 let utteranceEndAt: number | null = null;
 let voiceDetectedAt: number | null = null;
 let finalRecognitionAt: number | null = null;
+let replyDecisionAt: number | null = null;
 let ttsRequestedAt: number | null = null;
 let tohokuGenerationFinishedAt: number | null = null;
 let mouthMotionStartedAt: number | null = null;
@@ -407,7 +412,23 @@ function renderLatencySummary(): void {
     const value = latencySamples.summary(name);
     return `${label} 直近=${value.last?.toFixed(0) ?? 'UNKNOWN'}ms 中央値=${value.median?.toFixed(0) ?? 'UNKNOWN'}ms p95=${value.p95?.toFixed(0) ?? 'UNKNOWN'}ms (n=${value.count})`;
   };
-  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '認識イベント→描画更新')}; ${line('detected-final', '発話検出→最終認識')}; ${line('speechend-final', '発話終了→最終認識')}; ${line('final-reply', '最終認識→返答決定')}; ${line('generation', '返答選択処理')}; ${line('tohoku-generation-wall', '返答決定→TOHOKU生成完了')}; ${line('generated-start', '音声生成完了→再生開始')}; ${line('detected-start', '発話検出→再生開始')}; ${line('turn-tohoku', '発話終了→TOHOKU音声開始')}; ${line('turn-ios', '発話終了→iOS音声開始')}; ${line('turn-ios-fallback', '発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')}`;
+  const path = activeReplyEngineForTurn === 'tohoku'
+    ? ['speech-end-to-final', 'final-to-reply', 'reply-to-generation', 'generation-to-playback']
+    : ['speech-end-to-final', 'final-to-reply', 'reply-to-playback'];
+  const turn = currentTurnLatency.summarize(path);
+  const directTotal = currentTurnLatency.get('speech-end-to-playback');
+  const sum = turn.measurableTotalMs === null ? 'UNKNOWN' : `${turn.measurableTotalMs.toFixed(0)}ms${turn.complete ? '' : `（一部のみ・不足: ${turn.missing.join(', ')}）`}`;
+  const slowest = turn.slowest ? `${turn.slowest.name} ${turn.slowest.milliseconds.toFixed(0)}ms` : 'UNKNOWN';
+  const directTotalText = directTotal === null
+    ? `UNKNOWN（${finalRecognitionAt === null ? '発話または認識が未完了' : utteranceEndAt === null ? 'Safari onspeechend未受信' : '再生開始イベント未受信'}）`
+    : `${directTotal.toFixed(0)}ms`;
+  latencyOutput.value = `20ターン連続会話チェック: 全TTS完了 ${ttsEndTurnCount}/20 / TOHOKU成功 ${tohokuConversationSuccesses}/${tohokuConversationAttempts}・iOS復帰 ${tohokuConversationFallbacks}・失敗 ${tohokuConversationFailures}（可聴確認は実機） / ${line('reaction', '認識イベント→描画更新')}; ${line('detected-final', '発話検出→最終認識')}; ${line('speechend-final', '発話終了→最終認識')}; ${line('final-reply', '最終認識→返答決定')}; ${line('generation', '返答選択処理')}; ${line('tohoku-generation', 'TOHOKU WASM生成時間')}; ${line('tohoku-generation-wall', '返答決定→TOHOKU生成完了')}; ${line('generated-start', '音声生成完了→再生開始')}; ${line('decision-start-tohoku', '返答決定→TOHOKU再生')}; ${line('decision-start-ios', '返答決定→iOS再生')}; ${line('decision-start-ios-fallback', '返答決定→iOS復帰再生')}; ${line('detected-start', '発話検出→再生開始')}; ${line('turn-tohoku', '発話終了→TOHOKU音声開始')}; ${line('turn-ios', '発話終了→iOS音声開始')}; ${line('turn-ios-fallback', '発話終了→iOS復帰音声開始')}; ${line('resume', 'TTS終了→認識再開要求')} / 直近ターン 発話終了→再生開始=${directTotalText}・区間合計=${sum}・最長区間=${slowest}`;
+}
+
+function recordTurnInterval(name: string, sample: string, startedAt: number | null, endedAt: number | null): boolean {
+  if (!currentTurnLatency.record(name, startedAt, endedAt)) return false;
+  latencySamples.recordBetween(sample, startedAt, endedAt);
+  return true;
 }
 
 function samplePercentile(samples: number[], percentile: number): number | null {
@@ -665,7 +686,7 @@ function updateConversationTiming(): void {
 
 function renderConversationQuality(result: ConversationResult, quality: ConversationQuality | null): void {
   const recentQuestionRate = quality ? `${Math.round(quality.questionRate * 100)}%` : 'UNKNOWN（従来エンジン）';
-  conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / 意図=${quality?.intent ?? '未分類'} / 返答=${quality?.replyType ?? '未分類'} / 直近質問率=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / フォールバック累計=${conversationFallbackReplyCount}`;
+  conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / 意図=${quality?.intent ?? '未分類'} / 返答=${quality?.replyType ?? '未分類'} / 質問率(直近10返答)=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / fallback累計=${conversationFallbackReplyCount}（内容不明/汎用=${conversationContentFallbackCount}・エンジン例外=${conversationEngineErrorFallbackCount}、デバッグセッション内）`;
 }
 
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
@@ -816,14 +837,16 @@ function speakReply(text: string, token: number): void {
       ttsStartDelayMs = ttsStartMs;
       if (ttsRequestedAt !== null) latencySamples.record('tts', performance.now() - ttsRequestedAt);
       if (tohokuGenerationFinishedAt !== null) {
-        latencySamples.recordBetween('generated-start', tohokuGenerationFinishedAt, playbackStartedAt);
+        if (activeReplyEngineForTurn === 'tohoku') {
+          recordTurnInterval('generation-to-playback', 'generated-start', tohokuGenerationFinishedAt, playbackStartedAt);
+        }
         tohokuGenerationFinishedAt = null;
       }
       latencySamples.recordBetween('detected-start', voiceDetectedAt, playbackStartedAt);
       if (utteranceEndAt !== null) {
-        latencySamples.recordBetween('turn', utteranceEndAt, playbackStartedAt);
-        latencySamples.recordBetween(`turn-${activeReplyEngineForTurn}`, utteranceEndAt, playbackStartedAt);
+        recordTurnInterval('speech-end-to-playback', `turn-${activeReplyEngineForTurn}`, utteranceEndAt, playbackStartedAt);
       }
+      recordTurnInterval('reply-to-playback', `decision-start-${activeReplyEngineForTurn}`, replyDecisionAt, playbackStartedAt);
       mouthMotionStartedAt = performance.now();
       updateConversationTiming();
       applyReaction('RESPONSE_STARTED');
@@ -861,15 +884,14 @@ function speakReply(text: string, token: number): void {
       setVisibleAppState('TOHOKU音声生成中');
       renderMediaConcurrency();
       tohokuGenerationFinishedAt = null;
-      const generationStartedAt = performance.now();
       void tohokuConversationSpeech.speak(text, callbacks.onStart ?? (() => undefined), (generationMs) => {
         tohokuGenerationFinishedAt = performance.now();
+        recordTurnInterval('reply-to-generation', 'tohoku-generation-wall', replyDecisionAt, tohokuGenerationFinishedAt);
         if (generationMs !== undefined) {
           tohokuGenerationMs = generationMs;
           latencySamples.record('tohoku-generation', generationMs);
           tohokuGenerationSamples.push(generationMs);
         }
-        latencySamples.record('tohoku-generation-wall', performance.now() - generationStartedAt);
         renderLatencySummary();
         renderTohokuMetrics();
       }).then((result) => {
@@ -934,6 +956,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     submittedUtteranceEndedAt = performance.now();
     voiceDetectedAt = null;
     finalRecognitionAt = null;
+    currentTurnLatency.clear();
   }
   const generationStart = performance.now();
   const engine: ConversationEngine = conversationEngineMode === 'natural' ? naturalConversationEngine : legacyConversationEngine;
@@ -942,19 +965,23 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   const quality: ConversationQuality | null = result.quality ?? null;
   if (safeReply.failed) {
     conversationFallbackReplyCount += 1;
+    conversationEngineErrorFallbackCount += 1;
     lastErrorCode = 'CONVERSATION_ENGINE_FALLBACK';
   }
-  if (quality?.fallback && !safeReply.failed) conversationFallbackReplyCount += 1;
+  if (quality?.fallback && !safeReply.failed) {
+    conversationFallbackReplyCount += 1;
+    conversationContentFallbackCount += 1;
+  }
   lastConversationQuality = quality;
   lastConversationTopic = result.topic;
   replyGenerationMs = performance.now() - generationStart;
-  if (fromVoice) latencySamples.recordBetween('final-reply', finalRecognitionAt, performance.now());
+  replyDecisionAt = performance.now();
+  if (fromVoice) recordTurnInterval('final-to-reply', 'final-reply', finalRecognitionAt, replyDecisionAt);
   latencySamples.record('generation', replyGenerationMs);
   conversationContext = { ...conversationContext, ...result.context };
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
-  updateConversationTiming();
   speakReply(result.text, token);
 }
 
@@ -984,6 +1011,7 @@ function testColonVoice(text = 'こんにちは！コロンだよ！きょうは
   const token = ++conversationGeneration;
   speechEngine.stop();
   submittedUtteranceEndedAt = performance.now();
+  currentTurnLatency.clear();
   recordSpeechStage('tts-request', `音声テスト ${text.length}文字`);
   voiceTestStatus.value = '音声テスト: 開始待ち(onstart前)';
   const pending = speechEngine.speak(text, {
@@ -1217,7 +1245,10 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       utteranceEndAt = null;
       voiceDetectedAt = receivedAt;
       finalRecognitionAt = null;
+      replyDecisionAt = null;
       tohokuGenerationFinishedAt = null;
+      activeReplyEngineForTurn = replyVoiceMode;
+      currentTurnLatency.clear();
       recognitionStatus.value = '声を検出しました。聞いています…';
       setVisibleAppState('発話を検出・聞いています');
       applyReaction('UTTERANCE_DETECTED');
@@ -1288,7 +1319,9 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
         latencySamples.recordBetween('detected-final', voiceDetectedAt, finalResultAt);
         if (utteranceEndAt !== null) {
           latencySamples.recordBetween('final', utteranceEndAt, finalResultAt);
-          latencySamples.recordBetween('speechend-final', utteranceEndAt, finalResultAt);
+          recordTurnInterval('speech-end-to-final', 'speechend-final', utteranceEndAt, finalResultAt);
+        } else {
+          currentTurnLatency.markUnavailable('speech-end-to-final', 'Safari onspeechend event was not received');
         }
         // If Safari omits onspeechend, use final recognition only as a display origin;
         // do not record a speech-end metric from this inferred timestamp.
@@ -1523,6 +1556,8 @@ function setDebug(value: boolean): void {
     lastConversationQuality = null;
     lastConversationTopic = 'unknown';
     conversationFallbackReplyCount = 0;
+    conversationContentFallbackCount = 0;
+    conversationEngineErrorFallbackCount = 0;
     conversationInput.value = '';
     recognitionInterim.value = '途中認識: --';
     recognitionFinal.value = '最終認識: --';
