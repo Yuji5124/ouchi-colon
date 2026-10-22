@@ -11,6 +11,7 @@ export interface DiagnosticReportInput {
   conversationTurns: number;
   errorCode: string;
   fallbackCount: number;
+  microphoneResume: string;
 }
 
 const safe = (value: string): string => value.replace(/[\r\n]/g, ' ').slice(0, 160);
@@ -29,5 +30,6 @@ export function createDiagnosticReport(input: DiagnosticReportInput): string {
     `連続会話回数: ${Math.max(0, Math.floor(input.conversationTurns))}`,
     `エラーコード: ${safe(input.errorCode || 'なし')}`,
     `フォールバック回数: ${Math.max(0, Math.floor(input.fallbackCount))}`,
+    `マイク再開状態: ${safe(input.microphoneResume || 'UNKNOWN')}`,
   ].join('\n');
 }

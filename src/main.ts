@@ -14,6 +14,8 @@ import { runTohokuBenchmark, summarizeTohokuSamples, TohokuBenchmarkError } from
 import { TohokuConversationSpeech, WebAudioTohokuOutput } from './speech/tohoku-conversation-speech';
 import { createDiagnosticReport } from './app/diagnostic-report';
 import { canStartConversation, fallbackReplyVoice, INITIAL_REPLY_VOICE_MODE } from './speech/reply-voice-policy';
+import { TurnCompletionGate } from './speech/turn-completion';
+import { canRecoverFromEmptyRecognitionResult, MAX_EMPTY_RESULT_RESTARTS, recognitionErrorAction, recognitionResumeBlockReason, RESUME_BUSY_RETRY_DELAYS_MS, shouldResumeAfterReply } from './speech/recognition-resume';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -48,6 +50,13 @@ const nativeTtsDiagnostic = new NativeTtsDiagnostic(
 const latencySamples = new LatencySamples(200);
 let conversationContext: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
 let conversationGeneration = 0;
+const turnCompletionGate = new TurnCompletionGate();
+let recognitionSessionGeneration = 0;
+let consecutiveEmptyRecognitionResults = 0;
+let networkRecoveryCount = 0;
+let pendingNetworkRecovery = false;
+let lastMicrophoneResumeStatus = 'not requested';
+let responseFinishedAt: number | null = null;
 let idleSleepTimer = 0;
 let faceReactionTimer = 0;
 let submittedUtteranceEndedAt = 0;
@@ -311,6 +320,7 @@ async function copyDiagnosticReport(): Promise<void> {
     conversationTurns: ttsEndTurnCount,
     errorCode: lastErrorCode,
     fallbackCount: tohokuConversationFallbacks,
+    microphoneResume: lastMicrophoneResumeStatus,
   });
   if (!navigator.clipboard?.writeText) {
     diagnosticCopyStatus.value = 'クリップボード非対応です。下のテキストを長押ししてコピーしてください。';
@@ -636,6 +646,65 @@ function updateConversationTiming(): void {
 }
 
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
+  const completed = turnCompletionGate.complete(token, conversationGeneration, () => {
+    finishReactionResponseOnce(reason, token);
+  });
+  if (!completed) {
+    recordSpeechStage('tts-end', token === conversationGeneration ? '重複終了を無視' : '古い世代の終了を無視');
+  }
+}
+
+function scheduleRecognitionResume(token: number, session: number, retry = 0, delay = 250): void {
+  lastMicrophoneResumeStatus = 'scheduled';
+  recordSpeechStage('recognition-resume', `再開を予約・${delay}ms後に判定`);
+  window.setTimeout(() => {
+    const state = {
+      isCurrentReply: token === conversationGeneration,
+      pageVisible: debug && !document.hidden,
+      sessionEnabled: recognitionEnabled,
+      sameSession: session === recognitionSessionGeneration,
+      voiceReplyFinished: !voiceResponseActive,
+      recognitionActive: recognitionEngine.isActive,
+      speechOutputBusy: isAnySpeechActive(),
+    };
+    const blocked = recognitionResumeBlockReason(state);
+    if (blocked === 'recognition-already-active') {
+      lastMicrophoneResumeStatus = 'already-active';
+      recordSpeechStage('recognition-resume', '再開不要:すでに認識中');
+      return;
+    }
+    if (blocked === 'speech-output-busy' && retry < RESUME_BUSY_RETRY_DELAYS_MS.length) {
+      const nextDelay = RESUME_BUSY_RETRY_DELAYS_MS[retry]!;
+      lastMicrophoneResumeStatus = `busy-retry-${retry + 1}`;
+      recordSpeechStage('recognition-resume', `音声処理中のため再判定${retry + 1}/${RESUME_BUSY_RETRY_DELAYS_MS.length}`);
+      scheduleRecognitionResume(token, session, retry + 1, nextDelay);
+      return;
+    }
+    if (blocked) {
+      lastMicrophoneResumeStatus = blocked === 'speech-output-busy' ? 'failed:busy-timeout' : `blocked:${blocked}`;
+      recordSpeechStage('recognition-resume', `再開拒否:${blocked}`);
+      if (blocked === 'speech-output-busy') {
+        recognitionEnabled = false;
+        voiceResponseActive = false;
+        recognitionStatus.value = '音声出力が終了しませんでした。保護者が会話を再開してください。';
+        updateRecognitionButtons();
+      }
+      return;
+    }
+    lastMicrophoneResumeStatus = 'requested';
+    recordSpeechStage('recognition-resume', 'マイク再開要求');
+    startVoiceRecognition(true, session);
+    if (responseFinishedAt !== null) {
+      latencySamples.record('resume', performance.now() - responseFinishedAt);
+      renderLatencySummary();
+    }
+  }, delay);
+}
+
+function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token: number): void {
+  responseFinishedAt = performance.now();
+  const shouldResume = shouldResumeAfterReply(reason, recognitionEnabled, voiceResponseActive);
+  const session = recognitionSessionGeneration;
   if (tohokuConversationTurnTracked) {
     if (reason === 'finished') {
       if (tohokuConversationTurnFellBack) tohokuConversationFallbacks += 1;
@@ -665,23 +734,23 @@ function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: nu
       : reason === 'error' ? `エラー: ${lastErrorCode}` : '待機中');
   if (reason === 'stopped' && voiceResponseActive) {
     recognitionEnabled = false;
+    recognitionSessionGeneration += 1;
+    lastMicrophoneResumeStatus = 'guardian-stopped';
     recognitionStatus.value = '読み上げを停止しました。音声認識は自動再開しません。保護者が開始ボタンを押してください。';
     updateRecognitionButtons();
   }
   renderSpeechRuntime();
   renderMediaConcurrency();
   scheduleIdleSleep();
-  recordSpeechStage('recognition-resume', voiceResponseActive && recognitionEnabled ? '一度だけ再開を要求' : '対象外/利用者停止');
-  if (voiceResponseActive && recognitionEnabled && reason !== 'stopped') {
+  if (shouldResume) {
     voiceResponseActive = false;
-    const finishedAt = performance.now();
-    window.setTimeout(() => {
-      if (token !== conversationGeneration || !debug || !recognitionEnabled || isAnySpeechActive()) return;
-      startVoiceRecognition(true);
-      latencySamples.record('resume', performance.now() - finishedAt);
-      renderLatencySummary();
-    }, 250);
+    setVisibleAppState('返答完了・マイク再開待ち');
+    scheduleRecognitionResume(token, session);
   } else {
+    if (lastMicrophoneResumeStatus === 'not requested' || lastMicrophoneResumeStatus === 'requested') {
+      lastMicrophoneResumeStatus = reason === 'stopped' ? 'guardian-stopped' : !recognitionEnabled ? 'session-disabled' : 'not-a-voice-turn';
+    }
+    recordSpeechStage('recognition-resume', `再開対象外:${lastMicrophoneResumeStatus}`);
     voiceResponseActive = false;
   }
 }
@@ -712,7 +781,6 @@ function speakReply(text: string, token: number): void {
     return;
   }
 
-  let responseFinished = false;
   ttsRequestedAt = performance.now();
   const callbacks: SpeechCallbacks = {
     onStart: () => {
@@ -746,8 +814,7 @@ function speakReply(text: string, token: number): void {
       speechStatus.value = `読み上げエラー: ${message}`;
     },
     onEnd: (reason) => {
-      if (token !== conversationGeneration || responseFinished) return;
-      responseFinished = true;
+      if (token !== conversationGeneration) return;
       recordSpeechStage('tts-end', reason === 'finished' ? 'onend' : reason === 'stopped' ? 'cancel' : 'onerror');
       finishReactionResponse(reason, token);
     },
@@ -787,10 +854,8 @@ function speakReply(text: string, token: number): void {
           speakWithNativeTts(text, callbacks);
           return;
         }
-        if (responseFinished) return;
-        responseFinished = true;
         recordSpeechStage('tts-end', result.reason === 'finished' ? 'TOHOKU onended' : 'TOHOKU cancel');
-        callbacks.onEnd?.(result.reason);
+        finishReactionResponse(result.reason, token);
       });
     }
   } else {
@@ -1040,8 +1105,13 @@ function updateRecognitionButtons(): void {
   recognitionStopButton.disabled = !recognitionEngine.isActive && !recognitionEnabled;
 }
 
-function startVoiceRecognition(isResume = false): void {
+function startVoiceRecognition(isResume = false, expectedSession?: number): void {
   if (!debug || recognitionEngine.isActive) return;
+  if (isResume && expectedSession !== undefined && expectedSession !== recognitionSessionGeneration) {
+    lastMicrophoneResumeStatus = 'blocked:session-changed';
+    recordSpeechStage('recognition-resume', '再開拒否:セッション変更');
+    return;
+  }
   if (!recognitionEnabled && !recognitionConsent.checked) {
     recognitionStatus.value = 'オンライン音声認識の説明を確認し、保護者がチェックしてから開始してください。';
     return;
@@ -1061,6 +1131,13 @@ function startVoiceRecognition(isResume = false): void {
     return;
   }
 
+  if (!isResume) {
+    recognitionSessionGeneration += 1;
+    consecutiveEmptyRecognitionResults = 0;
+    networkRecoveryCount = 0;
+    pendingNetworkRecovery = false;
+  }
+  const session = recognitionSessionGeneration;
   recognitionEnabled = true;
   speechEndHandled = false;
   recognitionInterim.value = '途中認識: --';
@@ -1076,10 +1153,15 @@ function startVoiceRecognition(isResume = false): void {
       applyReaction('VOICE_INPUT_STARTED');
       recordSpeechStage('microphone', '許可済み/音声入力開始');
       recordSpeechStage('recognition-start', isResume ? '再開成功' : '開始イベント');
-      if (isResume) recordSpeechStage('recognition-resume', '開始成功');
+      if (isResume) {
+        lastMicrophoneResumeStatus = 'started';
+        recordSpeechStage('recognition-resume', 'マイク再開成功');
+        setVisibleAppState('マイク再開成功・音声認識中');
+      }
       renderMediaConcurrency();
     },
     onSpeechStart: () => {
+      consecutiveEmptyRecognitionResults = 0;
       const receivedAt = performance.now();
       speechEndHandled = false;
       interimReactionSent = false;
@@ -1111,23 +1193,45 @@ function startVoiceRecognition(isResume = false): void {
     },
     onError: (code, message) => {
       lastErrorCode = `SPEECH_RECOGNITION_${code.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
-      setVisibleAppState(`エラー: ${lastErrorCode}`);
-      recognitionEnabled = false;
+      const action = recognitionErrorAction(code, networkRecoveryCount);
+      if (action === 'recover-quietly') {
+        recognitionStatus.value = '声を検出できませんでした。マイク待機を続けます。';
+        setVisibleAppState('無音・マイク待機を維持');
+      } else if (action === 'retry-network-once') {
+        networkRecoveryCount += 1;
+        pendingNetworkRecovery = true;
+        recognitionStatus.value = '音声認識の接続が一時的に切れました。1回だけ再接続します。';
+        setVisibleAppState('音声認識を1回だけ再接続');
+      } else {
+        setVisibleAppState(`エラー: ${lastErrorCode}`);
+        recognitionEnabled = false;
+        voiceResponseActive = false;
+        recognitionSessionGeneration += 1;
+      }
       recordSpeechStage('microphone', `失敗:${code}`);
       recordSpeechStage('recognition-start', `失敗:${code}`);
       if (isResume) recordSpeechStage('recognition-resume', `失敗:${code}・手動再開が必要`);
       const detail = code === 'not-allowed' || code === 'service-not-allowed'
         ? 'マイクまたは音声認識が許可されませんでした。Safariのサイト設定をご確認ください。'
         : code === 'network'
-          ? 'オンライン音声認識に接続できません。接続を確認するか手入力を使ってください。'
+          ? action === 'retry-network-once' ? 'オンライン音声認識に接続できません。1回だけ再接続します。' : '再接続に失敗しました。接続を確認するか保護者が再開してください。'
+          : code === 'no-speech'
+            ? '発話がありませんでした。待機を続けます。'
           : `音声認識エラー (${code})。マイク停止後に手入力を試せます。`;
       recognitionStatus.value = message ? `${detail} ${message}` : detail;
+      if (isResume && action === 'stop') {
+        lastMicrophoneResumeStatus = `failed:${code}`;
+        recordSpeechStage('recognition-resume', `再開失敗:${code}`);
+      }
       updateRecognitionButtons();
     },
     onEnd: (finalText) => {
       updateRecognitionButtons();
       recognitionInterim.value = '途中認識: --';
       if (finalText) {
+        consecutiveEmptyRecognitionResults = 0;
+        networkRecoveryCount = 0;
+        pendingNetworkRecovery = false;
         const finalResultAt = performance.now();
         if (utteranceEndAt !== null) latencySamples.record('final', finalResultAt - utteranceEndAt);
         else {
@@ -1148,10 +1252,30 @@ function startVoiceRecognition(isResume = false): void {
         return;
       }
       if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
-      if (recognitionEnabled) recognitionStatus.value = '発話を認識できませんでした。もう一度マイクで会話を開始してください。';
-      recognitionEnabled = false;
       recordSpeechStage('final-result', '最終結果なし');
       scheduleIdleSleep();
+      if (recognitionEnabled && pendingNetworkRecovery && session === recognitionSessionGeneration && debug && !document.hidden) {
+        pendingNetworkRecovery = false;
+        setVisibleAppState('音声認識を再接続中');
+        recognitionStatus.value = '一時的な通信エラーから1回だけ再開します。';
+        lastMicrophoneResumeStatus = 'network-retry-scheduled';
+        recordSpeechStage('recognition-resume', '通信エラー後の1回再開を要求');
+        window.setTimeout(() => startVoiceRecognition(true, session), 600);
+      } else if (recognitionEnabled && canRecoverFromEmptyRecognitionResult(consecutiveEmptyRecognitionResults + 1, MAX_EMPTY_RESULT_RESTARTS) && session === recognitionSessionGeneration && debug && !document.hidden) {
+        consecutiveEmptyRecognitionResults += 1;
+        lastErrorCode = 'SPEECH_RECOGNITION_NO_SPEECH';
+        recognitionStatus.value = `発話を認識できませんでした。待機を続けます (${consecutiveEmptyRecognitionResults}/${MAX_EMPTY_RESULT_RESTARTS})。`;
+        setVisibleAppState('無音・マイクを再待機');
+        recordSpeechStage('recognition-resume', `無音終了後に再待機 ${consecutiveEmptyRecognitionResults}/${MAX_EMPTY_RESULT_RESTARTS}`);
+        window.setTimeout(() => startVoiceRecognition(true, session), 400);
+      } else if (recognitionEnabled) {
+        recognitionEnabled = false;
+        voiceResponseActive = false;
+        recognitionSessionGeneration += 1;
+        lastMicrophoneResumeStatus = 'failed:empty-result-limit-or-unsafe-state';
+        recognitionStatus.value = '認識を再開できませんでした。保護者が再度開始してください。';
+        recordSpeechStage('recognition-resume', '無音終了または安全条件により自動再開を停止');
+      }
       updateRecognitionButtons();
     },
   });
@@ -1161,6 +1285,10 @@ function startVoiceRecognition(isResume = false): void {
     recognitionStatus.value = 'このブラウザーはWeb Speech音声認識に対応していません。';
   } else if (result === 'error') {
     recognitionEnabled = false;
+    if (isResume) {
+      lastMicrophoneResumeStatus = 'failed:start-error';
+      recordSpeechStage('recognition-resume', '再開失敗:開始エラー');
+    }
     if (!recognitionStatus.value.includes('エラー') && !recognitionStatus.value.includes('許可されません')) {
       recognitionStatus.value = '音声認識を開始できませんでした。設定を確認して再試行してください。';
     }
@@ -1175,6 +1303,9 @@ function startVoiceRecognition(isResume = false): void {
 function stopVoiceRecognition(): void {
   recognitionEnabled = false;
   voiceResponseActive = false;
+  recognitionSessionGeneration += 1;
+  pendingNetworkRecovery = false;
+  lastMicrophoneResumeStatus = 'guardian-stopped';
   recognitionEngine.abort();
   recognitionStatus.value = 'マイクを停止しました。OuchiColonは音声を保存していません。';
   setVisibleAppState('マイク停止');
