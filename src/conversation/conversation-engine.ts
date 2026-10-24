@@ -15,6 +15,10 @@ export interface ConversationContext {
   recentReplyIds?: string[];
   lastReplyWasQuestion?: boolean;
   assistantQuestionFocus?: 'activity' | 'object' | 'color' | 'general' | null;
+  /** Short play state for the current conversation; in memory only and reset with context. */
+  playInvitation?: { phase: 'invited' | 'playing'; gameId: string; turns: number; round: number };
+  /** Short turn-based pause after a child declines a game. */
+  playInvitesSuppressedUntil?: number;
 }
 
 export type ConversationIntent = 'greeting' | 'farewell' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'preference' | 'preference-negative' | 'wish' | 'proposal' | 'unknown';
