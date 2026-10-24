@@ -10,6 +10,7 @@ import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, replyWithFallb
 import { NaturalConversationEngine } from './conversation/natural-conversation-engine';
 import { LanguageLearningConversationEngine } from './conversation/language-learning-engine';
 import { PlayInvitationConversationEngine } from './conversation/play-invitation-engine';
+import { StoryPlayConversationEngine } from './conversation/story-play-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
@@ -45,8 +46,10 @@ const fpsMeter = new FpsMeter();
 const faceStabilizer = new FaceTrackingStabilizer();
 const reactionEngine = new ReactionEngine();
 const legacyConversationEngine = new RuleBasedConversationEngine();
-const naturalConversationEngine = new PlayInvitationConversationEngine(
-  new LanguageLearningConversationEngine(new NaturalConversationEngine()),
+const naturalConversationEngine = new StoryPlayConversationEngine(
+  new PlayInvitationConversationEngine(
+    new LanguageLearningConversationEngine(new NaturalConversationEngine()),
+  ),
 );
 let conversationEngineMode: 'natural' | 'legacy' = 'natural';
 let lastConversationQuality: ConversationQuality | null = null;

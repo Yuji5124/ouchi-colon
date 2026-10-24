@@ -19,6 +19,8 @@ export interface ConversationContext {
   playInvitation?: { phase: 'invited' | 'playing'; gameId: string; turns: number; round: number };
   /** Short turn-based pause after a child declines a game. */
   playInvitesSuppressedUntil?: number;
+  /** Story state uses only authored or allow-listed values; child transcripts are never kept. */
+  story?: { seedId: string; character: string; characters: string[]; place: string; event: string; childAction: string | null; turns: number };
 }
 
 export type ConversationIntent = 'greeting' | 'farewell' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'preference' | 'preference-negative' | 'wish' | 'proposal' | 'unknown';
