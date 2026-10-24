@@ -36,6 +36,8 @@ export interface ConversationQuality {
   category?: string;
   ruleId?: string;
   fallbackReason?: string | null;
+  /** Optional authored face hint; never inferred from generated speech in the renderer. */
+  emotion?: 'NORMAL' | 'JOY' | 'SURPRISE' | 'THINKING' | 'SAD' | 'SLEEPY';
 }
 
 export interface ConversationResult {

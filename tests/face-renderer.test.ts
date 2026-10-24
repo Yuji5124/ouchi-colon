@@ -118,6 +118,14 @@ test('talk mouth blends closed and open PNGs according to mouth amount', async (
   assert.ok(canvas.context.calls.some((call) => call.image.url.endsWith('/mouths/open.png') && call.alpha > 0.9));
 });
 
+test('conversation speaking keeps the selected emotional eyes while the mouth moves', async () => {
+  const { renderer, canvas } = await createRenderer();
+  renderer.draw(state({ expression: 'HAPPY', interactionState: 'SPEAKING', speaking: true, mouthOpen: 0.7 }), 1000);
+  assert.ok(canvas.context.calls.some((call) => call.image.url.endsWith('/eyes/happy.png')));
+  assert.ok(canvas.context.calls.some((call) => call.image.url.endsWith('/mouths/open.png') && call.alpha > 0.5));
+  assert.ok(canvas.context.calls.some((call) => call.image.url.endsWith('/mouths/closed.png')));
+});
+
 test('gaze input translates the independent highlight layer', async () => {
   const { renderer, canvas } = await createRenderer();
   renderer.draw(state({ gazeX: 0.8, gazeY: -0.4 }), 1000);

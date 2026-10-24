@@ -108,7 +108,9 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   else if (previous.lastReplyWasQuestion && text.length <= 8 && subject) intent = 'report';
 
   if (intent === 'preference' || intent === 'preference-negative') subject ??= previous.subject ?? null;
-  if (intent === 'emotion') topic = /こわ|怖/.test(text) ? 'scared' : /かなしい|悲し|さみしい|寂し|いやだった/.test(text) ? 'sad' : 'happy';
+  if (intent === 'emotion') topic = /こわ|怖/.test(text) ? 'scared'
+    : /かなしい|悲し|さみしい|寂し|いやだった/.test(text) ? 'sad'
+      : /ねむ|眠/.test(text) ? 'bedtime' : 'happy';
   if (intent === 'greeting' || intent === 'farewell') topic = 'greeting';
   if (intent === 'question' && !found) topic = previous.topic ?? 'daily';
 
@@ -333,6 +335,9 @@ export class NaturalConversationEngine implements ConversationEngine {
       category: parsed.category,
       ruleId: parsed.ruleId ?? undefined,
       fallbackReason: (reply.fallback || parsed.fallback) ? parsed.fallbackReason ?? (parsed.libraryEntry ? null : 'no-specific-response-rule') : null,
+      ...(parsed.intent === 'greeting' ? { emotion: 'JOY' as const }
+        : parsed.topic === 'sad' && parsed.intent === 'emotion' ? { emotion: 'SAD' as const }
+          : parsed.topic === 'bedtime' && parsed.intent === 'emotion' ? { emotion: 'SLEEPY' as const } : {}),
     };
     const nextContext: ConversationContext = {
       topic: parsed.topic,

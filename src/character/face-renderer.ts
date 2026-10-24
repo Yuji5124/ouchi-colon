@@ -3,6 +3,8 @@ export type Expression = (typeof expressions)[number];
 
 export interface FaceState {
   expression: Expression;
+  interactionState?: 'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING';
+  speaking?: boolean;
   gazeX: number;
   gazeY: number;
   mouthOpen: number;
@@ -300,7 +302,8 @@ export class FaceRenderer {
       this.drawMouthCanvas(ctx, state);
       return;
     }
-    if (state.expression === 'TALK' && this.assets.mouthOpen && this.assets.mouthClosed) {
+    const speaking = state.expression === 'TALK' || state.speaking === true;
+    if (speaking && this.assets.mouthOpen && this.assets.mouthClosed) {
       const open = Math.max(0, Math.min(1, state.mouthOpen));
       const alpha = ctx.globalAlpha;
       ctx.save();
@@ -311,7 +314,7 @@ export class FaceRenderer {
       ctx.restore();
       return;
     }
-    const image = state.expression === 'TALK' ? null : this.assets.mouthOpen;
+    const image = speaking ? null : this.assets.mouthOpen;
     if (image) {
       this.drawImageAt(ctx, image, rect);
       return;
@@ -320,7 +323,7 @@ export class FaceRenderer {
   }
 
   private drawMouthCanvas(ctx: CanvasRenderingContext2D, state: FaceState): void {
-    const talking = state.expression === 'TALK';
+    const talking = state.expression === 'TALK' || state.speaking === true;
     const happy = state.expression === 'HAPPY';
     const sad = state.expression === 'SAD';
     const surprised = state.expression === 'SURPRISE';

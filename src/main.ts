@@ -1,4 +1,5 @@
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
+import { chooseConversationEmotion, ConversationExpressionController } from './character/conversation-expression';
 import { FpsMeter } from './app/fps-meter';
 import { LatencySamples } from './app/latency-samples';
 import { TurnLatencySegments } from './app/turn-latency';
@@ -29,7 +30,7 @@ const canvas = document.querySelector<HTMLCanvasElement>('#face');
 if (!canvas) throw new Error('Face canvas is missing');
 
 const renderer = new FaceRenderer(canvas);
-const state: FaceState = { expression: 'IDLE', gazeX: 0, gazeY: 0, mouthOpen: 0, blink: 0, transition: 1 };
+const state: FaceState = { expression: 'IDLE', interactionState: 'IDLE', speaking: false, gazeX: 0, gazeY: 0, mouthOpen: 0, blink: 0, transition: 1 };
 let targetGazeX = 0;
 let targetGazeY = 0;
 let talking = false;
@@ -45,6 +46,8 @@ let trackingFaceKnown = false;
 const fpsMeter = new FpsMeter();
 const faceStabilizer = new FaceTrackingStabilizer();
 const reactionEngine = new ReactionEngine();
+const conversationExpressionController = new ConversationExpressionController();
+let activeExpressionGeneration = 0;
 const legacyConversationEngine = new RuleBasedConversationEngine();
 const naturalConversationEngine = new StoryPlayConversationEngine(
   new PlayInvitationConversationEngine(
@@ -712,10 +715,58 @@ async function runTohokuTwentyGenerationBenchmark(): Promise<void> {
   }
 }
 
-function applyReaction(event: ReactionEvent): void {
+function applyReaction(event: ReactionEvent, expectedExpressionGeneration?: number): void {
   const reactionAt = performance.now();
   const reaction = reactionEngine.handle(event, performance.now());
-  setExpression(reaction.expression === 'LISTENING' || reaction.expression === 'HEARING' ? 'THINK' : reaction.expression);
+  switch (event) {
+    case 'VOICE_INPUT_STARTED':
+      activeExpressionGeneration = conversationExpressionController.beginListening();
+      syncConversationExpression();
+      break;
+    case 'UTTERANCE_ENDED':
+      activeExpressionGeneration = conversationExpressionController.beginThinking();
+      syncConversationExpression();
+      break;
+    case 'RESPONSE_STARTED':
+      conversationExpressionController.startSpeaking(activeExpressionGeneration);
+      syncConversationExpression();
+      break;
+    case 'RESPONSE_ENDED':
+      conversationExpressionController.finish(expectedExpressionGeneration ?? activeExpressionGeneration);
+      state.mouthOpen = 0;
+      syncConversationExpression();
+      break;
+    case 'IDLE_TIMEOUT':
+      conversationExpressionController.setIdleEmotion('SLEEPY');
+      activeExpressionGeneration = conversationExpressionController.snapshot().generation;
+      syncConversationExpression();
+      break;
+    case 'WAKE':
+      conversationExpressionController.setIdleEmotion('JOY');
+      activeExpressionGeneration = conversationExpressionController.snapshot().generation;
+      syncConversationExpression();
+      break;
+    case 'FACE_FOUND':
+      if (!reactionEngine.isInteractionActive && reaction.expression === 'HAPPY') {
+        conversationExpressionController.setIdleEmotion('JOY');
+        activeExpressionGeneration = conversationExpressionController.snapshot().generation;
+        syncConversationExpression();
+      } else if (reactionEngine.isInteractionActive) syncConversationExpression();
+      else setExpression(reaction.expression === 'LISTENING' || reaction.expression === 'HEARING' ? 'THINK' : reaction.expression);
+      break;
+    case 'FACE_LOST':
+      if (!reactionEngine.isInteractionActive) {
+        conversationExpressionController.setIdleEmotion('NORMAL');
+        activeExpressionGeneration = conversationExpressionController.snapshot().generation;
+        setExpression(reaction.expression === 'LISTENING' || reaction.expression === 'HEARING' ? 'THINK' : reaction.expression);
+        state.interactionState = 'IDLE';
+        state.speaking = false;
+      }
+      break;
+    default:
+      if (conversationExpressionController.snapshot().state !== 'IDLE') syncConversationExpression();
+      else setExpression(reaction.expression === 'LISTENING' || reaction.expression === 'HEARING' ? 'THINK' : reaction.expression);
+  }
   if ((event === 'UTTERANCE_DETECTED' || event === 'INTERIM_ACTIVITY') && pendingVisualReactionAt === null) pendingVisualReactionAt = reactionAt;
   if (reaction.blink) {
     state.blink = 1;
@@ -729,9 +780,20 @@ function applyReaction(event: ReactionEvent): void {
   if (event === 'FACE_FOUND' || event === 'WAKE') {
     window.clearTimeout(faceReactionTimer);
     faceReactionTimer = window.setTimeout(() => {
-      if (state.expression === 'HAPPY' && !reactionEngine.isInteractionActive) setExpression('IDLE');
+      if (state.expression === 'HAPPY' && !reactionEngine.isInteractionActive) {
+        conversationExpressionController.setIdleEmotion('NORMAL');
+        activeExpressionGeneration = conversationExpressionController.snapshot().generation;
+        syncConversationExpression();
+      }
     }, 950);
   }
+}
+
+function syncConversationExpression(): void {
+  const snapshot = conversationExpressionController.snapshot();
+  state.interactionState = snapshot.state;
+  state.speaking = snapshot.speaking;
+  setExpression(snapshot.faceExpression);
 }
 
 function scheduleIdleSleep(): void {
@@ -749,9 +811,9 @@ function renderConversationQuality(result: ConversationResult, quality: Conversa
   conversationQualityOutput.value = `会話品質診断: エンジン=${conversationEngineMode === 'natural' ? '新' : '従来'} / 話題=${result.topic} / カテゴリー=${quality?.category ?? '未分類'} / 意図=${quality?.intent ?? '未分類'} / 適用ルール=${quality?.ruleId ?? 'なし'} / fallback理由=${quality?.fallbackReason ?? 'なし'} / 返答=${quality?.replyType ?? '未分類'} / 質問率(直近10返答)=${recentQuestionRate} / 重複=${quality?.duplicateReplyCount ?? 'UNKNOWN'} / 文脈参照=${quality ? quality.contextUsed ? 'あり' : 'なし' : 'UNKNOWN'} / fallback累計=${conversationFallbackReplyCount}（内容不明/汎用=${conversationContentFallbackCount}・エンジン例外=${conversationEngineErrorFallbackCount}、デバッグセッション内）`;
 }
 
-function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number): void {
+function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number, expressionGeneration = activeExpressionGeneration): void {
   const completed = turnCompletionGate.complete(token, conversationGeneration, () => {
-    finishReactionResponseOnce(reason, token);
+    finishReactionResponseOnce(reason, token, expressionGeneration);
   });
   if (!completed) {
     recordSpeechStage('tts-end', token === conversationGeneration ? '重複終了を無視' : '古い世代の終了を無視');
@@ -806,7 +868,7 @@ function scheduleRecognitionResume(token: number, session: number, retry = 0, de
   }, delay);
 }
 
-function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token: number): void {
+function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token: number, expressionGeneration: number): void {
   responseFinishedAt = performance.now();
   const shouldResume = shouldResumeAfterReply(reason, recognitionEnabled, voiceResponseActive);
   const session = recognitionSessionGeneration;
@@ -824,7 +886,7 @@ function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token
     ttsEndTurnCount += 1;
     renderLatencySummary();
   }
-  applyReaction('RESPONSE_ENDED');
+  applyReaction('RESPONSE_ENDED', expressionGeneration);
   state.mouthOpen = 0;
   mouthMotionStartedAt = null;
   speechStopButton.disabled = true;
@@ -860,7 +922,10 @@ function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token
   }
 }
 
-function speakReply(text: string, token: number): void {
+function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>): void {
+  const expressionGeneration = activeExpressionGeneration;
+  conversationExpressionController.setEmotion(expressionGeneration, emotion);
+  syncConversationExpression();
   ttsStartMs = null;
   ttsStartDelayMs = null;
   activeReplyEngineForTurn = replyVoiceMode;
@@ -869,7 +934,7 @@ function speakReply(text: string, token: number): void {
   setVisibleAppState('返答生成完了・音声出力準備中');
   if (!ttsEnabled.checked) {
     speechStatus.value = '読み上げOFF。返答は文字で表示しています。';
-    finishReactionResponse('text-only', token);
+    finishReactionResponse('text-only', token, expressionGeneration);
     return;
   }
 
@@ -882,7 +947,7 @@ function speakReply(text: string, token: number): void {
 
   if (replyVoiceMode === 'ios' && !speechEngine.isSupported) {
     speechStatus.value = 'このSafariでは音声合成を利用できません。文字の返答は引き続き使えます。';
-    finishReactionResponse('error', token);
+    finishReactionResponse('error', token, expressionGeneration);
     return;
   }
 
@@ -930,7 +995,7 @@ function speakReply(text: string, token: number): void {
     onEnd: (reason) => {
       if (token !== conversationGeneration) return;
       recordSpeechStage('tts-end', reason === 'finished' ? 'onend' : reason === 'stopped' ? 'cancel' : 'onerror');
-      finishReactionResponse(reason, token);
+      finishReactionResponse(reason, token, expressionGeneration);
     },
   };
   if (replyVoiceMode === 'tohoku') {
@@ -973,7 +1038,7 @@ function speakReply(text: string, token: number): void {
           return;
         }
         recordSpeechStage('tts-end', result.reason === 'finished' ? 'TOHOKU onended' : 'TOHOKU cancel');
-        finishReactionResponse(result.reason, token);
+        finishReactionResponse(result.reason, token, expressionGeneration);
       });
     }
   } else {
@@ -1020,10 +1085,14 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     finalRecognitionAt = null;
     currentTurnLatency.clear();
   }
+  activeExpressionGeneration = conversationExpressionController.beginThinking();
+  syncConversationExpression();
+  const previousContext = conversationContext;
   const generationStart = performance.now();
   const engine: ConversationEngine = conversationEngineMode === 'natural' ? naturalConversationEngine : legacyConversationEngine;
   const safeReply = replyWithFallback(engine, text, conversationContext);
   const result: ConversationResult = safeReply.result;
+  const emotion = chooseConversationEmotion(text, result, previousContext);
   const quality: ConversationQuality | null = result.quality ?? null;
   if (safeReply.failed) {
     conversationFallbackReplyCount += 1;
@@ -1044,7 +1113,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
-  speakReply(result.text, token);
+  speakReply(result.text, token, emotion);
 }
 
 function submitConversation(): Promise<void> {
@@ -1100,7 +1169,7 @@ function testColonVoice(text = 'こんにちは！コロンだよ！きょうは
       recordSpeechStage('mouth-stop', `音声テスト ${reason}`);
       state.mouthOpen = 0;
       speechStopButton.disabled = true;
-      if (state.expression === 'TALK') applyReaction('RESPONSE_ENDED');
+      if (state.interactionState === 'SPEAKING' || state.expression === 'TALK') applyReaction('RESPONSE_ENDED');
       voiceTestStatus.value = reason === 'finished' ? '音声テスト: 再生終了(onend確認済み)' : `音声テスト: ${reason}`;
       renderSpeechRuntime();
       renderMediaConcurrency();
@@ -1619,7 +1688,6 @@ function setExpression(expression: Expression): void {
   if (state.expression === expression) return;
   state.expression = expression;
   state.transition = 0;
-  if (expression !== 'TALK') talking = false;
 }
 
 function setDebug(value: boolean): void {
@@ -1686,10 +1754,11 @@ function frame(now: number): void {
     pendingVisualReactionAt = null;
     renderLatencySummary();
   }
-  if (talking && state.expression === 'TALK') {
+  const speakingFace = state.speaking || state.expression === 'TALK';
+  if (talking && speakingFace) {
     mouthMotionStartedAt ??= now;
     state.mouthOpen = speechMouthTarget(now, mouthMotionStartedAt);
-  } else if (speechEngine.isSpeaking && state.expression === 'TALK' && diagnosticOwner !== 'wrapper') {
+  } else if (speechEngine.isSpeaking && speakingFace && diagnosticOwner !== 'wrapper') {
     mouthMotionStartedAt ??= now;
     const target = speechMouthTarget(now, mouthMotionStartedAt);
     state.mouthOpen += (target - state.mouthOpen) * Math.min(1, dt * 12);

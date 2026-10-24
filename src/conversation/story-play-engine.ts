@@ -128,6 +128,9 @@ function withStory(
   const quality: ConversationQuality = result.quality
     ? { ...result.quality, category: 'pretend-imagination', replyType: 'IMAGINE', ruleId, fallback: false }
     : { intent: 'unknown', replyType: 'IMAGINE', questionRate: 0, duplicateReplyCount: 0, contextUsed: false, fallback: false, category: 'pretend-imagination', ruleId };
+  if (ruleId.startsWith('story.start.')) quality.emotion = 'JOY';
+  else if (ruleId.includes('transform') || ruleId.includes('find')) quality.emotion = 'SURPRISE';
+  else if (ruleId === 'story.clarify') quality.emotion = 'THINKING';
   return {
     ...result,
     text,

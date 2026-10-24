@@ -151,7 +151,11 @@ function makeResult(
 
 function offerResult(result: ConversationResult, game: PlayInvitation, turns = 0, round = 0): ConversationResult {
   const offered = makeResult(result, `いいよ！ ${game.name}にしよう。${game.invitation}`, game.id, turns, round);
-  return { ...offered, context: { ...offered.context, playInvitation: { phase: 'invited', gameId: game.id, turns, round } } };
+  return {
+    ...offered,
+    quality: offered.quality ? { ...offered.quality, emotion: 'JOY' } : undefined,
+    context: { ...offered.context, playInvitation: { phase: 'invited', gameId: game.id, turns, round } },
+  };
 }
 
 function findRequestedGame(input: string): PlayInvitation | null {
@@ -172,7 +176,8 @@ function nextGame(currentId: string, input: string, turn: number): PlayInvitatio
 function startsGame(result: ConversationResult, game: PlayInvitation, turns = 0, round = 0): ConversationResult {
   const currentRound = game.rounds[round % game.rounds.length]!;
   const opening = round === 0 ? game.opening : currentRound.prompt;
-  return makeResult(result, opening, game.id, turns, round);
+  const started = makeResult(result, opening, game.id, turns, round);
+  return { ...started, quality: started.quality ? { ...started.quality, emotion: 'JOY' } : undefined };
 }
 
 function riddleReply(input: string, game: PlayInvitation, round: number): { text: string; nextRound: number } {
@@ -252,8 +257,10 @@ export class PlayInvitationConversationEngine implements ConversationEngine {
     if (!explicit && (context.playInvitesSuppressedUntil ?? -1) > context.turn) return withoutPlayState(result, context);
 
     const game = PLAY_INVITATIONS[context.turn % PLAY_INVITATIONS.length]!;
+    const offered = makeResult(result, `ねえ、${game.invitation}`, game.id);
     return {
-      ...makeResult(result, `ねえ、${game.invitation}`, game.id),
+      ...offered,
+      quality: offered.quality ? { ...offered.quality, emotion: 'JOY' } : undefined,
       context: { ...result.context, topic: 'play', playInvitation: { phase: 'invited', gameId: game.id, turns: 0, round: 0 } },
     };
   }
