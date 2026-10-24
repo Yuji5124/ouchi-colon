@@ -8,6 +8,7 @@ import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pi
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
 import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, replyWithFallback, type ConversationContext, type ConversationEngine, type ConversationQuality, type ConversationResult } from './conversation/conversation-engine';
 import { NaturalConversationEngine } from './conversation/natural-conversation-engine';
+import { LanguageLearningConversationEngine } from './conversation/language-learning-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
@@ -43,7 +44,7 @@ const fpsMeter = new FpsMeter();
 const faceStabilizer = new FaceTrackingStabilizer();
 const reactionEngine = new ReactionEngine();
 const legacyConversationEngine = new RuleBasedConversationEngine();
-const naturalConversationEngine = new NaturalConversationEngine();
+const naturalConversationEngine = new LanguageLearningConversationEngine(new NaturalConversationEngine());
 let conversationEngineMode: 'natural' | 'legacy' = 'natural';
 let lastConversationQuality: ConversationQuality | null = null;
 let lastConversationTopic: string = 'unknown';
