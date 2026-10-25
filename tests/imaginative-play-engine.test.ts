@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine } from '../src/conversation/conversation-engine.ts';
 import { ImaginativePlayConversationEngine } from '../src/conversation/imaginative-play-engine.ts';
+import { NaturalConversationEngine } from '../src/conversation/natural-conversation-engine.ts';
+import { PlayInvitationConversationEngine } from '../src/conversation/play-invitation-engine.ts';
 
 function engine(): ImaginativePlayConversationEngine {
   return new ImaginativePlayConversationEngine(new RuleBasedConversationEngine());
@@ -33,6 +35,23 @@ test('combines train, sea, and fish suggestions', () => {
   const fish = say(play, '魚も！', sea.context);
   assert.match(fish.text, /魚も乗る/);
   assert.equal(fish.context.imaginativePlay?.guest, '魚');
+});
+
+test('turns an accepted play-discovery invitation into child-led imaginative play', () => {
+  const play = new ImaginativePlayConversationEngine(
+    new PlayInvitationConversationEngine(new NaturalConversationEngine()),
+  );
+  const offer = play.reply('遊びを見つけたい', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(offer.context.playInvitation?.gameId, 'discovery');
+
+  const accepted = play.reply('いいよ', offer.context);
+  assert.match(accepted.text, /好きなものをひとつ教えて/);
+
+  const childIdea = play.reply('バス！', accepted.context);
+  assert.match(childIdea.text, /どこに行くバス/);
+  assert.equal(childIdea.context.playInvitation, undefined);
+  assert.equal(childIdea.context.imaginativePlay?.subject, 'バス');
+  assert.doesNotMatch(JSON.stringify(childIdea.context), /遊びを見つけたい|バス！/);
 });
 
 test('lets the child change the play direction and end naturally', () => {
