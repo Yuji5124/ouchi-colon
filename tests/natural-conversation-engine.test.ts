@@ -231,3 +231,22 @@ test('does not turn a daily report into imaginative play and respects “また�
   assert.doesNotMatch(ended.text, /[？?]/);
   assert.match(ended.text, /おしまい/);
 });
+
+test('keeps Colon’s personality warm, curious, imaginative, and honest about its limits', () => {
+  const engine = new NaturalConversationEngine();
+  const cases: Array<[string, RegExp]> = [
+    ['コロンってどんな子？', /お話と想像遊びが大好き/],
+    ['コロンの性格は？', /お話と想像遊びが大好き/],
+    ['コロンは何が得意？', /ことばや想像遊びをいっしょに楽しんだり/],
+    ['コロンの好きなことは？', /きみとお話しするのが好き.*想像遊びも大好き/],
+    ['コロンの好きな食べ物は？', /食べたり飲んだりできない/],
+    ['コロンには外が見える？', /見ることはできない.*想像するのが好き/],
+    ['コロンは友だち？', /ここでお話しする友だち/],
+  ];
+  for (const [input, expected] of cases) {
+    const result = engine.reply(input, EMPTY_CONVERSATION_CONTEXT);
+    assert.match(result.text, expected, input);
+    assert.doesNotMatch(result.text, /[？?]/, input);
+    assert.ok(result.text.length < 90, input);
+  }
+});

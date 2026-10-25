@@ -9,6 +9,7 @@ import {
   type ReplyType,
 } from './conversation-engine.ts';
 import { chooseReplyType, repeatedReplyCount } from './conversation-policy.ts';
+import { answerAboutColon } from './colon-personality.ts';
 import { candidateFor, CONVERSATION_ENTITIES, matchConversationLibrary, escapeRegex, type ConversationCategory, type ConversationLibraryEntry } from './library/index.ts';
 
 interface ParsedUtterance {
@@ -165,12 +166,8 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
       return { text: '乗りたい！コロンは窓から景色を見る係！', focus: null, fallback: false };
     }
     if (parsed.category === 'about-colon') {
-      if (/好き|すき|大好き|だいすき/.test(parsed.original)) return { text: 'うれしいな！コロンもあなたとお話しするのが好きだよ！', focus: null, fallback: false };
-      if (/名前|だれ|誰|なにもの|何者/.test(parsed.original)) return { text: 'コロンは、お話しするキャラクターだよ！', focus: null, fallback: false };
-      if (/なんさい|何歳|いくつ/.test(parsed.original)) return { text: 'コロンは年をとらないキャラクターなんだ。', focus: null, fallback: false };
-      if (/食べ|飲/.test(parsed.original)) return { text: 'コロンは食べたり飲んだりしないけど、食べ物のお話は好きだよ！', focus: null, fallback: false };
-      if (/寝|ねる|眠/.test(parsed.original)) return { text: 'コロンは眠らないけど、おやすみのお話は好きだよ！', focus: null, fallback: false };
-      if (/見え|見た|みえる/.test(parsed.original)) return { text: 'コロンは周りの物は見えないんだ。お話で教えてね！', focus: null, fallback: false };
+      const personalReply = answerAboutColon(parsed.original);
+      if (personalReply) return { text: personalReply, focus: null, fallback: false };
     }
     if (parsed.category === 'food-drink' && parsed.subject) return { text: `コロンは食べないけど、${subject}のお話を聞くのは好きだよ！`, focus: null, fallback: false };
     const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
