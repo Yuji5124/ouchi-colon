@@ -250,3 +250,33 @@ test('keeps Colon’s personality warm, curious, imaginative, and honest about i
     assert.ok(result.text.length < 90, input);
   }
 });
+
+test('uses the device-local time for child-started greetings and honors explicit daypart words', () => {
+  const at = (hour: number) => new NaturalConversationEngine(() => new Date(2026, 9, 25, hour, 0));
+  assert.match(at(7).reply('こんにちは', EMPTY_CONVERSATION_CONTEXT).text, /おはよう/);
+  assert.match(at(13).reply('やっほー', EMPTY_CONVERSATION_CONTEXT).text, /こんにちは/);
+  assert.match(at(18).reply('こんにちは', EMPTY_CONVERSATION_CONTEXT).text, /こんばんは/);
+  assert.match(at(22).reply('こんにちは', EMPTY_CONVERSATION_CONTEXT).text, /夜の時間/);
+  assert.match(at(22).reply('おはよう', EMPTY_CONVERSATION_CONTEXT).text, /おはよう/);
+  const nightGreeting = at(22).reply('こんにちは', EMPTY_CONVERSATION_CONTEXT);
+  assert.doesNotMatch(JSON.stringify(nightGreeting.context), /2026|22/);
+});
+
+test('responds gently to tiredness, carries mood only through the current conversation, and closes for sleep', () => {
+  const engine = new NaturalConversationEngine(() => new Date(2026, 9, 25, 20, 0));
+  const tired = engine.reply('疲れた', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(tired.topic, 'bedtime');
+  assert.equal(tired.quality?.emotion, 'SLEEPY');
+  assert.match(tired.text, /少し休もう/);
+  assert.doesNotMatch(JSON.stringify(tired.context), /疲れた/);
+  const confirmation = engine.reply('うん', tired.context);
+  assert.match(confirmation.text, /ゆっくり休もう/);
+  assert.doesNotMatch(confirmation.text, /[？?]/);
+  const woke = engine.reply('起きたよ', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(woke.quality?.intent, 'report');
+  assert.match(woke.text, /起きたんだね/);
+  const bedtime = engine.reply('もう寝る', tired.context);
+  assert.equal(bedtime.context.topic, null);
+  assert.match(bedtime.text, /おやすみ/);
+  assert.doesNotMatch(bedtime.text, /[？?]/);
+});

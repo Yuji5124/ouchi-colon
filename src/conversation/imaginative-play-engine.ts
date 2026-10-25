@@ -36,7 +36,7 @@ const FEATURES: readonly Concept[] = [
   { word: '羽', aliases: ['はね'] },
   { word: 'ドア', aliases: ['扉', 'とびら'] },
 ];
-const END = /^(?:おしまい|おわり|終わり|もういい|やめる|やめて|遊びはおしまい|ばいばい|バイバイ|またあとで)[。！!？?\s　]*$/;
+const END = /^(?:おしまい|おわり|終わり|もういい|やめる|やめて|遊びはおしまい|ばいばい|バイバイ|またあとで|おやすみ|ねるね|もうねる|もう寝る|そろそろねる|そろそろ寝る)[。！!？?\s　]*$/;
 const OFF_TOPIC = /^(?:ところで|それより|あとね|そういえば|今日|きょう|幼稚園|保育園|ママに|パパに|おなかが|お腹が|かなしい|悲しい|こわい|怖い)/;
 const PUNCTUATION = /^[「」『』\s　]*(.*?)[。！!？?〜～\s　]*$/;
 
@@ -97,7 +97,7 @@ export class ImaginativePlayConversationEngine implements ConversationEngine {
     const trimmed = input.trim();
     const state = context.imaginativePlay;
     if (state && END.test(trimmed)) {
-      return resultWithPlay(result, 'うん、ここでおしまい！いっしょに考えて楽しかったよ。また遊びたくなったら教えてね。', cleared(result.context), 'imaginative-play.end');
+      return resultWithPlay(result, /おやすみ|ねる|寝る/.test(trimmed) ? 'うん、おやすみ。いっしょに遊べて楽しかったよ。ゆっくり休んでね。' : 'うん、ここでおしまい！いっしょに考えて楽しかったよ。また遊びたくなったら教えてね。', cleared(result.context), 'imaginative-play.end');
     }
 
     const subject = exactSubject(trimmed);

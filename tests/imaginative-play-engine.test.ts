@@ -69,3 +69,12 @@ test('safety and privacy replies take priority and clear active play', () => {
   assert.match(safety.text, /言わなくて大丈夫/);
   assert.equal(safety.context.imaginativePlay, undefined);
 });
+
+test('ends imaginative play gently when the child says goodnight', () => {
+  const play = engine();
+  const started = say(play, 'バス');
+  const ended = say(play, 'おやすみ', started.context);
+  assert.equal(ended.context.imaginativePlay, undefined);
+  assert.match(ended.text, /おやすみ|休んで/);
+  assert.doesNotMatch(ended.text, /[？?]/);
+});

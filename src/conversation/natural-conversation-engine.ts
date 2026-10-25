@@ -10,6 +10,7 @@ import {
 } from './conversation-engine.ts';
 import { chooseReplyType, repeatedReplyCount } from './conversation-policy.ts';
 import { answerAboutColon } from './colon-personality.ts';
+import { greetingForLocalTime, isBedtimeEnding, replyToMoodConfirmation, replyToMorningRoutine, replyToReportedMood } from './mood-rhythm.ts';
 import { candidateFor, CONVERSATION_ENTITIES, matchConversationLibrary, escapeRegex, type ConversationCategory, type ConversationLibraryEntry } from './library/index.ts';
 
 interface ParsedUtterance {
@@ -88,7 +89,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   if (corrected) text = text.replace(correctionPrefix, '').trim();
   else if (truthCorrection) text = text.replace(truthPrefix, '').trim();
   const correction = corrected || truthCorrection;
-  const endRequested = /^(?:もういい|もうおしまい|おしまい|おわり|終わり|会話はここまで|やめる|もうやめる|やめて|ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね)$/.test(text);
+  const endRequested = /^(?:もういい|もうおしまい|おしまい|おわり|終わり|会話はここまで|やめる|もうやめる|やめて|ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね|もうねる|もう寝る|そろそろねる|そろそろ寝る)$/.test(text);
 
   const found = extractSubject(text, correction);
   let subject = found?.subject ?? null;
@@ -116,7 +117,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   else if (/もう一回|もういっかい|もう一度|もっかい|聞こえない|なんて言った/.test(text)) intent = 'repeat';
   else if (/^(?:いや|ううん|やだ|いやだ|やめて|したくない)$/.test(text)) intent = 'refusal';
   else if (/^(?:うん|うんうん|そう|そうだよ|はい|いいよ|いいね)$/.test(text)) intent = 'short-answer';
-  else if (/^(?:ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね)$/.test(text)) intent = 'farewell';
+  else if (/^(?:ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね|もうねる|もう寝る|そろそろねる|そろそろ寝る)$/.test(text)) intent = 'farewell';
   else if (/こんにちは|こんちは|おはよう|おはよ|こんばんは|こんばんわ|やっほ|ただいま|はじめまして/.test(text)) intent = 'greeting';
   else if (/[？?]$|どうして|なんで|何で|なに|何|どこ|だれ|誰|いつ|かな$|どういうこと/.test(input.trim())) intent = 'question';
   else if (/して|してよ|してね|してほしい|歌って|お話して|遊んで|コロン.*(?:きて|来て)/.test(text)) intent = 'request';
@@ -125,13 +126,13 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   else if (/好き|すき|大好き|だいすき/.test(text)) intent = 'preference';
   else if (/たい(?:な|よ|の)?$|ほしい|欲しい/.test(text)) intent = 'wish';
   else if (/作ろう|つくろう|食べよう|飲もう|遊ぼう|あそぼう|しよう|やろう|しない[？?]?$/.test(text)) intent = 'proposal';
-  else if (found || action || feature || /今日|きょう|保育園|幼稚園/.test(text)) intent = 'report';
+  else if (found || action || feature || /今日|きょう|保育園|幼稚園|起き|おきた|寝た|ねた/.test(text)) intent = 'report';
   else if (previous.lastReplyWasQuestion && text.length <= 8 && subject) intent = 'report';
 
   if (intent === 'preference' || intent === 'preference-negative') subject ??= previous.subject ?? null;
   if (intent === 'emotion') topic = /こわ|怖/.test(text) ? 'scared'
     : /かなしい|悲し|さみしい|寂し|いやだった/.test(text) ? 'sad'
-      : /ねむ|眠/.test(text) ? 'bedtime' : 'happy';
+      : /つかれ|疲れ|ねむ|眠/.test(text) ? 'bedtime' : 'happy';
   if (intent === 'greeting' || intent === 'farewell') topic = 'greeting';
   if (intent === 'question' && !found) topic = previous.topic ?? 'daily';
 
@@ -154,7 +155,7 @@ function formatSubject(parsed: ParsedUtterance): string {
   return parsed.subject ?? 'それ';
 }
 
-function makeReply(type: ReplyType, parsed: ParsedUtterance, context: ConversationContext, turn: number): { text: string; focus: ConversationContext['assistantQuestionFocus']; fallback: boolean } {
+function makeReply(type: ReplyType, parsed: ParsedUtterance, context: ConversationContext, turn: number, currentTime: () => Date): { text: string; focus: ConversationContext['assistantQuestionFocus']; fallback: boolean } {
   const subject = formatSubject(parsed);
   const coloredSubject = `${parsed.feature ?? ''}${parsed.subject ?? 'それ'}`;
   if (parsed.intent === 'correction') {
@@ -175,11 +176,10 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     return { text: `うーん、コロンも考え中！いっしょに考えてみよう！`, focus: null, fallback: false };
   }
   if (parsed.intent === 'greeting') {
-    const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
-    return { text: candidate ?? (turn % 2 ? 'やっほー！コロン、わくわくしてきた！' : 'こんにちは！会えてうれしいな！'), focus: null, fallback: false };
+    return { text: greetingForLocalTime(parsed.original, currentTime()), focus: null, fallback: false };
   }
   if (parsed.intent === 'farewell') {
-    if (parsed.endRequested) return { text: 'うん、ここでおしまい。またお話ししたくなったら教えてね。', focus: null, fallback: false };
+    if (parsed.endRequested) return { text: isBedtimeEnding(parsed.original) ? 'うん、おやすみ。ゆっくり休んでね。またお話ししたくなったら来てね。' : 'うん、ここでおしまい。またお話ししたくなったら教えてね。', focus: null, fallback: false };
     const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
     return { text: candidate ?? 'またお話ししようね！ばいばい！', focus: null, fallback: false };
   }
@@ -194,6 +194,8 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
   if (parsed.intent === 'refusal') return { text: 'そっか、いやなんだね。無理しなくていいよ。', focus: null, fallback: false };
   if (parsed.intent === 'repeat') return { text: context.subject ? `もちろん！${subject}のお話を、ゆっくりもう一回するね。` : 'もちろん！どのお話をもう一回しようか？', focus: context.subject ? null : 'general', fallback: false };
   if (parsed.intent === 'short-answer') {
+    const moodReply = replyToMoodConfirmation(context.topic);
+    if (moodReply) return { text: moodReply, focus: null, fallback: false };
     if (context.lastReplyWasQuestion) {
       return { text: context.subject ? `うんうん！${subject}のお話、コロンも好き！` : 'うんうん！コロンもいっしょに楽しんでるよ！', focus: null, fallback: false };
     }
@@ -203,13 +205,18 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     return { text: /歌/.test(parsed.original) ? 'いいよ！ラララ〜♪コロンもいっしょに歌うね！' : 'いいよ！ガタンゴトン、コロン電車が出発！', focus: null, fallback: false };
   }
   if (parsed.intent === 'emotion') {
-    if (parsed.topic === 'sad' || parsed.topic === 'scared') return { text: 'そうだったんだね。近くの保護者にもお話ししてね。', focus: null, fallback: false };
+    const moodReply = replyToReportedMood(parsed.original, parsed.topic);
+    if (moodReply) return { text: moodReply, focus: null, fallback: false };
     if (/楽しかっ|たのしかっ/.test(parsed.original)) {
       return { text: `${context.subject ?? 'それ'}、楽しかったんだね！`, focus: null, fallback: false };
     }
     const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
     if (candidate) return { text: candidate, focus: null, fallback: false };
     return { text: 'うれしい気持ち、コロンにも伝わったよ！', focus: null, fallback: false };
+  }
+  if (parsed.intent === 'report') {
+    const routineReply = replyToMorningRoutine(parsed.original);
+    if (routineReply) return { text: routineReply, focus: null, fallback: false };
   }
   if (parsed.intent === 'report' && parsed.subject && parsed.action) {
     if (parsed.action === '見た' && type === 'QUESTION') return { text: `いいなあ！${parsed.subject}、大きかった？`, focus: 'general', fallback: false };
@@ -312,6 +319,12 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
 }
 
 export class NaturalConversationEngine implements ConversationEngine {
+  private readonly now: () => Date;
+
+  constructor(now: () => Date = () => new Date()) {
+    this.now = now;
+  }
+
   reply(input: string, context: ConversationContext): ConversationResult {
     const protectedReply = protectedConversationReply(input.trim());
     if (protectedReply) {
@@ -330,7 +343,9 @@ export class NaturalConversationEngine implements ConversationEngine {
       recentQuestionCount: recentTypes.filter((entry) => entry === 'QUESTION').length,
       hasNewInformation: parsed.intent === 'report' && Boolean(parsed.subject && parsed.action) && !parsed.feature && !context.lastReplyWasQuestion,
     });
-    let reply = makeReply(type, parsed, context, context.turn);
+    let responseTime: Date | undefined;
+    const currentTime = () => responseTime ??= this.now();
+    let reply = makeReply(type, parsed, context, context.turn, currentTime);
     const variation = parsed.fallback ? `-${context.turn % 10}` : '';
     let replyId = `${type.toLowerCase()}-${parsed.subject ?? parsed.topic}-${parsed.action ?? 'no-action'}-${parsed.feature ?? 'no-feature'}${variation}`;
     if (recentIds.includes(replyId) && parsed.intent !== 'question') {
@@ -338,7 +353,7 @@ export class NaturalConversationEngine implements ConversationEngine {
         const alternativeId = `${alternative.toLowerCase()}-${parsed.subject ?? parsed.topic}-${parsed.action ?? 'no-action'}-${parsed.feature ?? 'no-feature'}${variation}`;
         if (recentIds.includes(alternativeId) || alternative === type) continue;
         type = alternative;
-        reply = makeReply(type, parsed, context, context.turn);
+        reply = makeReply(type, parsed, context, context.turn, currentTime);
         replyId = alternativeId;
         break;
       }
