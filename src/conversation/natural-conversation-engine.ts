@@ -29,6 +29,7 @@ interface ParsedUtterance {
 
 const SUBJECTS: readonly [RegExp, string, ConversationTopic][] = [
   [/クモの巣|蜘蛛の巣/, 'クモの巣', 'animals'],
+  [/消防車|しょうぼうしゃ|しょうぼう車/, '消防車', 'play'],
   [/バス|ばす/, 'バス', 'play'],
   [/電車|でんしゃ|新幹線|しんかんせん|汽車/, '電車', 'things'],
   [/お城|しろ|城/, 'お城', 'play'],
@@ -86,7 +87,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   if (corrected) text = text.replace(correctionPrefix, '').trim();
   else if (truthCorrection) text = text.replace(truthPrefix, '').trim();
   const correction = corrected || truthCorrection;
-  const endRequested = /^(?:もういい|もうおしまい|おしまい|おわり|終わり|会話はここまで|やめる|もうやめる|やめて|ばいばい|バイバイ|またね|さようなら|じゃあね|おやすみ|ねるね)$/.test(text);
+  const endRequested = /^(?:もういい|もうおしまい|おしまい|おわり|終わり|会話はここまで|やめる|もうやめる|やめて|ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね)$/.test(text);
 
   const found = extractSubject(text, correction);
   let subject = found?.subject ?? null;
@@ -102,7 +103,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
                   : /見た|みた|いた/.test(text) ? '見た' : null;
   const feature = firstMatch(text, COLORS) ?? (/大き|おおき/.test(text) ? '大きい' : /小さ|ちいさ/.test(text) ? '小さい' : /いっぱい|たくさん/.test(text) ? 'たくさん' : null);
 
-  if (!subject && /大き|おおき|小さ|ちいさ|赤い|あかい|青い|あおい|黄色|きいろ/.test(text)) subject = previous.subject ?? null;
+  if (!subject && (feature || /大き|おおき|小さ|ちいさ|赤|あか|青|あお|黄色|きいろ|緑|みどり|ピンク|ぴんく|黒|くろ|白|しろ/.test(text))) subject = previous.subject ?? null;
   if (!found && subject) topic = previous.topic ?? 'daily';
   if (!action && subject && previous.assistantQuestionFocus === 'activity') action = '遊んだ';
   if (!action && subject && previous.assistantQuestionFocus === 'object') action = '作った';
@@ -114,7 +115,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   else if (/もう一回|もういっかい|もう一度|もっかい|聞こえない|なんて言った/.test(text)) intent = 'repeat';
   else if (/^(?:いや|ううん|やだ|いやだ|やめて|したくない)$/.test(text)) intent = 'refusal';
   else if (/^(?:うん|うんうん|そう|そうだよ|はい|いいよ|いいね)$/.test(text)) intent = 'short-answer';
-  else if (/^(?:ばいばい|バイバイ|またね|さようなら|じゃあね|おやすみ|ねるね)$/.test(text)) intent = 'farewell';
+  else if (/^(?:ばいばい|バイバイ|またね|またあとで|さようなら|じゃあね|おやすみ|ねるね)$/.test(text)) intent = 'farewell';
   else if (/こんにちは|こんちは|おはよう|おはよ|こんばんは|こんばんわ|やっほ|ただいま|はじめまして/.test(text)) intent = 'greeting';
   else if (/[？?]$|どうして|なんで|何で|なに|何|どこ|だれ|誰|いつ|かな$|どういうこと/.test(input.trim())) intent = 'question';
   else if (/して|してよ|してね|してほしい|歌って|お話して|遊んで|コロン.*(?:きて|来て)/.test(text)) intent = 'request';
@@ -214,6 +215,7 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     return { text: 'うれしい気持ち、コロンにも伝わったよ！', focus: null, fallback: false };
   }
   if (parsed.intent === 'report' && parsed.subject && parsed.action) {
+    if (parsed.action === '見た' && type === 'QUESTION') return { text: `いいなあ！${parsed.subject}、大きかった？`, focus: 'general', fallback: false };
     const replies = parsed.action === '食べた' ? [`${subject}を食べたんだね！おいしそう！`, `${subject}を食べたんだ！どんな味だった？`, `${subject}を食べたんだね。おなかもにこにこかな！`]
       : parsed.action === '飲んだ' ? [`${subject}を飲んだんだね！`, `${subject}を飲んで、のどがすっきりしたかな！`, `${subject}を飲んだんだ！いいね！`]
         : parsed.action === '遊んだ' ? [`${parsed.subject === 'ブロック' ? 'ブロックで' : `${subject}と`}遊んだんだね！楽しそう！`, `${subject}と遊んだんだ！いい時間だったね！`, `${subject}で遊んだんだね。コロンもわくわく！`]
@@ -248,8 +250,9 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     return { text: lines[turn % lines.length]!, focus: type === 'QUESTION' ? 'general' : null, fallback: true };
   }
 
-  if (parsed.feature === '大きい' && parsed.subject) return { text: 'そんなに大きいの！びっくり！', focus: null, fallback: false };
+  if (parsed.feature === '大きい' && parsed.subject) return { text: `${parsed.subject}、大きかったんだね！びっくり！`, focus: null, fallback: false };
   if (parsed.feature && parsed.subject) {
+    if (context.lastReplyWasQuestion && context.subject === parsed.subject) return { text: `${coloredSubject}だったんだね！`, focus: null, fallback: false };
     if (type === 'QUESTION') return { text: `${coloredSubject}、どこで見つけたの？`, focus: 'general', fallback: false };
     const reactions: Partial<Record<ReplyType, string>> = {
       REACT: `えー！${coloredSubject}、すてき！`,
@@ -328,6 +331,7 @@ export class NaturalConversationEngine implements ConversationEngine {
       lastQuestion: Boolean(context.lastReplyWasQuestion),
       recentTypes,
       recentQuestionCount: recentTypes.filter((entry) => entry === 'QUESTION').length,
+      hasNewInformation: parsed.intent === 'report' && Boolean(parsed.subject && parsed.action) && !parsed.feature && !context.lastReplyWasQuestion,
     });
     let reply = makeReply(type, parsed, context, context.turn);
     const variation = parsed.fallback ? `-${context.turn % 10}` : '';

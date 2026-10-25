@@ -7,6 +7,7 @@ export interface ConversationPolicyInput {
   lastQuestion: boolean;
   recentTypes: readonly ReplyType[];
   recentQuestionCount: number;
+  hasNewInformation: boolean;
 }
 
 /** Deterministic, bounded question policy. Explicit questions and repairs take priority. */
@@ -24,8 +25,8 @@ export function chooseReplyType(input: ConversationPolicyInput): ReplyType {
   const lastTwo = input.recentTypes.slice(-2);
   const questionLimitReached = lastTwo.length === 2 && lastTwo.every((type) => type === 'QUESTION');
   const questionRate = input.recentTypes.length ? input.recentQuestionCount / input.recentTypes.length : 0;
-  const shouldAsk = !input.lastQuestion && !questionLimitReached && questionRate < 0.3
-    && input.hasKnownSubject && (input.recentTypes.length + 1) % 4 === 0;
+  const shouldAsk = input.hasNewInformation && !input.lastQuestion && !questionLimitReached && questionRate < 0.3
+    && input.hasKnownSubject;
   if (shouldAsk) return 'QUESTION';
 
   const sequence: readonly ReplyType[] = input.hasCorrection

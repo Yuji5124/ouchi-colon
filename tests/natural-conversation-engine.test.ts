@@ -192,3 +192,42 @@ test('conversation exceptions return a safe reply so the caller can continue the
   assert.equal(safe.result.quality?.fallback, true);
   assert.equal(safe.result.context.turn, 1);
 });
+
+test('follows the child’s bus story with one relevant question and acknowledges short details', () => {
+  const engine = new NaturalConversationEngine();
+  const bus = engine.reply('今日バス見た！', EMPTY_CONVERSATION_CONTEXT);
+  assert.match(bus.text, /いいなあ！バス、大きかった？/);
+  assert.equal(bus.context.lastReplyWasQuestion, true);
+  const red = engine.reply('赤かった！', bus.context);
+  assert.equal(red.context.subject, 'バス');
+  assert.match(red.text, /赤いバスだったんだね/);
+  assert.doesNotMatch(red.text, /[？?]/);
+  const large = engine.reply('大きかった！', red.context);
+  assert.match(large.text, /バス、大きかったんだね！びっくり！/);
+  assert.doesNotMatch(large.text, /[？?]/);
+});
+
+test('accepts a fire truck correction after a bare disagreement', () => {
+  const engine = new NaturalConversationEngine();
+  const bus = engine.reply('バス見たよ', EMPTY_CONVERSATION_CONTEXT);
+  const disagreement = engine.reply('違う', bus.context);
+  assert.match(disagreement.text, /ほんとは何だった/);
+  const correction = engine.reply('消防車だった', disagreement.context);
+  assert.equal(correction.context.subject, '消防車');
+  assert.doesNotMatch(correction.text, /バス/);
+  assert.match(correction.text, /消防車/);
+});
+
+test('does not turn a daily report into imaginative play and respects “またあとで”', async () => {
+  const { ImaginativePlayConversationEngine } = await import('../src/conversation/imaginative-play-engine.ts');
+  const engine = new ImaginativePlayConversationEngine(new NaturalConversationEngine());
+  const daily = engine.reply('今日バス見た！', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(daily.context.imaginativePlay, undefined);
+  assert.match(daily.text, /バス/);
+  const started = engine.reply('バス！', EMPTY_CONVERSATION_CONTEXT);
+  assert.ok(started.context.imaginativePlay);
+  const ended = engine.reply('またあとで', started.context);
+  assert.equal(ended.context.imaginativePlay, undefined);
+  assert.doesNotMatch(ended.text, /[？?]/);
+  assert.match(ended.text, /おしまい/);
+});
