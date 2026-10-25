@@ -171,3 +171,12 @@ test('produces the same story reply for the same input and in-memory context', (
   const b = secondEngine.reply('おさかなが恐竜になる！', sameStart.context);
   assert.deepEqual(a, b);
 });
+
+test('ends a story gently when the child says goodnight', () => {
+  const engine = createEngine();
+  const started = engine.reply('おはなししよう', EMPTY_CONVERSATION_CONTEXT);
+  const ended = engine.reply('おやすみ', started.context);
+  assert.equal(ended.context.story, undefined);
+  assert.match(ended.text, /おやすみ|休んで/);
+  assert.doesNotMatch(ended.text, /[？?]/);
+});

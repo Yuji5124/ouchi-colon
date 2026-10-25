@@ -60,7 +60,7 @@ test('uses context for short replies, descriptions, and corrections without rest
 test('answers child questions, avoids repeating unknown fallback text, and handles safety disclosures', () => {
   const engine = new NaturalConversationEngine();
   const colonLike = engine.reply('コロン好き？', EMPTY_CONVERSATION_CONTEXT);
-  assert.match(colonLike.text, /コロンもあなたとお話しするのが好き/);
+  assert.match(colonLike.text, /きみとお話しするのが好き/);
   let context = EMPTY_CONVERSATION_CONTEXT;
   const unknownReplies = Array.from({ length: 5 }, () => {
     const result = engine.reply('ぷるぱら', context);

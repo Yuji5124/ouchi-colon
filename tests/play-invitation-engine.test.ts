@@ -12,7 +12,7 @@ function createEngine(): PlayInvitationConversationEngine {
 }
 
 test('offers one of four authored games from a clear invitation cue, not from a passing word mention', () => {
-  assert.deepEqual(PLAY_INVITATIONS.map((game) => game.id), ['copycat', 'riddle', 'wordplay', 'imagination']);
+  assert.deepEqual(PLAY_INVITATIONS.map((game) => game.id), ['copycat', 'riddle', 'wordplay', 'imagination', 'discovery']);
   const engine = createEngine();
   const bored = engine.reply('ひまだなあ', EMPTY_CONVERSATION_CONTEXT);
   assert.match(bored.text, /まねっこあそびしない？/);
@@ -24,6 +24,21 @@ test('offers one of four authored games from a clear invitation cue, not from a 
   const direct = engine.reply('あそぼう', EMPTY_CONVERSATION_CONTEXT);
   assert.match(direct.text, /しない？/);
   assert.equal(direct.quality?.category, 'play-toys');
+});
+
+test('offers an opt-in discovery game only when the child asks to find a play idea', () => {
+  const engine = createEngine();
+  const offer = engine.reply('遊びを見つけたい', EMPTY_CONVERSATION_CONTEXT);
+  assert.equal(offer.context.playInvitation?.gameId, 'discovery');
+  assert.match(offer.text, /好きなものから、あたらしい遊び/);
+
+  const started = engine.reply('いいよ', offer.context);
+  assert.equal(started.context.playInvitation?.phase, 'playing');
+  assert.match(started.text, /好きなものをひとつ教えて/);
+  assert.doesNotMatch(JSON.stringify(started.context), /遊びを見つけたい|好きなものをひとつ/);
+
+  const unrelated = engine.reply('今日はいいよ', EMPTY_CONVERSATION_CONTEXT);
+  assert.notEqual(unrelated.context.playInvitation?.gameId, 'discovery');
 });
 
 test('a child accepts, starts a game, and gets an affectionate playful response to an unexpected contribution', () => {

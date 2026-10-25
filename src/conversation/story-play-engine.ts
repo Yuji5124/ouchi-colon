@@ -69,7 +69,7 @@ const ENTITIES: readonly StoryEntity[] = [
 const PLACES = ['森', '空', '雲の上', '海', '月', 'お城', '宇宙', 'お花畑', '広場', '山', 'おうち'] as const;
 const FOOD_WORDS = new Set(['クッキー', 'りんご', 'ドーナツ', 'おにぎり']);
 const STORY_START = /^(?:おはなししよう|お話ししよう|おはなしつくろう|お話をつくろう|お話を作ろう|おはなし作ろう|ぼうけんしよう|冒険しよう)(?:よ)?[。！!？?\s　]*$/;
-const STORY_END = /(?:おしまい|お話はおしまい|おはなしはおしまい|もういい|やめる|やめて|終わりにする)/;
+const STORY_END = /(?:おしまい|お話はおしまい|おはなしはおしまい|もういい|やめる|やめて|終わりにする|おやすみ|ねるね|もうねる|もう寝る|そろそろねる|そろそろ寝る)/;
 const TOPIC_CHANGE = /^(?:ところで|それより|あとね|そういえば|きょうね|今日ね|今日|きょう|幼稚園|保育園|ママに|パパに|おなかが|お腹が)/;
 const STORY_CATEGORIES = new Set(['animals-insects', 'play-toys', 'pretend-imagination', 'why-questions', 'unknown']);
 const FEAR = /こわい|怖い|こわかった|怖かった/;
@@ -305,7 +305,7 @@ export class StoryPlayConversationEngine implements ConversationEngine {
 
     if (context.story) {
       if (STORY_END.test(input.trim())) {
-        return withoutStory(result, 'うん、おはなしはここまで！いっしょに作れて楽しかったよ。またお話したくなったら呼んでね。');
+        return withoutStory(result, /おやすみ|ねる|寝る/.test(input) ? 'うん、おやすみ。いっしょにお話を作れて楽しかったよ。ゆっくり休んでね。' : 'うん、おはなしはここまで！いっしょに作れて楽しかったよ。またお話したくなったら呼んでね。');
       }
       if (FEAR.test(input)) {
         return withoutStory(result, 'こわくなっちゃったね。おはなしは明るいところでおしまいにしよう。コロンはここにいるよ。');

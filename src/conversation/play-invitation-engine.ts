@@ -61,11 +61,22 @@ export const PLAY_INVITATIONS: readonly PlayInvitation[] = [
       { prompt: 'コロンは星のクッキーを持っていこうかな。きみは何を持つ？' },
     ],
   },
+  {
+    id: 'discovery', name: 'あそび発見',
+    invitation: '好きなものから、あたらしい遊びを見つけてみない？',
+    opening: 'やった！ 好きなものをひとつ教えて。そこから遊びを考えよう！',
+    rounds: [
+      { prompt: 'それを使って、どんな遊びができるかな？' },
+      { prompt: 'いいね！ ほかにも何を足してみよう？' },
+      { prompt: 'きみのアイデアで、あそびができてきたね！' },
+    ],
+  },
 ];
 
 const BOREDOM = /^(?:ひま(?:だなあ?|だよ|ー)?|たいくつ|退屈|つまんない|つまらない|つまらなーい)(?:なあ?|だよ)?[。！!…\s　]*$/;
 const DIRECT_PLAY = /^(?:あそぼう|遊ぼう|なんかしよう|なにかしよう|何かしよう|あそんで|遊んで|いっしょにあそぼう|一緒に遊ぼう)(?:よ)?[。！!？?\s　]*$/;
 const WHAT_TO_DO = /^(?:なにする|何する|なにしてあそぶ|何して遊ぶ)[？?。！!\s　]*$/;
+const DISCOVERY_CUE = /^(?:あそびをみつけたい|遊びを見つけたい|あそびをみつけよう|遊びを見つけよう|なにしてあそぼうかな|何して遊ぼうかな)[？?。！!\s　]*$/;
 const YES = /^(?:うん|うんうん|いいよ|いいね|もちろん|やろう|あそぼう|遊ぼう|やってみる|やってみよう|はい)[。！!\s　]*$/;
 const NO = /いや|やだ|やめる|やめて|やめたい|もういい|したくない|あそばない|遊ばない/;
 const OTHER_GAME = /(?:ほかの|他の|別の)(?:あそび|遊び)?(?:がいい|にして|がしたい|やりたい|やろう)|ちがうあそびがいい|違う遊びがいい|なぞなぞがいい|まねっこがいい|ことばあそびがいい|そうぞうあそびがいい/;
@@ -89,6 +100,7 @@ function isSafetyOrLearning(result: ConversationResult): boolean {
 
 function invitationTrigger(input: string, result: ConversationResult): boolean {
   if (BOREDOM.test(input.trim())) return true;
+  if (DISCOVERY_CUE.test(input.trim())) return true;
   const intent = result.quality?.intent;
   return (DIRECT_PLAY.test(input.trim()) && (intent === 'request' || intent === 'proposal'))
     || (WHAT_TO_DO.test(input.trim()) && intent === 'question');
@@ -159,6 +171,7 @@ function offerResult(result: ConversationResult, game: PlayInvitation, turns = 0
 }
 
 function findRequestedGame(input: string): PlayInvitation | null {
+  if (DISCOVERY_CUE.test(input.trim())) return PLAY_INVITATIONS.find((game) => game.id === 'discovery') ?? null;
   if (/なぞなぞ/.test(input)) return PLAY_INVITATIONS.find((game) => game.id === 'riddle') ?? null;
   if (/まねっこ/.test(input)) return PLAY_INVITATIONS.find((game) => game.id === 'copycat') ?? null;
   if (/ことばあそび|言葉遊び/.test(input)) return PLAY_INVITATIONS.find((game) => game.id === 'wordplay') ?? null;
@@ -256,7 +269,7 @@ export class PlayInvitationConversationEngine implements ConversationEngine {
     const explicit = DIRECT_PLAY.test(input.trim());
     if (!explicit && (context.playInvitesSuppressedUntil ?? -1) > context.turn) return withoutPlayState(result, context);
 
-    const game = PLAY_INVITATIONS[context.turn % PLAY_INVITATIONS.length]!;
+    const game = findRequestedGame(input) ?? PLAY_INVITATIONS[context.turn % PLAY_INVITATIONS.length]!;
     const offered = makeResult(result, `ねえ、${game.invitation}`, game.id);
     return {
       ...offered,
