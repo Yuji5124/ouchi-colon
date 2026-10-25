@@ -61,6 +61,37 @@ test('connects discovery, size, short confirmation, and correction without resto
   assert.equal(vagueCorrection.quality?.intent, 'correction');
   assert.equal(vagueCorrection.context.subject, null);
   assert.match(vagueCorrection.text, /ほんとは何だった/);
+
+  const train = engine.reply('電車を見たよ', EMPTY_CONVERSATION_CONTEXT);
+  const correctedSubject = engine.reply('ちがう、電車じゃなくてバス！', train.context);
+  assert.equal(correctedSubject.context.subject, 'バス');
+  assert.match(correctedSubject.text, /バスだった/);
+  assert.doesNotMatch(correctedSubject.text, /電車/);
+
+  const actuallyCorrection = engine.reply('本当はバス！', train.context);
+  assert.equal(actuallyCorrection.context.subject, 'バス');
+  assert.match(actuallyCorrection.text, /バスだった/);
+});
+
+test('moves to a new topic without carrying the previous subject forward', () => {
+  const engine = new NaturalConversationEngine();
+  const train = engine.reply('赤い電車を見たよ', EMPTY_CONVERSATION_CONTEXT);
+  const apple = engine.reply('りんごを食べたよ', train.context);
+  assert.equal(apple.context.subject, 'りんご');
+  assert.equal(apple.context.topic, 'food');
+  assert.doesNotMatch(apple.text, /電車/);
+});
+
+test('respects a child ending and clears the active conversation topic', () => {
+  const engine = new NaturalConversationEngine();
+  const started = engine.reply('赤い電車を見たよ', EMPTY_CONVERSATION_CONTEXT);
+  const ended = engine.reply('もういい', started.context);
+  assert.equal(ended.quality?.intent, 'farewell');
+  assert.match(ended.text, /ここでおしまい/);
+  assert.doesNotMatch(ended.text, /[？?]/);
+  assert.equal(ended.context.topic, null);
+  assert.equal(ended.context.subject, null);
+  assert.equal(ended.context.lastReplyWasQuestion, false);
 });
 
 test('uses the previous prompt to interpret short activity and object answers', () => {

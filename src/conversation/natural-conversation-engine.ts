@@ -19,6 +19,7 @@ interface ParsedUtterance {
   feature: string | null;
   topic: ConversationTopic;
   corrected: boolean;
+  endRequested: boolean;
   fallback: boolean;
   category: ConversationCategory | 'unknown';
   ruleId: string | null;
@@ -28,6 +29,7 @@ interface ParsedUtterance {
 
 const SUBJECTS: readonly [RegExp, string, ConversationTopic][] = [
   [/クモの巣|蜘蛛の巣/, 'クモの巣', 'animals'],
+  [/バス|ばす/, 'バス', 'play'],
   [/電車|でんしゃ|新幹線|しんかんせん|汽車/, '電車', 'things'],
   [/お城|しろ|城/, 'お城', 'play'],
   [/おうち|お家|家|いえ|おうち/, 'おうち', 'play'],
@@ -59,7 +61,18 @@ function firstMatch<T extends string>(input: string, entries: readonly [RegExp, 
   return entries.find(([pattern]) => pattern.test(input))?.[1] ?? null;
 }
 
-function extractSubject(input: string): { subject: string; topic: ConversationTopic } | null {
+function extractSubject(input: string, preferCorrectionTarget = false): { subject: string; topic: ConversationTopic } | null {
+  if (preferCorrectionTarget) {
+    const separators = [...input.matchAll(/(?:じゃなくて|ではなくて|じゃなく|ではなく)/g)];
+    const separator = separators.at(-1);
+    if (separator?.index !== undefined) {
+      const correctedPart = input.slice(separator.index + separator[0].length);
+      if (correctedPart.trim()) {
+        const correctedSubject = extractSubject(correctedPart);
+        if (correctedSubject) return correctedSubject;
+      }
+    }
+  }
   for (const [pattern, subject, topic] of SUBJECTS) if (pattern.test(input)) return { subject, topic };
   return null;
 }
@@ -68,9 +81,14 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   let text = input.trim().replace(/[。！!？?]+$/g, '');
   const correctionPrefix = /^(?:あ、そうじゃなくて|あ、ちがう|あ、違う|ちがう|違う|やっぱり|そうじゃなくて)[、。！!\s　]*/;
   const corrected = correctionPrefix.test(text);
+  const truthPrefix = /^(?:本当は|ほんとは|ほんとうは)[、。！!\s　]*/;
+  const truthCorrection = truthPrefix.test(text);
   if (corrected) text = text.replace(correctionPrefix, '').trim();
+  else if (truthCorrection) text = text.replace(truthPrefix, '').trim();
+  const correction = corrected || truthCorrection;
+  const endRequested = /^(?:もういい|もうおしまい|おしまい|おわり|終わり|会話はここまで|やめる|もうやめる|やめて|ばいばい|バイバイ|またね|さようなら|じゃあね|おやすみ|ねるね)$/.test(text);
 
-  const found = extractSubject(text);
+  const found = extractSubject(text, correction);
   let subject = found?.subject ?? null;
   let topic = found?.topic ?? previous.topic ?? 'daily';
   let action: string | null = /作ろう|つくろう/.test(text) ? '作ろう'
@@ -91,7 +109,8 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   if (!action && subject === 'おうち' && previous.subject === 'ブロック') action = '作った';
 
   let intent: ConversationIntent = 'unknown';
-  if (corrected) intent = 'correction';
+  if (correction) intent = 'correction';
+  else if (endRequested) intent = 'farewell';
   else if (/もう一回|もういっかい|もう一度|もっかい|聞こえない|なんて言った/.test(text)) intent = 'repeat';
   else if (/^(?:いや|ううん|やだ|いやだ|やめて|したくない)$/.test(text)) intent = 'refusal';
   else if (/^(?:うん|うんうん|そう|そうだよ|はい|いいよ|いいね)$/.test(text)) intent = 'short-answer';
@@ -118,7 +137,7 @@ function parseUtterance(input: string, previous: ConversationContext): ParsedUtt
   const category = library.category === 'unknown' ? previous.category as ConversationCategory | undefined ?? 'unknown' : library.category;
   const hasSignal = intent !== 'unknown' || Boolean(found || action || feature);
   return {
-    original: input, intent, subject, action, feature, topic, corrected,
+    original: input, intent, subject, action, feature, topic, corrected: correction, endRequested,
     fallback: !hasSignal || (intent === 'unknown' && library.category === 'unknown'),
     category, ruleId: library.entry?.id ?? (intent === 'correction' ? 'context.correction' : intent === 'short-answer' && previous.category ? 'context.short-answer' : null),
     fallbackReason: intent === 'unknown' ? library.fallbackReason : null,
@@ -162,6 +181,7 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     return { text: candidate ?? (turn % 2 ? 'やっほー！コロン、わくわくしてきた！' : 'こんにちは！会えてうれしいな！'), focus: null, fallback: false };
   }
   if (parsed.intent === 'farewell') {
+    if (parsed.endRequested) return { text: 'うん、ここでおしまい。またお話ししたくなったら教えてね。', focus: null, fallback: false };
     const candidate = parsed.libraryEntry ? candidateFor(parsed.libraryEntry, type, turn, subject) : null;
     return { text: candidate ?? 'またお話ししようね！ばいばい！', focus: null, fallback: false };
   }
@@ -340,17 +360,17 @@ export class NaturalConversationEngine implements ConversationEngine {
           : parsed.topic === 'bedtime' && parsed.intent === 'emotion' ? { emotion: 'SLEEPY' as const } : {}),
     };
     const nextContext: ConversationContext = {
-      topic: parsed.topic,
-      category: parsed.category,
+      topic: parsed.endRequested ? null : parsed.topic,
+      category: parsed.endRequested ? undefined : parsed.category,
       turn: context.turn + 1,
-      subject: parsed.subject ?? (parsed.corrected ? null : context.subject ?? null),
-      action: parsed.action ?? (parsed.corrected ? null : context.action ?? null),
-      feature: parsed.feature ?? (parsed.corrected ? null : context.feature ?? null),
+      subject: parsed.endRequested ? null : parsed.subject ?? (parsed.corrected ? null : context.subject ?? null),
+      action: parsed.endRequested ? null : parsed.action ?? (parsed.corrected ? null : context.action ?? null),
+      feature: parsed.endRequested ? null : parsed.feature ?? (parsed.corrected ? null : context.feature ?? null),
       intent: parsed.intent,
       recentReplyTypes: nextTypes,
       recentReplyIds: nextIds,
-      lastReplyWasQuestion: type === 'QUESTION' || /[？?]/.test(reply.text),
-      assistantQuestionFocus: reply.focus,
+      lastReplyWasQuestion: !parsed.endRequested && (type === 'QUESTION' || /[？?]/.test(reply.text)),
+      assistantQuestionFocus: parsed.endRequested ? null : reply.focus,
     };
     return { text: reply.text, topic: parsed.topic, context: nextContext, quality };
   }
