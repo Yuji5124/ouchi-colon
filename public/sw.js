@@ -1,4 +1,4 @@
-const CACHE = 'ouchicolon-shell-v19';
+const CACHE = 'ouchicolon-shell-v20';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
@@ -55,3 +55,4 @@ self.addEventListener('fetch', (event) => {
     }).catch(() => request.mode === 'navigate' ? caches.match(ROOT) : Response.error())),
   );
 });
+
