@@ -21,6 +21,8 @@ export interface ConversationContext {
   playInvitesSuppressedUntil?: number;
   /** Story state uses only authored or allow-listed values; child transcripts are never kept. */
   story?: { seedId: string; character: string; characters: string[]; place: string; event: string; childAction: string | null; turns: number };
+  /** Only the active play's short, recognized concepts are retained in memory. */
+  imaginativePlay?: { subject: string; setting: string | null; guest: string | null; feature: string | null; turns: number };
 }
 
 export type ConversationIntent = 'greeting' | 'farewell' | 'report' | 'question' | 'request' | 'correction' | 'refusal' | 'short-answer' | 'emotion' | 'repeat' | 'preference' | 'preference-negative' | 'wish' | 'proposal' | 'unknown';

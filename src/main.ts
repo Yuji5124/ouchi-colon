@@ -12,6 +12,7 @@ import { NaturalConversationEngine } from './conversation/natural-conversation-e
 import { LanguageLearningConversationEngine } from './conversation/language-learning-engine';
 import { PlayInvitationConversationEngine } from './conversation/play-invitation-engine';
 import { StoryPlayConversationEngine } from './conversation/story-play-engine';
+import { ImaginativePlayConversationEngine } from './conversation/imaginative-play-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
@@ -49,9 +50,11 @@ const reactionEngine = new ReactionEngine();
 const conversationExpressionController = new ConversationExpressionController();
 let activeExpressionGeneration = 0;
 const legacyConversationEngine = new RuleBasedConversationEngine();
-const naturalConversationEngine = new StoryPlayConversationEngine(
-  new PlayInvitationConversationEngine(
-    new LanguageLearningConversationEngine(new NaturalConversationEngine()),
+const naturalConversationEngine = new ImaginativePlayConversationEngine(
+  new StoryPlayConversationEngine(
+    new PlayInvitationConversationEngine(
+      new LanguageLearningConversationEngine(new NaturalConversationEngine()),
+    ),
   ),
 );
 let conversationEngineMode: 'natural' | 'legacy' = 'natural';
