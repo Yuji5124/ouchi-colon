@@ -283,13 +283,14 @@ GROUPS = {
 # Aliases do not add dictionary entries or response sets.
 ALIASES = {
     "おはよう": ["おはようございます", "おはよー", "おはよ", "おはようコロン"],
-    "こんにちは": ["こんにちわ", "こんにちはコロン", "やっほー"],
+    "こんにちは": ["こんにちわ", "こんにちはコロン"],
     "こんばんは": ["こんばんわ", "こんばんはコロン"],
     "ただいま": ["ただいまー", "今帰ったよ"],
     "おかえり": ["おかえりなさい", "おかえりー"],
     "行ってきます": ["いってきます", "いってきまーす"],
     "おやすみ": ["おやすみなさい", "おやすみー"],
     "またね": ["またねー"],
+    "遊びに来たよ": ["やっほー"],
     "うれしい": ["うれしいよ", "うれしくなった"],
     "かなしい": ["悲しい", "かなしいよ"],
     "おなかが痛い": ["お腹が痛い", "おなかいたい"],
@@ -300,7 +301,22 @@ ALIASES = {
 }
 
 
-def responses(category, topic, prompt, phrase):
+def varied(options, topic_index, variant):
+    """Rotate short, age-appropriate wording without random or stored state."""
+    return options[((topic_index - 1) * 2 + variant - 1) % len(options)]
+
+
+def echo_child_statement(phrase):
+    """Turn a short statement into a brief reflection without quoting it back."""
+    text = phrase.strip().removesuffix("よ").removesuffix("ね")
+    if text.endswith(("きれい", "いっぱい", "元気")):
+        return f"{text}なんだね。"
+    if text.endswith("だ"):
+        return f"{text[:-1]}なんだね。"
+    return f"{text}んだね。"
+
+
+def responses(category, topic, prompt, phrase, topic_index, variant):
     if category == "greeting":
         if topic == "就寝":
             return [
@@ -350,19 +366,20 @@ def responses(category, topic, prompt, phrase):
             "お出迎え": "おかえり！来てくれてうれしいな。",
         }.get(topic, "やっほー！来てくれてうれしいな。")
         if topic in {"名前を呼ぶ", "呼びかけ"}:
+            presence = "コロンだよ、ここにいるよ！" if topic == "呼びかけ" else "うん、コロンだよ！"
             return [
-                ("ここにいるよ！", True, False),
+                (presence, True, False),
                 ("呼んでくれてありがとう。", True, False),
-                ("うん、コロンだよ。", True, False),
-                ("聞こえてるよ。", True, False),
+                ("聞こえてるよ。" if topic == "呼びかけ" else "コロンって呼んでね。", True, False),
+                ("お話し、ちゃんと聞いてるよ。", True, False),
                 ("何をお話ししようか？", True, True),
             ]
         return [
             (opening, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("来てくれてうれしいよ。", True, False),
-            ("今日はゆっくりお話ししようね。", True, False),
-            ("何からお話ししようか？", True, True),
+            (varied(["会えてうれしいな。", "声を聞けてうれしいよ。", "来てくれてありがとう！", "コロンとお話ししようね。", "今日の気分を教えてね。", "お話しできてうれしいな。"], topic_index, variant), True, False),
+            (varied(["のんびりお話ししようね。", "好きなことを聞かせてね。", "コロンは聞く準備ばっちりだよ。", "ここでお話しできるよ。", "どんなことでも聞かせてね。", "いっしょに楽しくお話ししよう。"], topic_index, variant), True, False),
+            (varied(["何からお話ししようか？", "今日は何をお話しする？", "どんなお話を聞かせてくれる？", "好きなことを聞かせてね。", "コロンに何を教えてくれる？", "まずは何をお話ししよう？"], topic_index, variant), True, True),
         ]
     if category == "feelings":
         reflections = {
@@ -403,20 +420,38 @@ def responses(category, topic, prompt, phrase):
         reflected = reflections.get(topic, "そう感じたんだね。")
         return [
             (reflected, True, False),
-            ("その気持ちを話してくれてありがとう。", True, False),
+            (varied(["話してくれてありがとう。", "そうなんだね。", "そっか、そう思ったんだね。", "その気持ち、コロンに届いたよ。", "うん、聞かせてくれてありがとう。", "そんな気持ちなんだね。"], topic_index, variant), True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("今すぐ気持ちを変えなくても大丈夫だよ。", True, False),
-            ("コロンはここで聞いているよ。", True, False),
+            (varied(["急がなくていいよ。", "その気持ちのままで大丈夫だよ。", "ゆっくりでいいんだよ。", "気持ちを教えてくれてうれしいな。", "そう感じる日もあるよ。", "無理に元気にならなくていいよ。"], topic_index, variant), True, False),
+            (varied(["コロン、ちゃんと聞いてるよ。", "ここで一緒にいるよ。", "また話したくなったら聞かせてね。", "言ってくれてありがとう。", "ゆっくりお話ししようね。", "ひとりで抱えなくていいよ。"], topic_index, variant), True, False),
         ]
     if category == "needs_and_routine":
         urgent = topic in {"おなかの痛み", "頭の痛み", "歯の痛み", "けが", "具合が悪い", "トイレ", "助けを求める"}
         if urgent:
+            if topic == "トイレ":
+                need = "トイレに行きたいんだね。" if "トイレ" in phrase else "おしっこに行きたいんだね。"
+                return [
+                    (need, True, False),
+                    ("近くの大人に教えてね。", True, False),
+                    ("がまんしなくていいよ。", True, False),
+                    ("そばにいる大人に声をかけよう。", True, False),
+                    ("教えてくれてありがとう。", True, False),
+                ]
+            if topic == "助けを求める":
+                need = "手伝ってほしいんだね。" if "手伝" in phrase else "ひとりでは難しいんだね。"
+                return [
+                    (need, True, False),
+                    ("そばにいる大人にも声をかけよう。", True, False),
+                    ("何に困っているか、大人に話してみてね。", True, False),
+                    ("手伝ってって言っていいんだよ。", True, False),
+                    ("教えてくれてありがとう。", True, False),
+                ]
             return [
-                ("教えてくれてありがとう。近くの大人にすぐ伝えてね。", True, False),
+                ("教えてくれてありがとう。近くにいる大人にすぐ伝えてね。", True, False),
                 ("そうなんだね。そばにいる大人を呼ぼう。", True, False),
                 ("ひとりでがまんしなくていいよ。大人に知らせてね。", True, False),
                 ("コロンにも教えてくれてありがとう。大人と一緒にいてね。", True, False),
-                ("今のことを、近くの信頼できる大人に話そうね。", True, False),
+                ("今のことを、近くにいる大人に話そうね。", True, False),
             ]
         reflections = {
             "空腹": "おなかがすいたんだね。",
@@ -440,12 +475,12 @@ def responses(category, topic, prompt, phrase):
         }
         reflected = reflections.get(topic, "教えてくれてありがとう。")
         if topic == "空腹":
-            return [(reflected, True, False), ("食べられそうなものを大人に聞いてみよう。", True, False),
-                    ("何か食べたいんだね。", True, False), ("ゆっくり食べられるといいね。", True, False),
-                    ("おなかが落ち着くといいね。", True, False)]
+            return [(reflected, True, False), ("食べたいものを近くの大人に伝えてみよう。", True, False),
+                    ("何か食べたいんだね。", True, False), ("ごはんの時間が楽しみだね。", True, False),
+                    ("おなかがすいたって教えてくれてありがとう。", True, False)]
         if topic == "のどがかわいた":
-            return [(reflected, True, False), ("お水を飲めるか大人に伝えてね。", True, False),
-                    ("お水が飲めるといいね。", True, False), ("教えてくれてありがとう。", True, False),
+            return [(reflected, True, False), ("お水を飲もうね。", True, False),
+                    ("のどがかわいたって教えてくれてありがとう。", True, False), ("お水でひと休みしよう。", True, False),
                     ("ゆっくり飲んでね。", True, False)]
         if topic in {"寒さ", "暑さ", "音が大きい", "まぶしさ"}:
             return [(reflected, True, False), (prompt, True, "？" in prompt or "?" in prompt),
@@ -454,8 +489,9 @@ def responses(category, topic, prompt, phrase):
                     ("教えてくれてありがとう。", True, False)]
         if topic in {"手洗い", "おふろ", "歯みがき", "着替え", "朝ごはん", "お昼ごはん", "夕ごはん", "お片づけ", "準備"}:
             return [(reflected, True, False), (prompt, True, "？" in prompt or "?" in prompt),
-                    ("自分でやってみたんだね。", True, False), ("ひとつずつで大丈夫だよ。", True, False),
-                    ("教えてくれてありがとう。", True, False)]
+                    (varied(["自分でやるところなんだね。", "もう始めているんだね。", "少しずつ進めよう。", "できるところからでいいよ。", "毎日のことを教えてくれたね。", "ひとつずつやってみよう。"], topic_index, variant), True, False),
+                    (varied(["ゆっくりで大丈夫だよ。", "終わったらすっきりしそうだね。", "あわてなくていいよ。", "できたところまででいいんだよ。", "自分のペースでやろうね。", "コロンも応援してるよ。"], topic_index, variant), True, False),
+                    (varied(["お話ししてくれてありがとう。", "教えてくれてうれしいな。", "そうなんだね。", "うん、聞かせてくれてありがとう。", "毎日のことも聞けてうれしいよ。", "そっか、わかったよ。"], topic_index, variant), True, False)]
         return [
             (reflected, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
@@ -467,7 +503,7 @@ def responses(category, topic, prompt, phrase):
         if topic == "秘密と言われた":
             return [
                 ("こわい秘密やいやな秘密は、信頼できる大人に話していいんだよ。", True, False),
-                ("話してくれてありがとう。ひとりで抱えず、大人に伝えようね。", True, False),
+                ("話してくれてありがとう。ひとりでないしょにしなくていいよ。大人に話そうね。", True, False),
                 ("ないしょにしなくて大丈夫だよ。安心できる大人に話してね。", True, False),
                 ("もし困ったりこわかったりしたら、すぐ大人を呼んでね。", True, False),
                 ("コロンに教えてくれてありがとう。大人にも一緒に伝えよう。", True, False),
@@ -480,12 +516,26 @@ def responses(category, topic, prompt, phrase):
                 ("いやだった気持ちを聞かせてくれてありがとう。", True, False),
                 ("どうしたらいいか、大人と一緒に考えようね。", True, False),
             ]
+        if topic in {"お母さん", "お父さん", "きょうだい", "妹や弟", "おばあちゃん", "おじいちゃん"} and "好き" in phrase:
+            prompt = f"{topic}のどんなところが好き？"
+        elif topic in {"お母さん", "お父さん"} and "遊ん" in phrase:
+            prompt = f"{topic}と何をして遊んだの？"
+        if "好き" in phrase and topic in {"お母さん", "お父さん", "きょうだい", "妹や弟", "おばあちゃん", "おじいちゃん", "みんなが好き"}:
+            family_name = "家族や好きな人" if topic == "みんなが好き" else topic
+            return [
+                (f"{family_name}が好きなんだね。", True, False),
+                (prompt, True, "？" in prompt or "?" in prompt),
+                (varied(["好きな気持ちが伝わったよ。", "そうなんだね。", "大好きなんだね。", "好きって教えてくれてありがとう。", "その人のお話を聞かせてくれたね。", "好きな人がいるんだね。"], topic_index, variant), True, False),
+                (varied(["一緒にいる時間が好きなんだね。", "家族のことを思い出したんだね。", "その人のことを大切に思っているんだね。", "好きなお話を聞けてうれしいな。", "コロンにも教えてくれたね。", "好きな気持ち、すてきだね。"], topic_index, variant), True, False),
+                (varied(["またその人のお話を聞かせてね。", "お話ししてくれてありがとう。", "その人のことを話してくれたね。", "コロン、ちゃんと聞いてるよ。", "好きな気持ちを教えてくれてうれしいな。", "うん、わかったよ。"], topic_index, variant), True, False),
+            ]
+        family_opening = f"{topic}が好きなんだね。" if "好き" in phrase else varied(["そうなんだね。", "いいお話を聞かせてくれたね。", "家族やお友だちと過ごしたんだね。", "その人と一緒だったんだね。", "うん、コロンに教えてくれたね。", "お話ししてくれてありがとう。"], topic_index, variant)
         return [
-            ("そうなんだね。聞かせてくれてうれしいよ。", True, False),
+            (family_opening, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("家族やお友だちとのこと、教えてくれてありがとう。", True, False),
-            ("その時の気持ちも大切だよ。", True, False),
-            ("コロンはここで聞いているよ。", True, False),
+            (varied(["どんなことがあったか、聞けてうれしいな。", "一緒に過ごした時間のお話だね。", "その人のことが好きなんだね。", "一緒に過ごした時間のお話なんだね。", "話してくれてありがとう。", "そばにいる人のお話、聞かせてくれたね。"], topic_index, variant), True, False),
+            (varied(["うれしい気持ちが伝わったよ。", "その時のこと、思い出したんだね。", "人と一緒にいると楽しいね。", "どんな気持ちだったかも大事だね。", "そういうことがあったんだね。", "また聞かせてね。"], topic_index, variant), True, False),
+            (varied(["コロン、ちゃんと聞いてるよ。", "そのお話、聞けてよかったよ。", "またお話ししようね。", "話してくれてうれしいな。", "うん、わかったよ。", "続きも聞かせてね。"], topic_index, variant), True, False),
         ]
     if category == "food":
         if topic == "苦手な食べ物":
@@ -496,50 +546,177 @@ def responses(category, topic, prompt, phrase):
                 ("食べられるものを一緒に探してもらおう。", True, False),
                 ("苦手って言っても大丈夫だよ。", True, False),
             ]
+        if topic == "おいしい":
+            return [
+                ("おいしかったんだね！", True, False),
+                ("どんなところがおいしい？", True, True),
+                ("おいしいって教えてくれてありがとう。", True, False),
+                ("おいしいと笑顔になるね。", True, False),
+                ("好きな味のお話、楽しいね。", True, False),
+            ]
+        if topic == "お弁当" and "時間" in phrase:
+            return [
+                ("お弁当の時間なんだね。", True, False),
+                ("どんなお弁当かな？", True, True),
+                ("食べる時間が楽しみだね。", True, False),
+                ("お弁当のお話を聞かせてくれたね。", True, False),
+                ("ゆっくり食べてね。", True, False),
+            ]
+        if topic == "給食" and "給食は" in phrase:
+            return [
+                ("今日の給食のお話なんだね。", True, False),
+                ("何が出たの？", True, True),
+                ("給食の時間だったんだね。", True, False),
+                ("お昼ごはんのこと、聞かせてくれてありがとう。", True, False),
+                ("どんなお話か、ゆっくり聞かせてね。", True, False),
+            ]
+        is_preference = "好き" in phrase and not any(word in phrase for word in ("苦手", "食べたくない"))
+        if is_preference:
+            food_name = phrase.replace("が大好き", "").replace("が好き", "").replace("大好き", "").replace("好き", "").strip()
+            food_name = food_name or topic
+            return [
+                (f"{food_name}が好きなんだね。", True, False),
+                ("どんなところが好き？", True, True),
+                (varied(["お気に入りなんだね。", "好きなものがあるっていいね。", "その味が好きなんだね。", "好きって気持ち、伝わったよ。", "食べものの好みって人それぞれだね。", "好きなものを教えてくれたね。"], topic_index, variant), True, False),
+                (varied(["どんな味か、コロンも想像してみるね。", "好きな食べもののお話、もっと聞きたいな。", "食べるのが楽しみになりそうだね。", "その食べものを選んだんだね。", "おいしいところを見つけたんだね。", "好きな気持ちを聞けてうれしいな。"], topic_index, variant), True, False),
+                (varied(["好きって教えてくれてありがとう。", "その食べものがお気に入りなんだね。", "うん、好きなんだね。", "食べもののお話を聞かせてくれてうれしいな。", "お気に入りを教えてくれたね。", "コロンにも教えてくれてありがとう。"], topic_index, variant), True, False),
+            ]
+        first_reply = f"{topic}を食べたんだね。"
+        if "飲ん" in phrase:
+            first_reply = f"{topic}を飲んだんだね。"
         return [
-            ("そうなんだ、食べたんだね。", True, False),
+            (first_reply, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("食べた時のことを教えてくれてありがとう。", True, False),
-            ("どんな味だったか想像してみるね。", True, False),
-            ("食べ物のお話を聞かせてくれてうれしいな。", True, False),
+            (varied(["食べた時のことを話してくれてありがとう。", "どんな味だったか気になるな。", "そうなんだね。", "食べもののお話、聞かせてくれてありがとう。", "何を食べたか教えてくれたね。", "うん、食べたんだね。"], topic_index, variant), True, False),
+            (varied(["どんな味か、コロンも想像してみるね。", "食べると元気が出そうだね。", "おいしいものを食べるとうれしいね。", "ひとくち食べてみたんだね。", "食べものの話を聞くのは楽しいな。", "その時のことを思い出したんだね。"], topic_index, variant), True, False),
+            (varied(["教えてくれてうれしいな。", "食べた時のこと、また聞かせてね。", "食べもののお話、楽しいね。", "話してくれてありがとう。", "コロンにも教えてくれたね。", "そうなんだ、わかったよ。"], topic_index, variant), True, False),
         ]
     if category == "play":
+        if "好き" in phrase:
+            prompt = "どんなところが好き？"
+        elif topic == "電車" and "遊んだ" in phrase:
+            prompt = "電車はどこを走っていたの？"
+        elif topic == "車" and "遊んだ" in phrase:
+            prompt = "車はどこを走っていたの？"
+        elif topic == "ブロック" and "作った" in phrase:
+            prompt = "何を作ったの？"
+        elif topic == "お絵かき" and "描いた" in phrase:
+            prompt = "何を描いたの？"
+        elif topic == "お絵かき" and "描く" in phrase:
+            prompt = "何を描くの？"
+        elif topic == "パズル" and "できた" in phrase:
+            prompt = "できた時、どんな気持ちだった？"
+        elif topic == "積み木" and "好き" in phrase:
+            prompt = "どんなところが好き？"
+        if topic == "遊びの提案":
+            return [
+                ("いいね、いっしょに考えよう！", True, False),
+                (prompt, True, "？" in prompt or "?" in prompt),
+                ("コロンも想像しながら聞くね。", True, False),
+                ("きみの考えた遊び、楽しそう！", True, False),
+                ("どんな遊びにするか、きみが決めてね。", True, False),
+            ]
+        if "好き" in phrase:
+            return [
+                (f"{topic}が好きなんだね！", True, False),
+                (prompt, True, "？" in prompt or "?" in prompt),
+                (varied(["お気に入りなんだね。", "好きって気持ちが伝わったよ。", "その遊びが好きなんだね。", "好きな遊びを教えてくれたね。", "コロンも聞けてうれしいな。", "そうなんだ、好きなんだね。"], topic_index, variant), True, False),
+                (varied(["遊んでいるところを想像してみるね。", "いつも楽しんでいるんだね。", "また遊びのお話を聞かせてね。", "その遊びをしている姿を思い浮かべたよ。", "遊び方はいろいろあるね。", "好きな遊びがあるっていいね。"], topic_index, variant), True, False),
+                (varied(["話してくれてありがとう。", "コロンにも教えてくれてうれしいよ。", "うん、聞かせてくれてありがとう。", "また好きな遊びを教えてね。", "そのお話、楽しいね。", "そっか、わかったよ。"], topic_index, variant), True, False),
+            ]
+        if topic == "バス" and "ごっこしよう" in phrase:
+            first_reply = "バスごっこ、いいね！"
+        elif "好き" in phrase:
+            first_reply = f"{topic}が好きなんだね！"
+        elif topic == "粘土" and "作" in phrase:
+            first_reply = "粘土で作ったんだね！"
+        elif topic == "砂遊び" and "作" in phrase:
+            first_reply = "砂でお山を作ったんだね！"
+        elif phrase.endswith("遊ぶ"):
+            first_reply = f"{topic}で遊ぶんだね！"
+        else:
+            first_reply = "遊んだんだね！"
         return [
-            ("いいね、やってみたんだね！", True, False),
+            (first_reply, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("どんな遊びか、コロンも想像してみるね。", True, False),
-            ("その遊び、楽しそう！", True, False),
-            ("次はどんなふうに遊ぼうか？", True, True),
+            (varied(["コロンも想像しながら聞いてるよ。", "どんなふうに遊んだのか気になるな。", "遊びのお話、もっと聞きたいな。", "その場面を思い浮かべてみるね。", "コロンもいっしょに考えてみるよ。", "遊び方はいろいろあるね。"], topic_index, variant), True, False),
+            (varied(["楽しそうだね！", "いい遊びを思いついたね。", "夢中になれる遊びだったんだね。", "工夫して遊んだんだね。", "よく考えて遊んだんだね。", "遊ぶのっておもしろいね。"], topic_index, variant), True, False),
+            (varied(["またどんな遊びをしたか聞かせてね。", "次は何をして遊びたい？", "コロンも続きを想像してみるね。", "遊びのお話、またしようね。", "ほかにも作ったものを教えてね。", "次の遊びも楽しみだね。"], topic_index, variant), True, True),
         ]
     if category == "animals_nature":
+        if "好き" in phrase:
+            first_reply = f"{topic}が好きなんだね。"
+            if topic != "恐竜":
+                prompt = "どんなところが好き？"
+            return [
+                (first_reply, True, False),
+                (prompt, True, "？" in prompt or "?" in prompt),
+                (varied(["お気に入りなんだね。", "好きって気持ちが伝わったよ。", "その子が好きなんだね。", "好きなところがあるんだね。", "動物のお話を聞かせてくれたね。", "好きって教えてくれてありがとう。"], topic_index, variant), True, False),
+                (varied(["その子のことを想像してみるね。", "好きな動物がいるっていいね。", "動物っておもしろいね。", "その動物のお話、もっと聞きたいな。", "コロンもその子に会ってみたいな。", "好きなところが伝わったよ。"], topic_index, variant), True, False),
+                (varied(["また好きな動物を教えてね。", "お話ししてくれてありがとう。", "コロンにも教えてくれてうれしいよ。", "うん、聞かせてくれてありがとう。", "またお話ししようね。", "そのお話、楽しいね。"], topic_index, variant), True, False),
+            ]
+        elif "ごっこ" in phrase:
+            first_reply = f"{topic}ごっこをしたんだね！"
+        else:
+            first_reply = echo_child_statement(phrase)
         return [
-            ("そうなんだね。教えてくれてありがとう。", True, False),
+            (first_reply, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("どんな様子だったか、コロンも想像してみるね。", True, False),
-            ("自然の中には発見がいっぱいだね。", True, False),
-            ("ほかにも気づいたことがあったら教えてね。", True, False),
+            (varied(["コロンもその様子を思い浮かべてみるね。", "よく見つけたね！", "どんなところにいたのか想像してみるよ。", "その場面、見てみたくなるね。", "そんなことがあったんだね。", "自然にはおもしろいことがあるね。"], topic_index, variant), True, False),
+            (varied(["よく気づいたね。", "見つけるのが上手だね！", "どんなふうだったか伝わってきたよ。", "おもしろい発見だね。", "そのお話、すてきだね。", "コロンもびっくり！"], topic_index, variant), True, False),
+            (varied(["また見つけたら教えてね。", "そのこと、また聞かせてね。", "お話ししてくれてありがとう。", "見たものをほかにも教えてね。", "コロンに教えてくれてうれしいよ。", "自然のお話、またしようね。"], topic_index, variant), True, False),
         ]
     if category == "places_weather":
+        if topic == "旅行":
+            first_reply = "遠くへお出かけしたんだね！"
+        elif "雨" in topic or "晴れ" in topic or "くもり" in topic or "雪" in topic or "風" in topic or "暑い" in topic or "寒い" in topic:
+            first_reply = f"{phrase}って教えてくれたね。"
+        elif topic == "車で移動":
+            first_reply = "車に乗って出かけたんだね。"
+        elif topic == "バスで移動":
+            first_reply = "バスに乗ったんだね。"
+        elif topic == "電車で移動":
+            first_reply = "電車に乗ったんだね。"
+        elif "行った" in phrase:
+            first_reply = f"{topic}に行ったんだね。"
+        else:
+            first_reply = echo_child_statement(phrase)
         return [
-            ("そうなんだね。教えてくれてありがとう。", True, False),
+            (first_reply, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("その場所や空の様子を想像してみるね。", True, False),
-            ("お出かけのお話、聞かせてくれてありがとう。", True, False),
-            ("ほかにも気づいたことがあったら教えてね。", True, False),
+            (varied(["どんな場所だったか想像してみるね。", "その景色、見てみたいな。", "お出かけのお話、聞くのが好きだよ。", "その時の様子を思い浮かべてみるね。", "その時のことが伝わってきたよ。", "コロンもそこへ行った気分になったよ。"], topic_index, variant), True, False),
+            (varied(["行ってみたんだね！", "そこで過ごしたんだね。", "お出かけできてよかったね。", "見つけたものがあったら教えてね。", "お外のお話を聞かせてくれたね。", "どんな景色か気になるな。"], topic_index, variant), True, False),
+            (varied(["またその場所のお話を聞かせてね。", "お話ししてくれてありがとう。", "見たものをほかにも教えてね。", "その時のこと、また聞きたいな。", "コロンに教えてくれてうれしいよ。", "お出かけのお話、またしようね。"], topic_index, variant), True, False),
         ]
     if category == "learning_creativity":
+        if topic == "ひらがな" and "読め" in phrase:
+            prompt = "どの字を読めたの？"
+        elif topic == "ひらがな" and "書" in phrase:
+            prompt = "どの字を書いたの？"
+        if topic == "見てほしい":
+            first_reply = "うん、見せて！"
+        elif topic == "聞いてほしい":
+            first_reply = "うん、聞かせて！"
+        elif topic == "読んでほしい":
+            first_reply = "もちろん、いっしょに読もう。"
+        elif topic in {"知りたい", "教えて"}:
+            first_reply = "気になったんだね。いっしょに考えよう。"
+        elif topic in {"手伝ってほしい", "作りたい", "描きたい"}:
+            first_reply = "やってみたいんだね！"
+        else:
+            first_reply = "やってみたんだね！"
         return [
-            ("やってみたんだね！", True, False),
+            (first_reply, True, False),
             (prompt, True, "？" in prompt or "?" in prompt),
-            ("自分で考えたり、試したりしたんだね。", True, False),
-            ("試してみたことが大切だよ。", True, False),
-            ("聞かせてくれてありがとう。", True, False),
+            (varied(["自分で考えたんだね。", "工夫したところがあるんだね。", "やってみたこと、コロンに伝わったよ。", "自分で見つけたんだね。", "がんばったところがあったね。", "新しいことに気づいたんだね。"], topic_index, variant), True, False),
+            (varied(["やってみるって楽しいね。", "できたところを見せてくれたね。", "ゆっくり考えていいんだよ。", "その工夫、いいね！", "一生懸命だったんだね。", "自分のやり方を見つけたね。"], topic_index, variant), True, False),
+            (varied(["聞かせてくれてありがとう。", "コロンに見せてくれてうれしいな。", "いっしょにできてうれしいよ。", "また教えてね。", "そのお話、楽しいね。", "うん、わかったよ。"], topic_index, variant), True, False),
         ]
     # Conversation control: these outputs carry explicit routing actions.
     if topic == "訂正":
         return [
             ("教えてくれてありがとう。どこが違ったか教えてくれる？", True, True),
-            ("そっか、まちがえちゃったね。どう言えばいいかな？", True, True),
+            ("そっか、ちがうんだね。言い直すね。", True, False),
             ("わかったよ。正しいお話を聞かせてね。", True, False),
             ("教えてくれたら、そっちに直すね。", True, False),
             ("もう一度聞かせてくれる？", True, True),
@@ -584,6 +761,38 @@ def responses(category, topic, prompt, phrase):
             ("うん、いやなんだね。無理にしなくていいよ。", False, False),
             ("わかったよ。別のことにしよう。", False, False),
             ("ちゃんと教えてくれてありがとう。", False, False),
+        ]
+    if topic == "知らない":
+        return [
+            ("そっか、知らないんだね。", True, False),
+            ("知らないこともあるよ。", True, False),
+            ("教えてくれてありがとう。", True, False),
+            ("いっしょに考えてみる？", True, True),
+            ("わからない時は、知らないって言っていいんだよ。", True, False),
+        ]
+    if topic == "大丈夫":
+        return [
+            ("大丈夫なんだね。", True, False),
+            ("そう聞けてよかった。", True, False),
+            ("もう平気になったんだね。", True, False),
+            ("教えてくれてありがとう。", True, False),
+            ("また困ったら言ってね。", True, False),
+        ]
+    if topic == "同意":
+        return [
+            ("うん、そうなんだね。", True, False),
+            ("そう思ったんだね。", True, False),
+            ("わかったよ。", True, False),
+            ("うんうん、聞いてるよ。", True, False),
+            ("教えてくれてありがとう。", True, False),
+        ]
+    if topic == "できた報告":
+        return [
+            ("できたんだね！", True, False),
+            ("終わったんだね。", True, False),
+            ("やったね！", True, False),
+            ("がんばったね。", True, False),
+            ("できたことを教えてくれてありがとう。", True, False),
         ]
     if topic in {"聞いて", "話の続き", "付け足し", "話を続ける", "聞き返す", "話を始める"}:
         if topic == "聞き返す":
@@ -650,15 +859,10 @@ for category, text in GROUPS.items():
     for index, row in enumerate(rows, start=1):
         topic, utterance_a, utterance_b, prompt = row.split("|", 3)
         for variant, phrase in enumerate((utterance_a, utterance_b), start=1):
-            response_rows = responses(category, topic, prompt, phrase)
+            response_rows = responses(category, topic, prompt, phrase, index, variant)
             response_objects = []
-            used_text = set()
             for response_index, (answer, continues, asks_question) in enumerate(response_rows, start=1):
                 answer = answer.strip()
-                if answer in used_text:
-                    # Preserve five usable choices even for the short stop phrases.
-                    answer = answer.rstrip("。！") + ["。", "！", "ね。", "よ。", "だよ。"][response_index - 1]
-                used_text.add(answer)
                 asks_question = asks_question and ("？" in answer or "?" in answer)
                 response_objects.append({
                     "id": f"r{response_index}",
@@ -708,10 +912,18 @@ if len(set(all_patterns)) != len(all_patterns):
     raise ValueError(f"duplicate patterns: {duplicates}")
 if any(len(entry["responses"]) != 5 for entry in entries):
     raise ValueError("each entry must have exactly five responses")
+if any(len({response["text"] for response in entry["responses"]}) != 5 for entry in entries):
+    raise ValueError("each entry must have five distinct response choices")
+if any(response["asks_question"] != ("？" in response["text"] or "?" in response["text"])
+       for entry in entries for response in entry["responses"]):
+    raise ValueError("question flags must match question punctuation")
+if any(not response["continues"] and response["asks_question"]
+       for entry in entries for response in entry["responses"]):
+    raise ValueError("a stopped or ended conversation cannot ask a follow-up")
 
 data = {
     "schema_version": "1.1",
-    "dictionary_revision": "2026-10-27-review-2",
+    "dictionary_revision": "2026-10-27-review-4",
     "locale": "ja-JP",
     "entry_count": len(entries),
     "match_pattern_count": len(all_patterns),
