@@ -1,4 +1,5 @@
 export interface RecognitionAlternativeLike { transcript: string; confidence?: number }
+export interface RecognitionHypothesis { transcript: string; confidence?: number }
 export interface RecognitionResultLike extends ArrayLike<RecognitionAlternativeLike> { isFinal: boolean }
 export interface RecognitionResultEventLike { resultIndex: number; results: ArrayLike<RecognitionResultLike> }
 export interface RecognitionErrorEventLike { error: string; message?: string }
@@ -26,7 +27,7 @@ export interface RecognitionCallbacks {
   onSpeechEnd?: () => void;
   onInterim?: (text: string) => void;
   onError?: (code: string, message?: string) => void;
-  onEnd?: (finalText: string) => void;
+  onEnd?: (finalText: string, alternatives: readonly RecognitionHypothesis[]) => void;
 }
 
 export type RecognitionStartResult = 'started' | 'unsupported' | 'already-active' | 'error';
@@ -57,6 +58,7 @@ export class SpeechRecognitionEngine {
   private generation = 0;
   private active = false;
   private finalText = '';
+  private finalAlternatives: RecognitionHypothesis[] = [];
   private speechStarted = false;
   private errored = false;
 
@@ -83,12 +85,13 @@ export class SpeechRecognitionEngine {
     this.callbacks = callbacks;
     this.active = true;
     this.finalText = '';
+    this.finalAlternatives = [];
     this.speechStarted = false;
     this.errored = false;
     recognizer.lang = 'ja-JP';
     recognizer.continuous = false;
     recognizer.interimResults = true;
-    recognizer.maxAlternatives = 1;
+    recognizer.maxAlternatives = 3;
 
     const current = (): boolean => generation === this.generation && this.recognizer === recognizer;
     const markSpeechStart = (): void => {
@@ -114,9 +117,19 @@ export class SpeechRecognitionEngine {
       const finals: string[] = [];
       const interims: string[] = [];
       for (let index = 0; index < event.results.length; index += 1) {
-        const alternative = event.results[index]?.[0];
+        const result = event.results[index];
+        const alternative = result?.[0];
         if (!alternative?.transcript) continue;
-        if (event.results[index]?.isFinal) finals.push(alternative.transcript.trim());
+        if (result?.isFinal) {
+          finals.push(alternative.transcript.trim());
+          this.finalAlternatives = Array.from({ length: result.length }, (_, alternativeIndex) => {
+            const candidate = result[alternativeIndex];
+            return candidate ? {
+              transcript: candidate.transcript.trim(),
+              ...(typeof candidate.confidence === 'number' && Number.isFinite(candidate.confidence) ? { confidence: candidate.confidence } : {}),
+            } : null;
+          }).filter((candidate): candidate is RecognitionHypothesis => Boolean(candidate?.transcript));
+        }
         else interims.push(alternative.transcript.trim());
       }
       const finalText = finals.join(' ').trim();
@@ -135,9 +148,11 @@ export class SpeechRecognitionEngine {
       this.active = false;
       const finalText = this.errored ? '' : this.finalText;
       const end = this.callbacks.onEnd;
+      const alternatives = this.errored ? [] : this.finalAlternatives.map((item) => ({ ...item }));
+      this.finalAlternatives = [];
       this.callbacks = {};
       this.recognizer = null;
-      end?.(finalText);
+      end?.(finalText, alternatives);
     };
 
     try {
@@ -171,6 +186,7 @@ export class SpeechRecognitionEngine {
     this.recognizer = null;
     this.callbacks = {};
     this.finalText = '';
+    this.finalAlternatives = [];
     try {
       recognizer?.abort();
     } catch {

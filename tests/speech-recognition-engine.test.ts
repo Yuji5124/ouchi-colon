@@ -30,6 +30,11 @@ class FakeRecognizer implements SpeechRecognitionPort {
     const result = Object.assign([alternative], { isFinal });
     this.onresult?.({ resultIndex: 0, results: [result] });
   }
+
+  resultAlternatives(alternatives: Array<{ transcript: string; confidence?: number }>, isFinal: boolean): void {
+    const result = Object.assign(alternatives, { isFinal });
+    this.onresult?.({ resultIndex: 0, results: [result] });
+  }
 }
 
 test('starts one explicit ja-JP turn and reports speech start, end, and final result', () => {
@@ -49,6 +54,7 @@ test('starts one explicit ja-JP turn and reports speech start, end, and final re
   assert.equal(recognizer.lang, 'ja-JP');
   assert.equal(recognizer.continuous, false);
   assert.equal(recognizer.interimResults, true);
+  assert.equal(recognizer.maxAlternatives, 3);
   assert.equal(engine.start({}), 'already-active');
 
   recognizer.onstart?.();
@@ -62,6 +68,27 @@ test('starts one explicit ja-JP turn and reports speech start, end, and final re
   assert.equal(finalText, 'きょうは公園で遊んだ');
   assert.equal(engine.isActive, false);
   assert.deepEqual(events, ['start', 'speechstart', 'speechend', 'end']);
+});
+
+test('returns up to three final hypotheses with confidence for debug comparison', () => {
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  let finalText = '';
+  let candidates: readonly { transcript: string; confidence?: number }[] = [];
+  engine.start({ onEnd: (text, alternatives) => { finalText = text; candidates = alternatives; } });
+  recognizer.resultAlternatives([
+    { transcript: 'こんにちは', confidence: 0.71 },
+    { transcript: 'おはよう', confidence: 0.66 },
+    { transcript: 'おはよ', confidence: 0.52 },
+  ], true);
+  recognizer.onend?.();
+
+  assert.equal(finalText, 'こんにちは');
+  assert.deepEqual(candidates, [
+    { transcript: 'こんにちは', confidence: 0.71 },
+    { transcript: 'おはよう', confidence: 0.66 },
+    { transcript: 'おはよ', confidence: 0.52 },
+  ]);
 });
 
 test('interim text changes are surfaced without finalizing the turn early', () => {

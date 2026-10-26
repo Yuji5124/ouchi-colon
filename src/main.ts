@@ -14,7 +14,7 @@ import { PlayInvitationConversationEngine } from './conversation/play-invitation
 import { StoryPlayConversationEngine } from './conversation/story-play-engine';
 import { ImaginativePlayConversationEngine } from './conversation/imaginative-play-engine';
 import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
-import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
+import { SpeechRecognitionEngine, type RecognitionHypothesis } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
 import { SpeechSynthesisEngine, type SpeechCallbacks, type SpeechEndReason } from './speech/speech-synthesis-engine';
 import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
@@ -170,6 +170,7 @@ const recognitionStopButton = document.querySelector<HTMLButtonElement>('#recogn
 const recognitionStatus = document.querySelector<HTMLOutputElement>('#recognition-status')!;
 const recognitionInterim = document.querySelector<HTMLOutputElement>('#recognition-interim')!;
 const recognitionFinal = document.querySelector<HTMLOutputElement>('#recognition-final')!;
+const recognitionAlternatives = document.querySelector<HTMLOutputElement>('#recognition-alternatives')!;
 const speechStatus = document.querySelector<HTMLOutputElement>('#speech-status')!;
 const speechStopButton = document.querySelector<HTMLButtonElement>('#speech-stop')!;
 const replyVoiceEngineSelect = document.querySelector<HTMLSelectElement>('#reply-voice-engine')!;
@@ -1315,6 +1316,14 @@ function updateRecognitionButtons(): void {
   recognitionStopButton.disabled = !recognitionEngine.isActive && !recognitionEnabled;
 }
 
+function formatRecognitionAlternatives(alternatives: readonly RecognitionHypothesis[]): string {
+  const items = alternatives.slice(0, 3).map((candidate, index) => {
+    const confidence = typeof candidate.confidence === 'number' ? ` (信頼度 ${candidate.confidence.toFixed(2)})` : ' (信頼度 --)';
+    return `${index + 1}. ${candidate.transcript}${confidence}`;
+  });
+  return `認識候補: ${items.length ? items.join(' / ') : '--'}`;
+}
+
 function startVoiceRecognition(isResume = false, expectedSession?: number): void {
   if (!debug || recognitionEngine.isActive) return;
   if (isResume && expectedSession !== undefined && expectedSession !== recognitionSessionGeneration) {
@@ -1352,6 +1361,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
   speechEndHandled = false;
   recognitionInterim.value = '途中認識: --';
   recognitionFinal.value = '最終認識: --';
+  recognitionAlternatives.value = '認識候補: --';
   recognitionStatus.value = 'マイクを開始しています…';
   setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
   const result = recognitionEngine.start({
@@ -1450,9 +1460,10 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       renderVadMetrics();
       updateRecognitionButtons();
     },
-    onEnd: (finalText) => {
+    onEnd: (finalText, alternatives) => {
       updateRecognitionButtons();
       recognitionInterim.value = '途中認識: --';
+      recognitionAlternatives.value = formatRecognitionAlternatives(alternatives);
       if (finalText) {
         consecutiveEmptyRecognitionResults = 0;
         networkRecoveryCount = 0;
@@ -1712,6 +1723,7 @@ function setDebug(value: boolean): void {
     conversationInput.value = '';
     recognitionInterim.value = '途中認識: --';
     recognitionFinal.value = '最終認識: --';
+    recognitionAlternatives.value = '認識候補: --';
     conversationReply.value = '確定返答: --';
     if (reactionEngine.isInteractionActive) applyReaction('RESPONSE_ENDED');
     void stopCamera();
