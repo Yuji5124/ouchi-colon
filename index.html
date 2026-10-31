@@ -74,9 +74,10 @@
             <select id="reply-voice-engine">
               <option value="ios">iOS標準TTS（フォールバック）</option>
               <option value="tohoku" selected disabled>TOHOKU Happy（優先・未準備）</option>
+              <option value="haruka">VOICEVOX 春歌ナナ（辞書と反応に合わせる）</option>
             </select>
           </label>
-          <small>iOS標準TTSは端末の音声サービスを使います。TOHOKU Happyは明示的に読み込んで音声を有効化した場合に限り、返答文を端末内で合成します。どちらも会話中は再生を終えてから次のマイク認識を開始します。</small>
+          <small>iOS標準TTSは端末の音声サービスを使います。TOHOKU Happyは明示的に読み込んで音声を有効化した場合に限り、返答文を端末内で合成します。春歌ナナは辞書に一致した返答だけ音声を遅延読み込みし、ほかの返答はiOS標準TTSに切り替えます。音声クレジット: VOICEVOX:春歌ナナ。どの方式も会話中は再生終了後に次のマイク認識を開始します。</small>
           <details class="debug__voice-selector">
             <summary>コロンの声を選ぶ</summary>
             <label>端末の日本語音声 <select id="voice-choice"><option value="">自動（従来設定）</option></select></label>
