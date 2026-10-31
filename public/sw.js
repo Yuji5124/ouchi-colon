@@ -1,8 +1,10 @@
-const CACHE = 'ouchicolon-shell-v20';
+const CACHE = 'ouchicolon-shell-v21';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
 const CACHE_PREFIX = 'ouchicolon-shell-';
+const VOICE_CACHE = 'ouchicolon-haruka-voice-v1';
+const MAX_CACHED_VOICE_CLIPS = 50;
 
 function isReplaceableShellEntry(request) {
   const url = new URL(request.url);
@@ -47,6 +49,22 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(request.url);
   const sameOrigin = requestUrl.origin === self.location.origin;
   if (request.method !== 'GET' || (!sameOrigin && !MODEL_ORIGINS.has(requestUrl.origin))) return;
+  if (sameOrigin && requestUrl.pathname.startsWith(`${ROOT}voice/haruka-nana/wav/`)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(VOICE_CACHE);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      const response = await fetch(request);
+      if (!response.ok) return response;
+      await cache.put(request, response.clone()).catch(() => undefined);
+      const keys = await cache.keys();
+      for (const oldRequest of keys.slice(0, Math.max(0, keys.length - MAX_CACHED_VOICE_CLIPS))) {
+        await cache.delete(oldRequest);
+      }
+      return response;
+    })());
+    return;
+  }
   event.respondWith(
     caches.match(request).then((cached) => cached || fetch(request).then((response) => {
       if (!response.ok) return response;

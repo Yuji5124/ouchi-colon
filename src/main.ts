@@ -17,6 +17,9 @@ import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
 import { SpeechSynthesisEngine, type SpeechCallbacks, type SpeechEndReason } from './speech/speech-synthesis-engine';
+import harukaNanaDictionaryUrl from './data/language-dictionary-500.json?url';
+import { HarukaNanaAudioPlayer } from './speech/haruka-nana-audio-player';
+import { HarukaNanaResponseCatalog, type HarukaNanaSelectedResponse } from './speech/haruka-nana-response';
 import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
 import { TohokuVoiceLab, type TohokuLabEvent, type TohokuWorkerPort } from './speech/tohoku-voice-lab';
 import { runTohokuBenchmark, summarizeTohokuSamples, TohokuBenchmarkError } from './speech/tohoku-benchmark';
@@ -65,6 +68,8 @@ let conversationContentFallbackCount = 0;
 let conversationEngineErrorFallbackCount = 0;
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
+const harukaNanaAudioPlayer = new HarukaNanaAudioPlayer();
+const harukaNanaResponseCatalog = new HarukaNanaResponseCatalog(harukaNanaDictionaryUrl, `${import.meta.env.BASE_URL}voice/haruka-nana/`);
 const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
   ? window.speechSynthesis as unknown as DiagnosticSpeechPort : null;
 const nativeTtsDiagnostic = new NativeTtsDiagnostic(
@@ -91,7 +96,7 @@ let replyGenerationMs = 0;
 let ttsStartMs: number | null = null;
 let ttsStartDelayMs: number | null = null;
 let tohokuGenerationMs: number | null = null;
-let activeReplyEngineForTurn: 'ios' | 'tohoku' | 'ios-fallback' = 'ios';
+let activeReplyEngineForTurn: 'ios' | 'tohoku' | 'haruka' | 'ios-fallback' = 'ios';
 let voiceReactionMs: number | null = null;
 let recognitionEnabled = false;
 let voiceResponseActive = false;
@@ -237,7 +242,7 @@ let tohokuAudioUrl: string | null = null;
 let tohokuAudio: HTMLAudioElement | null = null;
 let tohokuBenchmarkRunning = false;
 let tohokuBenchmarkCancelRequested = false;
-let replyVoiceMode: 'ios' | 'tohoku' = INITIAL_REPLY_VOICE_MODE;
+let replyVoiceMode: 'ios' | 'tohoku' | 'haruka' = INITIAL_REPLY_VOICE_MODE;
 let tohokuConversationActivated = false;
 let diagnosticOwner: 'native' | 'wrapper' | null = null;
 let diagnosticEvents: string[] = [];
@@ -297,8 +302,10 @@ function recordSpeechStage(stage: SpeechStage, status: string): void {
 }
 
 function renderSpeechRuntime(): void {
-  const selected = replyVoiceMode === 'tohoku' ? 'TOHOKU Happy' : 'iOS標準TTS';
+  const selected = replyVoiceMode === 'tohoku' ? 'TOHOKU Happy'
+    : replyVoiceMode === 'haruka' ? 'VOICEVOX 春歌ナナ（辞書音声）' : 'iOS標準TTS';
   const local = tohokuConversationSpeech.isBusy ? 'TOHOKU生成/再生中'
+    : harukaNanaAudioPlayer.isPlaying ? '春歌ナナ音声再生中'
     : speechEngine.isSpeaking ? '再生中(onstart済み)'
     : speechEngine.isPending ? '開始待ち'
       : '停止中';
@@ -925,13 +932,14 @@ function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token
   }
 }
 
-function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>): void {
+function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>, harukaReply: HarukaNanaSelectedResponse | null = null): void {
   const expressionGeneration = activeExpressionGeneration;
   conversationExpressionController.setEmotion(expressionGeneration, emotion);
   syncConversationExpression();
   ttsStartMs = null;
   ttsStartDelayMs = null;
-  activeReplyEngineForTurn = replyVoiceMode;
+  const useHarukaAudio = replyVoiceMode === 'haruka' && harukaReply !== null;
+  activeReplyEngineForTurn = useHarukaAudio ? 'haruka' : replyVoiceMode === 'haruka' ? 'ios-fallback' : replyVoiceMode;
   updateConversationTiming();
   recordSpeechStage('tts-request', `返答${text.length}文字`);
   setVisibleAppState('返答生成完了・音声出力準備中');
@@ -948,7 +956,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
     renderLatencySummary();
   }
 
-  if (replyVoiceMode === 'ios' && !speechEngine.isSupported) {
+  if (!useHarukaAudio && replyVoiceMode !== 'tohoku' && !speechEngine.isSupported) {
     speechStatus.value = 'このSafariでは音声合成を利用できません。文字の返答は引き続き使えます。';
     finishReactionResponse('error', token, expressionGeneration);
     return;
@@ -958,7 +966,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
   const callbacks: SpeechCallbacks = {
     onStart: () => {
       if (token !== conversationGeneration) return;
-      if (replyVoiceMode === 'tohoku') talking = true;
+      if (activeReplyEngineForTurn === 'tohoku' || activeReplyEngineForTurn === 'haruka') talking = true;
       recordSpeechStage('tts-start', 'onstart');
       recordSpeechStage('mouth-start', '口パクを開始');
       const playbackStartedAt = performance.now();
@@ -983,14 +991,18 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
       speechStopButton.disabled = false;
       renderSpeechRuntime();
       renderMediaConcurrency();
-      speechStatus.value = replyVoiceMode === 'tohoku'
+      speechStatus.value = activeReplyEngineForTurn === 'tohoku'
         ? 'TOHOKU Happyを再生中です。再生終了後に音声認識を再開します。'
-        : 'iOS日本語音声で読み上げています。マイク入力は使用していません。';
-      setVisibleAppState(`再生中（${replyVoiceMode === 'tohoku' ? 'TOHOKU Happy' : 'iOS音声'} onstart確認・可聴は端末確認が必要）`);
+        : activeReplyEngineForTurn === 'haruka'
+          ? 'VOICEVOX 春歌ナナの返答音声を再生中です。'
+          : 'iOS日本語音声で読み上げています。マイク入力は使用していません。';
+      const playbackLabel = activeReplyEngineForTurn === 'tohoku' ? 'TOHOKU Happy'
+        : activeReplyEngineForTurn === 'haruka' ? 'VOICEVOX 春歌ナナ' : 'iOS音声';
+      setVisibleAppState(`再生中（${playbackLabel} onstart確認・可聴は端末確認が必要）`);
     },
     onBoundary: () => { /* Mouth animation follows the actual onstart/onend interval. */ },
     onError: (message) => {
-      lastErrorCode = replyVoiceMode === 'tohoku' ? 'TOHOKU_PLAYBACK_FAILED' : 'IOS_TTS_ERROR';
+      lastErrorCode = activeReplyEngineForTurn === 'tohoku' ? 'TOHOKU_PLAYBACK_FAILED' : 'IOS_TTS_ERROR';
       setVisibleAppState(`エラー: ${lastErrorCode}`);
       recordSpeechStage('tts-end', `onerror:${message}`);
       speechStatus.value = `読み上げエラー: ${message}`;
@@ -1001,6 +1013,26 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
       finishReactionResponse(reason, token, expressionGeneration);
     },
   };
+  if (useHarukaAudio && harukaReply) {
+    speechStatus.value = '辞書に合う春歌ナナ音声を読み込んでいます…';
+    setVisibleAppState('春歌ナナ辞書音声を準備中');
+    void harukaNanaAudioPlayer.play(harukaReply.audioUrl, callbacks.onStart ?? (() => undefined)).then((reason) => {
+      if (token !== conversationGeneration) return;
+      if (reason === 'error') {
+        activeReplyEngineForTurn = 'ios-fallback';
+        lastErrorCode = 'HARUKA_AUDIO_FALLBACK';
+        speechStatus.value = '辞書音声を再生できなかったため、iOS標準音声へ切り替えました。';
+        setVisibleAppState('春歌ナナ音声失敗・iOS音声へ切替');
+        speakWithNativeTts(text, callbacks);
+        return;
+      }
+      recordSpeechStage('tts-end', reason === 'finished' ? '春歌ナナ音声 onended' : '春歌ナナ音声 cancel');
+      finishReactionResponse(reason, token, expressionGeneration);
+    });
+    renderSpeechRuntime();
+    renderMediaConcurrency();
+    return;
+  }
   if (replyVoiceMode === 'tohoku') {
     if (!tohokuConversationActivated || (tohokuVoiceLab.state !== 'ready' && tohokuVoiceLab.state !== 'generated')) {
       speechStatus.value = 'TOHOKU Happyは未準備のため会話を開始できません。保護者が音声を準備してください。';
@@ -1070,6 +1102,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   tohokuAudio?.pause();
   speechEngine.stop();
   tohokuConversationSpeech.stop();
+  harukaNanaAudioPlayer.stop();
   if (fromVoice) recognitionEngine.abort();
   else {
     recognitionEnabled = false;
@@ -1094,8 +1127,22 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   const generationStart = performance.now();
   const engine: ConversationEngine = conversationEngineMode === 'natural' ? naturalConversationEngine : legacyConversationEngine;
   const safeReply = replyWithFallback(engine, text, conversationContext);
-  const result: ConversationResult = safeReply.result;
+  let result: ConversationResult = safeReply.result;
   const emotion = chooseConversationEmotion(text, result, previousContext);
+  const isEnding = result.quality?.intent === 'farewell' || /^(?:ばいばい|バイバイ|さようなら|またね|おやすみ)/.test(text.trim());
+  const allowDictionaryQuestion = !isEnding && (result.quality?.replyType === 'QUESTION' || /[？?]/.test(result.text));
+  let harukaReply = replyVoiceMode === 'haruka' && result.topic !== 'safety' && result.quality?.category !== 'safety'
+    ? await harukaNanaResponseCatalog.select(text, emotion, conversationContext.recentReplyIds ?? [], allowDictionaryQuestion, isEnding, conversationContext.turn)
+    : null;
+  if (token !== conversationGeneration) return;
+  if (replyVoiceMode !== 'haruka') harukaReply = null;
+  if (harukaReply) {
+    result = {
+      ...result,
+      text: harukaReply.text,
+      context: { ...result.context, recentReplyIds: [...(result.context.recentReplyIds ?? []), harukaReply.id].slice(-10) },
+    };
+  }
   const quality: ConversationQuality | null = result.quality ?? null;
   if (safeReply.failed) {
     conversationFallbackReplyCount += 1;
@@ -1116,7 +1163,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
-  speakReply(result.text, token, emotion);
+  speakReply(result.text, token, emotion, harukaReply);
 }
 
 function submitConversation(): Promise<void> {
@@ -1819,9 +1866,12 @@ conversationInput.addEventListener('keydown', (event) => {
   }
 });
 speechStopButton.addEventListener('click', () => {
+  const token = ++conversationGeneration;
   speechEngine.stop();
   tohokuConversationSpeech.stop();
+  harukaNanaAudioPlayer.stop();
   tohokuAudio?.pause();
+  finishReactionResponse('stopped', token);
 });
 voiceTestButton.addEventListener('click', () => testColonVoice());
 voiceAuditionButton.addEventListener('click', () => testColonVoice());
@@ -1925,16 +1975,20 @@ tohokuPlayStopButton.addEventListener('click', () => {
 tohokuFallbackButton.addEventListener('click', () => testColonVoice(tohokuText.value.trim() || tohokuSample.value));
 replyVoiceEngineSelect.addEventListener('change', () => {
   const previousMode = replyVoiceMode;
-  replyVoiceMode = replyVoiceEngineSelect.value === 'tohoku' && tohokuConversationActivated ? 'tohoku' : 'ios';
+  replyVoiceMode = replyVoiceEngineSelect.value === 'haruka' ? 'haruka'
+    : replyVoiceEngineSelect.value === 'tohoku' && tohokuConversationActivated ? 'tohoku' : 'ios';
   if (replyVoiceMode === 'ios' && replyVoiceEngineSelect.value !== 'ios') replyVoiceEngineSelect.value = 'ios';
-  if (previousMode === 'tohoku' && replyVoiceMode === 'ios' && tohokuConversationSpeech.isBusy) {
+  if (previousMode === 'tohoku' && replyVoiceMode !== 'tohoku' && tohokuConversationSpeech.isBusy) {
     const token = ++conversationGeneration;
     tohokuConversationSpeech.stop();
     finishReactionResponse('stopped', token);
   }
+  if (previousMode === 'haruka' && replyVoiceMode !== 'haruka') harukaNanaAudioPlayer.stop();
   tohokuConversationStatus.value = replyVoiceMode === 'tohoku'
     ? '通常会話はTOHOKU Happyを使います。生成・再生に失敗した場合はこのターンからiOS標準TTSへ戻ります。'
-    : '通常会話はiOS標準TTSです。';
+    : replyVoiceMode === 'haruka'
+      ? '辞書に一致する返答ではVOICEVOX 春歌ナナを使います。辞書にない発話や再生失敗時はiOS標準TTSです。'
+      : '通常会話はiOS標準TTSです。';
   renderSpeechRuntime();
 });
 nativeTtsRunButton.addEventListener('click', runNativeTtsDiagnostic);
