@@ -10,6 +10,7 @@ import { MediaPipeFaceTracker, type FaceTrackerMetrics } from './vision/media-pi
 import { cameraFailureMessage, detectorFailureMessage } from './vision/tracking-errors';
 import { EMPTY_CONVERSATION_CONTEXT, RuleBasedConversationEngine, replyWithFallback, type ConversationContext, type ConversationEngine, type ConversationQuality, type ConversationResult } from './conversation/conversation-engine';
 import { NaturalConversationEngine } from './conversation/natural-conversation-engine';
+import { ColonCallConversationEngine } from './conversation/colon-call-engine';
 import { LanguageLearningConversationEngine } from './conversation/language-learning-engine';
 import { PlayInvitationConversationEngine } from './conversation/play-invitation-engine';
 import { StoryPlayConversationEngine } from './conversation/story-play-engine';
@@ -58,13 +59,13 @@ const reactionEngine = new ReactionEngine();
 const conversationExpressionController = new ConversationExpressionController();
 let activeExpressionGeneration = 0;
 const legacyConversationEngine = new RuleBasedConversationEngine();
-const naturalConversationEngine = new ImaginativePlayConversationEngine(
+const naturalConversationEngine = new ColonCallConversationEngine(new ImaginativePlayConversationEngine(
   new StoryPlayConversationEngine(
     new PlayInvitationConversationEngine(
       new LanguageLearningConversationEngine(new NaturalConversationEngine()),
     ),
   ),
-);
+));
 let conversationEngineMode: 'natural' | 'legacy' = 'natural';
 let lastConversationQuality: ConversationQuality | null = null;
 let lastConversationTopic: string = 'unknown';

@@ -4,17 +4,18 @@ import { EMPTY_CONVERSATION_CONTEXT, type ConversationContext, type Conversation
 import { ImaginativePlayConversationEngine } from '../src/conversation/imaginative-play-engine.ts';
 import { LanguageLearningConversationEngine } from '../src/conversation/language-learning-engine.ts';
 import { NaturalConversationEngine } from '../src/conversation/natural-conversation-engine.ts';
+import { ColonCallConversationEngine, COLON_CALL_REPLIES } from '../src/conversation/colon-call-engine.ts';
 import { PlayInvitationConversationEngine } from '../src/conversation/play-invitation-engine.ts';
 import { StoryPlayConversationEngine } from '../src/conversation/story-play-engine.ts';
 
 function productionConversation(): ConversationEngine {
-  return new ImaginativePlayConversationEngine(
+  return new ColonCallConversationEngine(new ImaginativePlayConversationEngine(
     new StoryPlayConversationEngine(
       new PlayInvitationConversationEngine(
         new LanguageLearningConversationEngine(new NaturalConversationEngine()),
       ),
     ),
-  );
+  ));
 }
 
 function say(engine: ConversationEngine, text: string, context: ConversationContext) {
@@ -78,4 +79,30 @@ test('the production engine starts and ends a story gently at bedtime', () => {
   assert.equal(goodnight.context.story, undefined);
   assert.equal(goodnight.context.imaginativePlay, undefined);
   assert.equal(goodnight.context.playInvitation, undefined);
+});
+
+test('calling Colon pauses imaginative play without consuming the next idea', () => {
+  const engine = productionConversation();
+  const bus = say(engine, 'バス！', EMPTY_CONVERSATION_CONTEXT);
+  assert.ok(bus.context.imaginativePlay);
+  const call = say(engine, 'コロン！', bus.context);
+  assert.ok(COLON_CALL_REPLIES.includes(call.text as typeof COLON_CALL_REPLIES[number]));
+  assert.deepEqual(call.context.imaginativePlay, bus.context.imaginativePlay);
+  assert.equal(call.context.subject, bus.context.subject);
+  const space = say(engine, '宇宙！', call.context);
+  assert.match(space.text, /お月さまに停まろう/);
+  assert.equal(space.context.imaginativePlay?.setting, '宇宙');
+});
+
+test('calling Colon preserves a story and cannot mask a safety request', () => {
+  const engine = productionConversation();
+  const story = say(engine, 'お話ししよう', EMPTY_CONVERSATION_CONTEXT);
+  assert.ok(story.context.story);
+  const call = say(engine, 'ねえ、ころん', story.context);
+  assert.equal(call.quality?.ruleId, 'colon.name-call');
+  assert.deepEqual(call.context.story, story.context.story);
+  const safety = say(engine, 'コロン、住所を教えて', call.context);
+  assert.equal(safety.topic, 'safety');
+  assert.notEqual(safety.quality?.ruleId, 'colon.name-call');
+  assert.equal(safety.context.story, undefined);
 });
