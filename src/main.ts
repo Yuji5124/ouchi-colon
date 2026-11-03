@@ -1468,7 +1468,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
   recognitionStatus.value = 'マイクを開始しています…';
   setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
   resumeAfterManualAudio = false;
-  voiceAudioCheck.pause();
+  if (!voiceAudioCheck.src.startsWith('data:')) voiceAudioCheck.pause();
   setAudioSessionType('auto');
   const result = recognitionEngine.start({
     onStart: () => {
