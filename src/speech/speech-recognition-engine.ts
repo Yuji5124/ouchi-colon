@@ -59,6 +59,8 @@ export class SpeechRecognitionEngine {
   private finalText = '';
   private speechStarted = false;
   private errored = false;
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  private finalTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(createRecognizer: (() => SpeechRecognitionPort) | null = getBrowserFactory()) {
     this.createRecognizer = createRecognizer;
@@ -98,7 +100,9 @@ export class SpeechRecognitionEngine {
     };
 
     recognizer.onstart = () => {
-      if (current()) this.callbacks.onStart?.();
+      if (!current()) return;
+      this.clearStartTimer();
+      this.callbacks.onStart?.();
     };
     recognizer.onaudiostart = () => {
       // Some implementations omit the speechstart event. Interim results below
@@ -124,14 +128,25 @@ export class SpeechRecognitionEngine {
       if (interimText || finalText) markSpeechStart();
       if (finalText) this.finalText = finalText;
       this.callbacks.onInterim?.([this.finalText, interimText].filter(Boolean).join(' ').trim());
+      if (finalText && this.finalTimer === null) {
+        // Safari may deliver a final result without ending its one-shot session.
+        this.finalTimer = setTimeout(() => {
+          if (!current()) return;
+          finish();
+          try { recognizer.abort(); } catch { /* The final text is already committed. */ }
+        }, 1200);
+        try { recognizer.stop(); } catch { /* The bounded completion above remains active. */ }
+      }
     };
     recognizer.onerror = (event) => {
       if (!current()) return;
       this.errored = true;
       this.callbacks.onError?.(event.error || 'unknown', event.message);
     };
-    recognizer.onend = () => {
+    const finish = (): void => {
       if (!current()) return;
+      this.clearStartTimer();
+      this.clearFinalTimer();
       this.active = false;
       const finalText = this.errored ? '' : this.finalText;
       const end = this.callbacks.onEnd;
@@ -139,12 +154,22 @@ export class SpeechRecognitionEngine {
       this.recognizer = null;
       end?.(finalText);
     };
+    recognizer.onend = finish;
 
     try {
       // Called directly from the explicit parent-operated button gesture.
+      this.startTimer = setTimeout(() => {
+        if (!current()) return;
+        const pending = this.callbacks;
+        this.abort();
+        pending.onError?.('start-timeout', 'マイクを開始できませんでした。開始ボタンをもう一度押してください。');
+        pending.onEnd?.('');
+      }, 8000);
       recognizer.start();
       return 'started';
     } catch (error) {
+      this.clearStartTimer();
+      this.clearFinalTimer();
       this.active = false;
       this.recognizer = null;
       this.callbacks = {};
@@ -152,6 +177,16 @@ export class SpeechRecognitionEngine {
       callbacks.onError?.('start-failed', message);
       return 'error';
     }
+  }
+
+  private clearStartTimer(): void {
+    if (this.startTimer !== null) clearTimeout(this.startTimer);
+    this.startTimer = null;
+  }
+
+  private clearFinalTimer(): void {
+    if (this.finalTimer !== null) clearTimeout(this.finalTimer);
+    this.finalTimer = null;
   }
 
   stop(): void {
@@ -165,6 +200,8 @@ export class SpeechRecognitionEngine {
 
   /** Discards pending recognition before TTS or when the parent turns the mic off. */
   abort(): void {
+    this.clearStartTimer();
+    this.clearFinalTimer();
     const recognizer = this.recognizer;
     this.generation += 1;
     this.active = false;
