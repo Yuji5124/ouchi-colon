@@ -10,6 +10,7 @@ import {
 } from './conversation-engine.ts';
 import { chooseReplyType, repeatedReplyCount } from './conversation-policy.ts';
 import { answerAboutColon } from './colon-personality.ts';
+import { UNCLEAR_ACKNOWLEDGEMENTS } from './unclear-acknowledgements.ts';
 import { greetingForLocalTime, isBedtimeEnding, replyToMoodConfirmation, replyToMorningRoutine, replyToReportedMood } from './mood-rhythm.ts';
 import { candidateFor, CONVERSATION_ENTITIES, matchConversationLibrary, escapeRegex, type ConversationCategory, type ConversationLibraryEntry } from './library/index.ts';
 
@@ -229,29 +230,7 @@ function makeReply(type: ReplyType, parsed: ParsedUtterance, context: Conversati
     if (replies) return { text: replies[turn % replies.length]!, focus: null, fallback: false };
   }
   if (parsed.intent === 'unknown') {
-    if (type !== 'QUESTION') {
-      const acknowledgements = [
-        'コロン、今のことばを聞き逃しちゃったみたい。', 'ごめんね、うまく聞き取れなかったよ。',
-        'あれれ？コロン、もう一度聞けたらうれしいな。', '今のことば、コロンの耳を通りすぎちゃった！',
-        'コロン、まだそのことばがわからないみたい。', 'あっ、聞きそびれちゃった。',
-        'コロン、頭の中でことばを探してるよ。', 'もう一度聞いたら、わかるかもしれないな。',
-        'コロンの耳がちょっとおやすみしてたみたい。', '今のことば、コロンにはむずかしかったよ。',
-      ];
-      return { text: acknowledgements[turn % acknowledgements.length]!, focus: null, fallback: true };
-    }
-    const lines = [
-      'ん？コロン、ちょっと聞き取れなかったみたい。もう一回言ってもらえる？',
-      'あれれ？今のところ、コロン聞き逃しちゃった。ゆっくりお願い！',
-      'ごめんね、うまく聞き取れなかったよ。もう一度聞いてもいい？',
-      'コロン、ことばを聞き逃しちゃった。もう一回教えてくれる？',
-      'んん？コロンの耳に届かなかったみたい。もう一度いい？',
-      '今のことば、ちょっとむずかしかった！ゆっくり聞かせてね。',
-      'あれれ、コロン聞き取れなかったよ。もう一度お願い！',
-      'コロン、今のことばを探してるよ。もう一回聞かせて？',
-      'ごめんね、もう一度言ってくれたらわかるかも！',
-      'コロンの耳がびっくりしちゃった！ゆっくりもう一回お願い！',
-    ];
-    return { text: lines[turn % lines.length]!, focus: type === 'QUESTION' ? 'general' : null, fallback: true };
+    return { text: UNCLEAR_ACKNOWLEDGEMENTS[turn % UNCLEAR_ACKNOWLEDGEMENTS.length]!, focus: null, fallback: true };
   }
 
   if (parsed.feature === '大きい' && parsed.subject) return { text: `${parsed.subject}、大きかったんだね！びっくり！`, focus: null, fallback: false };
@@ -346,7 +325,7 @@ export class NaturalConversationEngine implements ConversationEngine {
     let responseTime: Date | undefined;
     const currentTime = () => responseTime ??= this.now();
     let reply = makeReply(type, parsed, context, context.turn, currentTime);
-    const variation = parsed.fallback ? `-${context.turn % 10}` : '';
+    const variation = parsed.fallback ? `-${context.turn % UNCLEAR_ACKNOWLEDGEMENTS.length}` : '';
     let replyId = `${type.toLowerCase()}-${parsed.subject ?? parsed.topic}-${parsed.action ?? 'no-action'}-${parsed.feature ?? 'no-feature'}${variation}`;
     if (recentIds.includes(replyId) && parsed.intent !== 'question') {
       for (const alternative of ['REACT', 'ACKNOWLEDGE', 'SHARE', 'IMAGINE', 'PLAY'] as const) {
