@@ -17,7 +17,7 @@ interface DictionaryEntry {
   responses: DictionaryResponse[];
 }
 
-interface DictionaryDocument { entries: DictionaryEntry[] }
+export interface DictionaryDocument { entries: DictionaryEntry[] }
 interface VoiceManifestEntry { id: string; file: string }
 
 export interface HarukaNanaSelectedResponse {
@@ -42,28 +42,31 @@ function normalizePhrase(value: string): string {
 
 export class HarukaNanaResponseCatalog {
   private catalogPromise: Promise<{ entries: DictionaryEntry[]; audioById: Map<string, string> }> | null = null;
-  private readonly dictionaryUrl: string;
+  private readonly dictionaryUrl: string | DictionaryDocument;
+  private readonly manifest: readonly VoiceManifestEntry[] | null;
   private readonly assetBaseUrl: string;
   private readonly fetcher: typeof fetch;
 
   constructor(
-    dictionaryUrl: string,
+    dictionaryUrl: string | DictionaryDocument,
     assetBaseUrl: string,
     fetcher: typeof fetch = fetch,
+    manifest: readonly VoiceManifestEntry[] | null = null,
   ) {
     this.dictionaryUrl = dictionaryUrl;
     this.assetBaseUrl = assetBaseUrl;
     this.fetcher = fetcher;
+    this.manifest = manifest;
   }
 
   private load(): Promise<{ entries: DictionaryEntry[]; audioById: Map<string, string> }> {
     if (this.catalogPromise) return this.catalogPromise;
     this.catalogPromise = Promise.all([
-      this.fetcher(this.dictionaryUrl).then((response) => {
+      typeof this.dictionaryUrl !== 'string' ? Promise.resolve(this.dictionaryUrl) : this.fetcher(this.dictionaryUrl).then((response) => {
         if (!response.ok) throw new Error('dictionary unavailable');
         return response.json() as Promise<DictionaryDocument>;
       }),
-      this.fetcher(`${this.assetBaseUrl}manifest.jsonl`).then(async (response) => {
+      this.manifest ? Promise.resolve(this.manifest) : this.fetcher(`${this.assetBaseUrl}manifest.jsonl`).then(async (response) => {
         if (!response.ok) throw new Error('voice manifest unavailable');
         const rows = (await response.text()).split(/\r?\n/).filter(Boolean);
         return rows.map((line) => JSON.parse(line) as VoiceManifestEntry);

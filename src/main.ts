@@ -18,9 +18,11 @@ import { ReactionEngine, type ReactionEvent } from './reaction/reaction-engine';
 import { SpeechRecognitionEngine } from './speech/speech-recognition-engine';
 import { LocalVadMonitor, type VadEndpointEvent } from './speech/local-vad';
 import { SpeechSynthesisEngine, type SpeechCallbacks, type SpeechEndReason } from './speech/speech-synthesis-engine';
-import harukaNanaDictionaryUrl from './data/language-dictionary-500.json?url';
+import harukaNanaDictionary from './data/language-dictionary-500.json';
+import harukaNanaManifest from './data/haruka-nana-manifest.json';
+import { HtmlMediaHarukaOutput } from './speech/html-media-haruka-output';
 import { HarukaNanaAudioPlayer } from './speech/haruka-nana-audio-player';
-import { HarukaNanaResponseCatalog, type HarukaNanaSelectedResponse } from './speech/haruka-nana-response';
+import { HarukaNanaResponseCatalog, type HarukaNanaSelectedResponse, type DictionaryDocument } from './speech/haruka-nana-response';
 import { NativeTtsDiagnostic, type DiagnosticSpeechPort, type DiagnosticUtterance, type DiagnosticVoiceMode, type NativeDiagnosticEvent } from './speech/tts-diagnostic';
 import { TohokuVoiceLab, type TohokuLabEvent, type TohokuWorkerPort } from './speech/tohoku-voice-lab';
 import { runTohokuBenchmark, summarizeTohokuSamples, TohokuBenchmarkError } from './speech/tohoku-benchmark';
@@ -70,8 +72,8 @@ let conversationContentFallbackCount = 0;
 let conversationEngineErrorFallbackCount = 0;
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
-const harukaNanaAudioPlayer = new HarukaNanaAudioPlayer(new WebAudioTohokuOutput());
-const harukaNanaResponseCatalog = new HarukaNanaResponseCatalog(harukaNanaDictionaryUrl, `${import.meta.env.BASE_URL}voice/haruka-nana/`);
+const harukaNanaAudioPlayer = new HarukaNanaAudioPlayer(new HtmlMediaHarukaOutput(document.querySelector<HTMLAudioElement>('#voice-audio-check')!));
+const harukaNanaResponseCatalog = new HarukaNanaResponseCatalog(harukaNanaDictionary as DictionaryDocument, `${import.meta.env.BASE_URL}voice/haruka-nana/`, fetch, harukaNanaManifest);
 const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
   ? window.speechSynthesis as unknown as DiagnosticSpeechPort : null;
 const nativeTtsDiagnostic = new NativeTtsDiagnostic(
@@ -158,6 +160,8 @@ const debugPanel = document.querySelector<HTMLElement>('#debug')!;
 const voiceConversationPanel = document.querySelector<HTMLElement>('#voice-conversation')!;
 const voiceConversationConsent = document.querySelector<HTMLInputElement>('#voice-conversation-consent')!;
 const voiceConversationToggleButton = document.querySelector<HTMLButtonElement>('#voice-conversation-toggle')!;
+const voiceAudioNote = document.querySelector<HTMLOutputElement>('#voice-audio-note')!;
+let resumeAfterManualAudio = false;
 const voiceAudioCheck = document.querySelector<HTMLAudioElement>('#voice-audio-check')!;
 const voiceOutputToggleButton = document.querySelector<HTMLButtonElement>('#voice-output-toggle')!;
 const voiceConversationStatus = document.querySelector<HTMLOutputElement>('#voice-conversation-status')!;
@@ -1032,11 +1036,10 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
     void harukaNanaAudioPlayer.play(harukaReply.audioUrl, callbacks.onStart ?? (() => undefined)).then((reason) => {
       if (token !== conversationGeneration) return;
       if (reason === 'error') {
-        activeReplyEngineForTurn = 'ios-fallback';
-        lastErrorCode = 'HARUKA_AUDIO_FALLBACK';
-        speechStatus.value = '辞書音声を再生できなかったため、iOS標準音声へ切り替えました。';
-        setVisibleAppState('春歌ナナ音声失敗・iOS音声へ切替');
-        speakWithNativeTts(text, callbacks);
+        lastErrorCode = 'HARUKA_AUDIO_REQUIRES_TAP';
+        finishReactionResponse('text-only', token, expressionGeneration);
+        speechStatus.value = '自動再生できませんでした。「返事をもう一度聞く」の▶で同じ返答を再生できます。';
+        setVisibleAppState('返答音声の手動再生が必要');
         return;
       }
       recordSpeechStage('tts-end', reason === 'finished' ? '春歌ナナ音声 onended' : '春歌ナナ音声 cancel');
@@ -1176,6 +1179,16 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
+  voiceAudioCheck.pause();
+  voiceAudioCheck.hidden = harukaReply === null;
+  if (harukaReply) {
+    voiceAudioCheck.src = harukaReply.audioUrl;
+    voiceAudioNote.value = '上に表示している返答と同じ春歌ナナの音声です。';
+  } else {
+    voiceAudioCheck.removeAttribute('src');
+    voiceAudioCheck.load();
+    voiceAudioNote.value = 'この返答に対応する春歌ナナの録音はありません。端末の音声で読み上げます。';
+  }
   speakReply(result.text, token, emotion, harukaReply);
 }
 
@@ -1454,7 +1467,8 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
   recognitionFinal.value = '最終認識: --';
   recognitionStatus.value = 'マイクを開始しています…';
   setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
-  voiceAudioCheck.pause();
+  resumeAfterManualAudio = false;
+  if (!voiceAudioCheck.src.startsWith('data:')) voiceAudioCheck.pause();
   setAudioSessionType('auto');
   const result = recognitionEngine.start({
     onStart: () => {
@@ -1643,6 +1657,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
 }
 
 function stopVoiceRecognition(): void {
+  resumeAfterManualAudio = false;
   recognitionEnabled = false;
   voiceResponseActive = false;
   recognitionSessionGeneration += 1;
@@ -2082,11 +2097,23 @@ voiceConversationToggleButton.addEventListener('click', () => {
   startVoiceRecognition();
 });
 voiceAudioCheck.addEventListener('play', () => {
-  stopVoiceRecognition();
-  if (isAnySpeechActive()) speechStopButton.click();
+  if (harukaNanaAudioPlayer.isPlaying || voiceAudioCheck.src.startsWith('data:')) return;
+  // A native replay pauses listening, then restores only the same enabled session.
+  const resume = recognitionEnabled || recognitionEngine.isActive;
+  if (resume) stopVoiceRecognition();
+  resumeAfterManualAudio = resume;
+});
+voiceAudioCheck.addEventListener('ended', () => {
+  if (!resumeAfterManualAudio) return;
+  resumeAfterManualAudio = false;
+  if (voiceConversationConsent.checked && !document.hidden) startVoiceRecognition();
 });
 voiceOutputToggleButton.addEventListener('click', () => {
   ttsEnabled.checked = !ttsEnabled.checked;
+  if (!ttsEnabled.checked) {
+    voiceAudioCheck.pause();
+    resumeAfterManualAudio = false;
+  }
   if (!ttsEnabled.checked && isAnySpeechActive()) {
     muteSpeechStopRequested = true;
     speechEngine.stop();
