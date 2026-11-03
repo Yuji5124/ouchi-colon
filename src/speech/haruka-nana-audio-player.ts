@@ -1,3 +1,4 @@
+import { setAudioSessionType } from './audio-session.ts';
 import type { SpeechEndReason } from './speech-synthesis-engine';
 
 export interface HarukaAudioOutput {
@@ -24,6 +25,7 @@ export class HarukaNanaAudioPlayer {
   get isPlaying(): boolean { return this.current; }
 
   unlock(): Promise<void> {
+    setAudioSessionType('playback');
     return this.output.unlock();
   }
 
@@ -56,6 +58,7 @@ export class HarukaNanaAudioPlayer {
           if (!response.ok) throw new Error('voice unavailable');
           const wav = await response.arrayBuffer();
           if (settled || generation !== this.generation) return;
+          setAudioSessionType('playback');
           const reason = await this.output.play(wav, () => {
             if (!settled && generation === this.generation) onStart();
           });

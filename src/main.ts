@@ -1,3 +1,4 @@
+import { setAudioSessionType } from './speech/audio-session';
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { chooseConversationEmotion, ConversationExpressionController } from './character/conversation-expression';
 import { FpsMeter } from './app/fps-meter';
@@ -157,6 +158,7 @@ const debugPanel = document.querySelector<HTMLElement>('#debug')!;
 const voiceConversationPanel = document.querySelector<HTMLElement>('#voice-conversation')!;
 const voiceConversationConsent = document.querySelector<HTMLInputElement>('#voice-conversation-consent')!;
 const voiceConversationToggleButton = document.querySelector<HTMLButtonElement>('#voice-conversation-toggle')!;
+const voiceAudioCheck = document.querySelector<HTMLAudioElement>('#voice-audio-check')!;
 const voiceOutputToggleButton = document.querySelector<HTMLButtonElement>('#voice-output-toggle')!;
 const voiceConversationStatus = document.querySelector<HTMLOutputElement>('#voice-conversation-status')!;
 const voiceConversationInput = document.querySelector<HTMLOutputElement>('#voice-conversation-input')!;
@@ -1452,6 +1454,8 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
   recognitionFinal.value = '最終認識: --';
   recognitionStatus.value = 'マイクを開始しています…';
   setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
+  voiceAudioCheck.pause();
+  setAudioSessionType('auto');
   const result = recognitionEngine.start({
     onStart: () => {
       window.clearTimeout(idleSleepTimer);
@@ -2076,6 +2080,10 @@ voiceConversationToggleButton.addEventListener('click', () => {
   }
   if (ttsEnabled.checked) unlockHarukaFromGesture();
   startVoiceRecognition();
+});
+voiceAudioCheck.addEventListener('play', () => {
+  stopVoiceRecognition();
+  if (isAnySpeechActive()) speechStopButton.click();
 });
 voiceOutputToggleButton.addEventListener('click', () => {
   ttsEnabled.checked = !ttsEnabled.checked;
