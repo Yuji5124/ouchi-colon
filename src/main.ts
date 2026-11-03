@@ -1180,15 +1180,19 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
-  voiceAudioCheck.pause();
   voiceAudioCheck.hidden = harukaReply === null;
   if (harukaReply) {
+    voiceAudioCheck.pause();
     voiceAudioCheck.src = harukaReply.audioUrl;
     voiceAudioNote.value = '上に表示している返答と同じ春歌ナナの音声です。';
   } else {
-    voiceAudioCheck.removeAttribute('src');
-    voiceAudioCheck.load();
-    voiceAudioNote.value = 'この返答に対応する春歌ナナの録音はありません。端末の音声で読み上げます。';
+    // Leave the unused native player alone during TOHOKU turns.
+    if (voiceAudioCheck.hasAttribute('src')) {
+      voiceAudioCheck.pause();
+      voiceAudioCheck.removeAttribute('src');
+      voiceAudioCheck.load();
+    }
+    voiceAudioNote.value = 'この返答に対応する春歌ナナの録音はありません。選択中の音声で読み上げます。';
   }
   speakReply(result.text, token, emotion, harukaReply);
 }
@@ -1470,7 +1474,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
   recognitionStatus.value = 'マイクを開始しています…';
   setVisibleAppState(isResume ? 'マイク再開中' : 'マイクを開始しています');
   resumeAfterManualAudio = false;
-  if (!voiceAudioCheck.src.startsWith('data:')) voiceAudioCheck.pause();
+  if (voiceAudioCheck.hasAttribute('src') && !voiceAudioCheck.src.startsWith('data:')) voiceAudioCheck.pause();
   setAudioSessionType('auto');
   const result = recognitionEngine.start({
     onStart: () => {

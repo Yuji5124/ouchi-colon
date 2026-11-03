@@ -9,6 +9,8 @@ export function setAudioSessionType(
 ): boolean {
   try {
     if (!browser.audioSession) return false;
+    // Reassigning the same category is unnecessary during each microphone restart.
+    if (browser.audioSession.type === type) return true;
     browser.audioSession.type = type;
     return browser.audioSession.type === type;
   } catch {

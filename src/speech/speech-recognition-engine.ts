@@ -129,13 +129,13 @@ export class SpeechRecognitionEngine {
       if (finalText) this.finalText = finalText;
       this.callbacks.onInterim?.([this.finalText, interimText].filter(Boolean).join(' ').trim());
       if (finalText && this.finalTimer === null) {
-        // Safari may deliver a final result without ending its one-shot session.
+        // Let the browser end normally, as in the original TOHOKU flow.
+        // Recover only if Safari omits the terminal event.
         this.finalTimer = setTimeout(() => {
           if (!current()) return;
           finish();
           try { recognizer.abort(); } catch { /* The final text is already committed. */ }
         }, 1200);
-        try { recognizer.stop(); } catch { /* The bounded completion above remains active. */ }
       }
     };
     recognizer.onerror = (event) => {

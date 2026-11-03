@@ -7,13 +7,14 @@ class Media {
   plays: string[] = [];
   rejectPlay = false;
   paused = true;
+  pauseCalls = 0;
   listeners = new Map<string, Set<() => void>>();
   play(): Promise<void> {
     this.plays.push(this.src);
     this.paused = false;
     return this.rejectPlay ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve();
   }
-  pause(): void { this.paused = true; }
+  pause(): void { this.pauseCalls += 1; this.paused = true; }
   addEventListener(type: string, listener: () => void): void {
     const items = this.listeners.get(type) ?? new Set();
     items.add(listener); this.listeners.set(type, items);
@@ -78,4 +79,18 @@ test('native recording URL is preserved for repeated automatic turns without Blo
   media.emit('playing'); media.emit('ended');
   assert.equal(await reply, 'finished');
   assert.equal(media.src, '/voice/wav/0071.wav');
+});
+
+test('TOHOKU turns do not touch an unused native player, while manual replay can still stop', async () => {
+  const media = new Media();
+  const output = new HtmlMediaHarukaOutput(media);
+  for (let turn = 0; turn < 10; turn++) output.stop();
+  assert.equal(media.pauseCalls, 0);
+  assert.deepEqual(media.plays, []);
+  // A manual replay is not owned by finishCurrent, but it must still be stoppable.
+  media.src = '/voice/wav/0003.wav';
+  await media.play();
+  output.stop();
+  assert.equal(media.pauseCalls, 1);
+  assert.equal(media.paused, true);
 });

@@ -133,7 +133,7 @@ test('Safari final result finishes once even when onend never arrives', (t) => {
   engine.start({ onEnd: text => replies.push(text) });
   recognizer.onstart?.();
   recognizer.result('おはよう', true);
-  assert.equal(recognizer.stopCalls, 1);
+  assert.equal(recognizer.stopCalls, 0);
   assert.deepEqual(replies, []);
   t.mock.timers.tick(1200);
   recognizer.onend?.();
@@ -174,4 +174,46 @@ test('manual stop discards a pending Safari final-result timer', (t) => {
   engine.abort();
   t.mock.timers.tick(1200);
   assert.equal(replies, 0);
+});
+
+test('normal one-shot completion never forces stop or abort and cancels the fallback', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  const replies: string[] = [];
+  engine.start({ onEnd: text => replies.push(text) });
+  recognizer.onstart?.();
+  recognizer.result('こんにちは', true);
+  recognizer.result('こんにちは', true);
+  assert.equal(recognizer.stopCalls, 0);
+  assert.equal(recognizer.abortCalls, 0);
+  assert.deepEqual(replies, []);
+  t.mock.timers.tick(200);
+  recognizer.onend?.();
+  t.mock.timers.tick(1500);
+  recognizer.onend?.();
+  assert.deepEqual(replies, ['こんにちは']);
+  assert.equal(recognizer.stopCalls, 0);
+  assert.equal(recognizer.abortCalls, 0);
+  assert.equal(engine.isActive, false);
+});
+
+test('missing terminal event still releases recognition once without forcing an early stop', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  const replies: string[] = [];
+  engine.start({ onEnd: text => replies.push(text) });
+  recognizer.onstart?.();
+  recognizer.result('おはよう', true);
+  t.mock.timers.tick(1199);
+  assert.deepEqual(replies, []);
+  assert.equal(recognizer.stopCalls, 0);
+  assert.equal(recognizer.abortCalls, 0);
+  t.mock.timers.tick(1);
+  assert.equal(recognizer.abortCalls, 1);
+  assert.deepEqual(replies, ['おはよう']);
+  recognizer.onend?.();
+  t.mock.timers.tick(5000);
+  assert.deepEqual(replies, ['おはよう']);
 });
