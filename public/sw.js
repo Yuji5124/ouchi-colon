@@ -1,4 +1,4 @@
-const CACHE = 'ouchicolon-shell-v26';
+const CACHE = 'ouchicolon-shell-v27';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
@@ -44,6 +44,24 @@ self.addEventListener('message', (event) => {
   }
 });
 
+async function cachedVoiceRange(response, range) {
+  if (!range || response.status !== 200) return response;
+  const body = await response.arrayBuffer();
+  const size = body.byteLength;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  const invalid = () => new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + size } });
+  if (!match || (!match[1] && !match[2]) || size === 0) return invalid();
+  let start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+  let end = match[1] && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  if ((!match[1] && Number(match[2]) <= 0) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || start > end) return invalid();
+  const headers = new Headers(response.headers);
+  headers.set('Content-Range', 'bytes ' + start + '-' + end + '/' + size);
+  headers.set('Content-Length', String(end - start + 1));
+  headers.set('Accept-Ranges', 'bytes');
+  headers.delete('Content-Encoding');
+  return new Response(body.slice(start, end + 1), { status: 206, headers });
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const requestUrl = new URL(request.url);
@@ -53,9 +71,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(VOICE_CACHE);
       const cached = await cache.match(request);
-      if (cached) return cached;
+      if (cached) return cachedVoiceRange(cached, request.headers?.get('range'));
       const response = await fetch(request);
-      if (!response.ok) return response;
+      // A partial native media response must never replace the full cached clip.
+      if (!response.ok || response.status !== 200) return response;
       await cache.put(request, response.clone()).catch(() => undefined);
       const keys = await cache.keys();
       for (const oldRequest of keys.slice(0, Math.max(0, keys.length - MAX_CACHED_VOICE_CLIPS))) {
