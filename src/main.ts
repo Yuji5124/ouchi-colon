@@ -38,7 +38,8 @@ const state: FaceState = { expression: 'IDLE', interactionState: 'IDLE', speakin
 let targetGazeX = 0;
 let targetGazeY = 0;
 let talking = false;
-let debug = new URLSearchParams(location.search).has('debug');
+const simpleConversationMode = new URLSearchParams(location.search).get('talk') === '1';
+let debug = simpleConversationMode || new URLSearchParams(location.search).has('debug');
 let nextBlink = performance.now() + 2200 + Math.random() * 3500;
 let lastFrame = performance.now();
 let lastDraw = 0;
@@ -152,6 +153,13 @@ const speechStageState = new Map<SpeechStage, string>();
 const speechDiagnosticLog: string[] = [];
 
 const debugPanel = document.querySelector<HTMLElement>('#debug')!;
+const voiceConversationPanel = document.querySelector<HTMLElement>('#voice-conversation')!;
+const voiceConversationConsent = document.querySelector<HTMLInputElement>('#voice-conversation-consent')!;
+const voiceConversationToggleButton = document.querySelector<HTMLButtonElement>('#voice-conversation-toggle')!;
+const voiceOutputToggleButton = document.querySelector<HTMLButtonElement>('#voice-output-toggle')!;
+const voiceConversationStatus = document.querySelector<HTMLOutputElement>('#voice-conversation-status')!;
+const voiceConversationInput = document.querySelector<HTMLOutputElement>('#voice-conversation-input')!;
+const voiceConversationReply = document.querySelector<HTMLOutputElement>('#voice-conversation-reply')!;
 const minimizeDebugButton = document.querySelector<HTMLButtonElement>('#minimize-debug')!;
 const mouthSlider = document.querySelector<HTMLInputElement>('#mouth')!;
 const talkButton = document.querySelector<HTMLButtonElement>('#talk-toggle')!;
@@ -242,7 +250,7 @@ let tohokuAudioUrl: string | null = null;
 let tohokuAudio: HTMLAudioElement | null = null;
 let tohokuBenchmarkRunning = false;
 let tohokuBenchmarkCancelRequested = false;
-let replyVoiceMode: 'ios' | 'tohoku' | 'haruka' = INITIAL_REPLY_VOICE_MODE;
+let replyVoiceMode: 'ios' | 'tohoku' | 'haruka' = simpleConversationMode ? 'haruka' : INITIAL_REPLY_VOICE_MODE;
 let tohokuConversationActivated = false;
 let diagnosticOwner: 'native' | 'wrapper' | null = null;
 let diagnosticEvents: string[] = [];
@@ -394,12 +402,12 @@ async function copyDiagnosticReport(): Promise<void> {
 }
 
 function renderMediaConcurrency(): void {
-  const speaking = tohokuConversationSpeech.isBusy || speechEngine.isSpeaking || speechEngine.isPending;
+  const speaking = tohokuConversationSpeech.isBusy || harukaNanaAudioPlayer.isPlaying || speechEngine.isSpeaking || speechEngine.isPending;
   mediaConcurrencyOutput.value = `カメラ ${cameraActive ? 'ON' : 'OFF'} / 顔検出 ${detectorActive ? 'ON' : 'OFF'} / 認識 ${recognitionEngine.isActive ? 'ON' : 'OFF'} / TTS ${speaking ? '生成/再生中' : 'OFF'} / 描画 ${latestRenderFps?.toFixed(1) ?? '--'} FPS`;
 }
 
 function isAnySpeechActive(): boolean {
-  return speechEngine.shouldSuppressRecognition || tohokuConversationSpeech.isBusy;
+  return speechEngine.shouldSuppressRecognition || tohokuConversationSpeech.isBusy || harukaNanaAudioPlayer.isPlaying;
 }
 
 function resetTohokuConversationAudio(message: string, useIosFallback = true): void {
@@ -1360,6 +1368,28 @@ function queryServiceWorkerVersion(): void {
 function updateRecognitionButtons(): void {
   recognitionStartButton.disabled = !recognitionEngine.isSupported || recognitionEnabled || recognitionEngine.isActive;
   recognitionStopButton.disabled = !recognitionEngine.isActive && !recognitionEnabled;
+  renderSimpleConversation();
+}
+
+function renderSimpleConversation(): void {
+  if (!simpleConversationMode) return;
+  const listening = recognitionEnabled || recognitionEngine.isActive;
+  voiceConversationToggleButton.textContent = listening ? '会話を止める' : '会話をはじめる';
+  voiceConversationToggleButton.setAttribute('aria-pressed', String(listening));
+  voiceOutputToggleButton.textContent = ttsEnabled.checked ? '声 ON' : '声 OFF';
+  voiceOutputToggleButton.setAttribute('aria-pressed', String(ttsEnabled.checked));
+  const finalText = recognitionFinal.value.replace(/^最終認識:\s*/, '').trim();
+  const interimText = recognitionInterim.value.replace(/^途中認識:\s*/, '').trim();
+  const replyText = conversationReply.value.replace(/^確定返答:\s*/, '').trim();
+  voiceConversationInput.value = finalText && finalText !== '--' ? finalText
+    : interimText && interimText !== '--' ? interimText : '話しかけてね';
+  voiceConversationReply.value = replyText && replyText !== '--' ? replyText : 'ここでお返事するよ';
+  voiceConversationStatus.value = !voiceConversationConsent.checked
+    ? '保護者確認をしてから会話をはじめてください'
+    : isAnySpeechActive() ? 'コロンがお返事中'
+      : listening ? '聞いているよ'
+        : recognitionStatus.value.includes('エラー') || recognitionStatus.value.includes('許可されません')
+          ? recognitionStatus.value : '停止中';
 }
 
 function startVoiceRecognition(isResume = false, expectedSession?: number): void {
@@ -1744,6 +1774,11 @@ function setDebug(value: boolean): void {
   debug = value;
   debugPanel.hidden = !value;
   document.body.classList.toggle('debug-on', value);
+  document.body.classList.toggle('simple-conversation', simpleConversationMode);
+  voiceConversationPanel.hidden = !simpleConversationMode;
+  replyVoiceEngineSelect.value = simpleConversationMode ? 'haruka' : replyVoiceMode;
+  replyVoiceEngineSelect.disabled = simpleConversationMode;
+  renderSimpleConversation();
   if (!value) {
     nativeTtsDiagnostic.stopFromUserGesture();
     stopVoiceRecognition();
@@ -2000,6 +2035,28 @@ recognitionStopButton.addEventListener('click', stopVoiceRecognition);
 recognitionConsent.addEventListener('change', () => {
   if (!recognitionConsent.checked && recognitionEnabled) stopVoiceRecognition();
 });
+voiceConversationConsent.addEventListener('change', () => {
+  recognitionConsent.checked = voiceConversationConsent.checked;
+  if (!voiceConversationConsent.checked && (recognitionEnabled || recognitionEngine.isActive)) stopVoiceRecognition();
+  renderSimpleConversation();
+});
+voiceConversationToggleButton.addEventListener('click', () => {
+  if (recognitionEnabled || recognitionEngine.isActive) {
+    stopVoiceRecognition();
+    if (isAnySpeechActive()) speechStopButton.click();
+    return;
+  }
+  if (!voiceConversationConsent.checked) {
+    voiceConversationStatus.value = '保護者確認をしてから会話をはじめてください';
+    return;
+  }
+  startVoiceRecognition();
+});
+voiceOutputToggleButton.addEventListener('click', () => {
+  ttsEnabled.checked = !ttsEnabled.checked;
+  if (!ttsEnabled.checked && isAnySpeechActive()) speechStopButton.click();
+  renderSimpleConversation();
+});
 document.querySelectorAll<HTMLButtonElement>('[data-reaction-event]').forEach((button) => {
   button.addEventListener('click', () => {
     const eventName = button.dataset.reactionEvent as ReactionEvent | undefined;
@@ -2015,6 +2072,13 @@ recognitionStatus.value = recognitionEngine.isSupported
   ? '保護者がオンライン音声認識に同意し、開始ボタンを押すとマイクを使用します。'
   : 'このブラウザーはWeb Speech音声認識に対応していません。手入力で会話を試せます。';
 updateRecognitionButtons();
+if (simpleConversationMode) {
+  const simpleConversationObserver = new MutationObserver(renderSimpleConversation);
+  for (const output of [recognitionStatus, recognitionInterim, recognitionFinal, speechStatus, conversationReply]) {
+    simpleConversationObserver.observe(output, { childList: true, subtree: true, characterData: true });
+  }
+  renderSimpleConversation();
+}
 renderSpeechRuntime();
 renderMediaConcurrency();
 renderSpeechDiagnostics();
@@ -2110,3 +2174,4 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 }
 
 requestAnimationFrame(frame);
+
