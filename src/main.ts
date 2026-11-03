@@ -100,6 +100,8 @@ let tohokuGenerationMs: number | null = null;
 let activeReplyEngineForTurn: 'ios' | 'tohoku' | 'haruka' | 'ios-fallback' = 'ios';
 let voiceReactionMs: number | null = null;
 let recognitionEnabled = false;
+let harukaActivationPending = false;
+let muteSpeechStopRequested = false;
 let voiceResponseActive = false;
 let speechEndHandled = false;
 const reactionEvents: string[] = [];
@@ -188,6 +190,7 @@ const speechStopButton = document.querySelector<HTMLButtonElement>('#speech-stop
 const replyVoiceEngineSelect = document.querySelector<HTMLSelectElement>('#reply-voice-engine')!;
 const voiceTestStatus = document.querySelector<HTMLOutputElement>('#voice-test-status')!;
 const ttsEnabled = document.querySelector<HTMLInputElement>('#tts-enabled')!;
+if (simpleConversationMode) ttsEnabled.checked = true;
 const reactionHistory = document.querySelector<HTMLOutputElement>('#reaction-history')!;
 const voiceTestButton = document.querySelector<HTMLButtonElement>('#voice-test')!;
 const speechRuntimeOutput = document.querySelector<HTMLOutputElement>('#speech-runtime')!;
@@ -830,6 +833,7 @@ function renderConversationQuality(result: ConversationResult, quality: Conversa
 }
 
 function finishReactionResponse(reason: SpeechEndReason | 'text-only', token: number, expressionGeneration = activeExpressionGeneration): void {
+  if (reason === 'stopped' && muteSpeechStopRequested) reason = 'text-only';
   const completed = turnCompletionGate.complete(token, conversationGeneration, () => {
     finishReactionResponseOnce(reason, token, expressionGeneration);
   });
@@ -1384,12 +1388,43 @@ function renderSimpleConversation(): void {
   voiceConversationInput.value = finalText && finalText !== '--' ? finalText
     : interimText && interimText !== '--' ? interimText : '話しかけてね';
   voiceConversationReply.value = replyText && replyText !== '--' ? replyText : 'ここでお返事するよ';
+  const recognitionFailure = recognitionStatus.value.includes('エラー')
+    || recognitionStatus.value.includes('許可されません')
+    || recognitionStatus.value.includes('接続できません')
+    || recognitionStatus.value.includes('再開できません');
+  const speechFailure = speechStatus.value.includes('再生できません')
+    || speechStatus.value.includes('再生できませんでした')
+    || speechStatus.value.includes('読み上げエラー')
+    || speechStatus.value.includes('利用できません');
   voiceConversationStatus.value = !voiceConversationConsent.checked
     ? '保護者確認をしてから会話をはじめてください'
-    : isAnySpeechActive() ? 'コロンがお返事中'
-      : listening ? '聞いているよ'
-        : recognitionStatus.value.includes('エラー') || recognitionStatus.value.includes('許可されません')
-          ? recognitionStatus.value : '停止中';
+    : recognitionFailure ? recognitionStatus.value
+      : speechFailure ? speechStatus.value
+        : isAnySpeechActive() ? 'コロンがお返事中'
+          : listening ? '聞いているよ'
+            : '停止中';
+}
+
+function playHarukaActivationSample(resumeListening: boolean): void {
+  if (harukaActivationPending) return;
+  harukaActivationPending = true;
+  if (resumeListening) stopVoiceRecognition();
+  voiceConversationStatus.value = '春歌ナナの声を確認しています…';
+  speechStatus.value = '春歌ナナの音声を再生しています…';
+  const sampleUrl = import.meta.env.BASE_URL + 'voice/haruka-nana/wav/0001.wav';
+  void harukaNanaAudioPlayer.play(sampleUrl, () => {
+    speechStatus.value = '春歌ナナの声を再生中です。';
+    renderSimpleConversation();
+  }).then((reason) => {
+    harukaActivationPending = false;
+    if (reason === 'error') {
+      speechStatus.value = '春歌ナナの音声を再生できません。端末の音量・消音設定と通信を確認してください。';
+    } else if (reason === 'finished') {
+      speechStatus.value = '春歌ナナの声を確認しました。';
+    }
+    renderSimpleConversation();
+    if (resumeListening && voiceConversationConsent.checked) startVoiceRecognition();
+  });
 }
 
 function startVoiceRecognition(isResume = false, expectedSession?: number): void {
@@ -2050,11 +2085,26 @@ voiceConversationToggleButton.addEventListener('click', () => {
     voiceConversationStatus.value = '保護者確認をしてから会話をはじめてください';
     return;
   }
+  if (harukaActivationPending) return;
+  if (ttsEnabled.checked && !harukaNanaAudioPlayer.isUnlocked) {
+    playHarukaActivationSample(true);
+    return;
+  }
   startVoiceRecognition();
 });
 voiceOutputToggleButton.addEventListener('click', () => {
   ttsEnabled.checked = !ttsEnabled.checked;
-  if (!ttsEnabled.checked && isAnySpeechActive()) speechStopButton.click();
+  if (!ttsEnabled.checked && isAnySpeechActive()) {
+    muteSpeechStopRequested = true;
+    speechEngine.stop();
+    tohokuConversationSpeech.stop();
+    harukaNanaAudioPlayer.stop();
+    if (voiceResponseActive) finishReactionResponse('text-only', conversationGeneration);
+    muteSpeechStopRequested = false;
+  } else if (ttsEnabled.checked && !harukaNanaAudioPlayer.isUnlocked) {
+    playHarukaActivationSample(recognitionEnabled || recognitionEngine.isActive);
+    return;
+  }
   renderSimpleConversation();
 });
 document.querySelectorAll<HTMLButtonElement>('[data-reaction-event]').forEach((button) => {
@@ -2174,4 +2224,3 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 }
 
 requestAnimationFrame(frame);
-
