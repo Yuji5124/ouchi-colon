@@ -1182,6 +1182,7 @@ function submitConversation(): Promise<void> {
   const text = conversationInput.value.trim();
   if (!text) return Promise.resolve();
   conversationInput.value = '';
+  if (replyVoiceMode === 'haruka' && ttsEnabled.checked) unlockHarukaFromGesture();
   return respondToConversation(text);
 }
 
@@ -1401,8 +1402,7 @@ function renderSimpleConversation(): void {
     : recognitionFailure ? recognitionStatus.value
       : speechFailure ? speechStatus.value
         : isAnySpeechActive() ? 'コロンがお返事中'
-          : listening ? recognitionStatus.value
-            : recognitionStatus.value;
+          : recognitionStatus.value;
 }
 
 function unlockHarukaFromGesture(): void {
@@ -2051,7 +2051,10 @@ nativeTtsRunButton.addEventListener('click', runNativeTtsDiagnostic);
 wrapperTtsRunButton.addEventListener('click', runWrapperTtsDiagnostic);
 diagnosticStopButton.addEventListener('click', stopTtsDiagnostic);
 diagnosticResumeButton.addEventListener('click', resumeTtsDiagnostic);
-recognitionStartButton.addEventListener('click', () => startVoiceRecognition());
+recognitionStartButton.addEventListener('click', () => {
+  if (replyVoiceMode === 'haruka' && ttsEnabled.checked) unlockHarukaFromGesture();
+  startVoiceRecognition();
+});
 recognitionStopButton.addEventListener('click', stopVoiceRecognition);
 recognitionConsent.addEventListener('change', () => {
   if (!recognitionConsent.checked && recognitionEnabled) stopVoiceRecognition();
