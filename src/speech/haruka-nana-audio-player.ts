@@ -1,64 +1,77 @@
 import type { SpeechEndReason } from './speech-synthesis-engine';
 
+export interface HarukaAudioOutput {
+  unlock(): Promise<void>;
+  play(wav: ArrayBuffer, onStart: () => void): Promise<'finished' | 'stopped'>;
+  stop(): void;
+}
+
+/** Uses the same gesture-unlocked Web Audio output throughout a conversation. */
 export class HarukaNanaAudioPlayer {
   private generation = 0;
-  private current: HTMLAudioElement | null = null;
-  private reusableAudio: HTMLAudioElement | null = null;
+  private current = false;
+  private request: AbortController | null = null;
   private finishCurrent: ((reason: SpeechEndReason) => void) | null = null;
-  private unlocked = false;
 
-  get isPlaying(): boolean { return this.current !== null; }
-  get isUnlocked(): boolean { return this.unlocked; }
+  private readonly output: HarukaAudioOutput;
+  private readonly fetcher: typeof fetch;
+
+  constructor(output: HarukaAudioOutput, fetcher: typeof fetch = fetch) {
+    this.output = output;
+    this.fetcher = fetcher;
+  }
+
+  get isPlaying(): boolean { return this.current; }
+
+  unlock(): Promise<void> {
+    return this.output.unlock();
+  }
 
   play(url: string, onStart: () => void): Promise<SpeechEndReason> {
     this.stop();
-    if (typeof Audio === 'undefined') return Promise.resolve('error');
     const generation = ++this.generation;
-    const audio = this.reusableAudio ?? new Audio();
-    this.reusableAudio = audio;
-    audio.src = url;
-    audio.preload = 'auto';
-    this.current = audio;
-
+    const request = new AbortController();
+    this.request = request;
+    this.current = true;
     return new Promise((resolve) => {
       let settled = false;
-      let started = false;
-      const cleanup = (): void => {
-        audio.removeEventListener('playing', start);
-        audio.removeEventListener('ended', end);
-        audio.removeEventListener('error', fail);
-        if (this.current === audio) this.current = null;
-        if (this.finishCurrent === finish) this.finishCurrent = null;
-      };
       const finish = (reason: SpeechEndReason): void => {
-        if (settled || generation !== this.generation) return;
+        if (settled) return;
         settled = true;
-        cleanup();
-        if (reason !== 'finished') audio.pause();
+        clearTimeout(timeout);
+        if (this.request === request) this.request = null;
+        if (this.finishCurrent === finish) this.finishCurrent = null;
+        if (generation === this.generation) this.current = false;
         resolve(reason);
       };
-      const start = (): void => {
-        if (generation !== this.generation || started) return;
-        started = true;
-        this.unlocked = true;
-        onStart();
-      };
-      const end = (): void => finish(started ? 'finished' : 'error');
-      const fail = (): void => finish('error');
+      const timeout = setTimeout(() => {
+        request.abort();
+        this.output.stop();
+        finish('error');
+      }, 20000);
       this.finishCurrent = finish;
-      audio.addEventListener('playing', start);
-      audio.addEventListener('ended', end);
-      audio.addEventListener('error', fail);
-      try {
-        void audio.play().catch(fail);
-      } catch {
-        fail();
-      }
+      void (async () => {
+        try {
+          const response = await this.fetcher(url, { signal: request.signal });
+          if (!response.ok) throw new Error('voice unavailable');
+          const wav = await response.arrayBuffer();
+          if (settled || generation !== this.generation) return;
+          const reason = await this.output.play(wav, () => {
+            if (!settled && generation === this.generation) onStart();
+          });
+          finish(reason);
+        } catch {
+          finish(request.signal.aborted ? 'stopped' : 'error');
+        }
+      })();
     });
   }
 
   stop(): void {
+    this.request?.abort();
+    this.output.stop();
     this.finishCurrent?.('stopped');
+    this.generation += 1;
+    this.current = false;
   }
 }
-
