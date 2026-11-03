@@ -88,3 +88,31 @@ test('repeatedly resolves matching speech and reaction roles across 1,000 cases'
   }
   assert.equal(fetchCount(), 2, 'dictionary and manifest are loaded once, then reused in memory');
 });
+
+test('bundled production dictionary selects matching WAV text without any dictionary network request', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const dictionary = JSON.parse(await readFile(new URL('../src/data/language-dictionary-500.json', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(await readFile(new URL('../src/data/haruka-nana-manifest.json', import.meta.url), 'utf8'));
+  const fullManifest = (await readFile(new URL('../public/voice/haruka-nana/manifest.jsonl', import.meta.url), 'utf8')).trim().split(/\r?\n/).map(row => JSON.parse(row));
+  const byId = new Map(fullManifest.map(row => [row.id, row]));
+  const noNetwork = (() => { throw new Error('dictionary must be bundled'); }) as typeof fetch;
+  const catalog = new HarukaNanaResponseCatalog(dictionary, '/voice/', noNetwork, manifest);
+  const bedtime = await catalog.select('おやすみ', 'SLEEPY', [], false, true, 0);
+  assert.equal(bedtime?.text, 'おやすみ。ゆっくり休んでね。');
+  assert.equal(bedtime?.audioUrl, '/voice/wav/0071.wav');
+  for (const entry of dictionary.entries) {
+    for (const response of entry.responses) {
+      const id = `${entry.id}.${response.id}`;
+      assert.equal(byId.get(id)?.text, response.text, `WAV metadata must match displayed text: ${id}`);
+      assert.equal(manifest.find(row => row.id === id)?.file, byId.get(id)?.file, id);
+    }
+    const selected = await catalog.select(entry.patterns[0], 'NORMAL', [], true, entry.session_action === 'end_conversation', 0);
+    if (entry.safety_sensitive || entry.session_action === 'route_to_safety') {
+      assert.equal(selected, null);
+    } else {
+      assert.ok(selected, entry.id);
+      assert.equal(selected.text, byId.get(selected.id)?.text, selected.id);
+      assert.equal(selected.audioUrl, '/voice/' + byId.get(selected.id)?.file, selected.id);
+    }
+  }
+});

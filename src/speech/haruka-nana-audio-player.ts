@@ -7,7 +7,7 @@ export interface HarukaAudioOutput {
   stop(): void;
 }
 
-/** Uses the same gesture-unlocked Web Audio output throughout a conversation. */
+/** Uses the same gesture-enabled voice output throughout a conversation. */
 export class HarukaNanaAudioPlayer {
   private generation = 0;
   private current = false;

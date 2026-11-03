@@ -27,12 +27,13 @@
         <label class="voice-conversation__consent"><input id="voice-conversation-consent" type="checkbox" /> 保護者確認：オンライン音声認識を使います</label>
         <p class="voice-conversation__privacy">認識した音声はブラウザーの音声サービスで処理される場合があります。会話の記録は保存しません。</p>
         <button id="voice-conversation-toggle" class="voice-conversation__start" type="button" aria-pressed="false">会話をはじめる</button>
-        <small class="voice-conversation__note">会話版 v24 · 辞書に一致した返事を春歌ナナで話します。</small>
+        <small class="voice-conversation__note">会話版 v25 · 辞書に一致した返事を春歌ナナで話します。</small>
         <details class="voice-conversation__note">
-          <summary>声が出ないとき</summary>
-          <p>iPhoneの消音を解除し、音量を上げてください。下の再生ボタンで声だけを確認できます。再生すると会話は停止します。</p>
-          <audio id="voice-audio-check" controls preload="none" src="%BASE_URL%voice/haruka-nana/wav/0001.wav"></audio>
-          <p>確認後は「会話をはじめる」を押してください。</p>
+          <summary>返事をもう一度聞く</summary>
+          <p>自動で声が出なかったときは、▶を押してください。表示中の返答と同じ音声を再生します。</p>
+          <output id="voice-audio-note">返答後、対応する音声をここで再生できます。</output>
+          <audio id="voice-audio-check" controls preload="none" hidden></audio>
+          <p>再生中はマイクを休み、会話中なら再生後に再開します。</p>
         </details>
       </section>
       <section id="debug" class="debug" hidden aria-label="デバッグ操作">
