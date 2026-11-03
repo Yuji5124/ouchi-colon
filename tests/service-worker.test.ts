@@ -199,7 +199,7 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v26');
+  const current = await open('ouchicolon-shell-v27');
   await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest', '/ouchi-colon/icons/ouchicolon-192.png', '/ouchi-colon/icons/ouchicolon-512.png']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
@@ -217,14 +217,59 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v26');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v27');
 });
 
-test('service worker v26 replaces the app shell while retaining lazy TOHOKU assets', async () => {
+test('service worker v27 replaces the app shell while retaining lazy TOHOKU assets', async () => {
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
-  assert.match(source, /ouchicolon-shell-v26/);
+  assert.match(source, /ouchicolon-shell-v27/);
   assert.match(source, /cache\.addAll\(SHELL\)/);
   assert.match(source, /if \(await destination\.match\(request\)\) continue/);
   assert.match(source, /cache\.put\(request, copy\)/);
 });
 
+
+test('cached native audio serves Safari byte ranges offline with correct headers and bytes', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const listeners = new Map<string, (event: any) => void>();
+  const clip = new Uint8Array([10, 11, 12, 13, 14, 15]);
+  const cache = {
+    async match() { return new Response(clip, { headers: { 'Content-Type': 'audio/wav' } }); },
+  };
+  const self = { location: { origin }, addEventListener(name: string, listener: (event: any) => void) { listeners.set(name, listener); } };
+  runInNewContext(source, { self, URL, Response, Headers, caches: { async open() { return cache; } },
+    fetch() { throw new Error('cached clip must play offline'); } });
+  const requestRange = async (range: string) => {
+    let result!: Promise<Response>;
+    listeners.get('fetch')!({ request: new Request(origin + '/ouchi-colon/voice/haruka-nana/wav/0003.wav', { headers: { Range: range } }),
+      respondWith(promise: Promise<Response>) { result = promise; } });
+    return result;
+  };
+  const first = await requestRange('bytes=0-1');
+  assert.equal(first.status, 206);
+  assert.equal(first.headers.get('Content-Range'), 'bytes 0-1/6');
+  assert.equal(first.headers.get('Content-Length'), '2');
+  assert.deepEqual([...new Uint8Array(await first.arrayBuffer())], [10, 11]);
+  const tail = await requestRange('bytes=3-');
+  assert.deepEqual([...new Uint8Array(await tail.arrayBuffer())], [13, 14, 15]);
+  const suffix = await requestRange('bytes=-2');
+  assert.deepEqual([...new Uint8Array(await suffix.arrayBuffer())], [14, 15]);
+  const invalid = await requestRange('bytes=9-');
+  assert.equal(invalid.status, 416);
+  assert.equal(invalid.headers.get('Content-Range'), 'bytes */6');
+});
+
+test('network partial audio responses pass through without poisoning the complete clip cache', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const listeners = new Map<string, (event: any) => void>();
+  let puts = 0;
+  const cache = { async match() { return undefined; }, async put() { puts++; } };
+  const self = { location: { origin }, addEventListener(name: string, listener: (event: any) => void) { listeners.set(name, listener); } };
+  runInNewContext(source, { self, URL, Response, Headers, caches: { async open() { return cache; } },
+    async fetch() { return new Response(new Uint8Array([1, 2]), { status: 206, headers: { 'Content-Range': 'bytes 0-1/6' } }); } });
+  let result!: Promise<Response>;
+  listeners.get('fetch')!({ request: new Request(origin + '/ouchi-colon/voice/haruka-nana/wav/0003.wav', { headers: { Range: 'bytes=0-1' } }),
+    respondWith(promise: Promise<Response>) { result = promise; } });
+  assert.equal((await result).status, 206);
+  assert.equal(puts, 0);
+});
