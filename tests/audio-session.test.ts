@@ -16,3 +16,20 @@ test('unsupported and rejected audio-session preferences do not break conversati
   const readonly = { audioSession: { get type() { return 'auto'; }, set type(_value: string) { throw new Error('denied'); } } };
   assert.equal(setAudioSessionType('playback', readonly), false);
 });
+
+test('TOHOKU microphone restarts leave an already automatic audio session untouched', () => {
+  let category = 'auto';
+  const writes: string[] = [];
+  const browser = { audioSession: {
+    get type() { return category; },
+    set type(value: string) { writes.push(value); category = value; },
+  } };
+  for (let turn = 0; turn < 10; turn++) assert.equal(setAudioSessionType('auto', browser), true);
+  assert.deepEqual(writes, []);
+  // Returning from Haruka media playback still releases the playback category once.
+  assert.equal(setAudioSessionType('playback', browser), true);
+  assert.equal(setAudioSessionType('playback', browser), true);
+  assert.equal(setAudioSessionType('auto', browser), true);
+  assert.equal(setAudioSessionType('auto', browser), true);
+  assert.deepEqual(writes, ['playback', 'auto']);
+});

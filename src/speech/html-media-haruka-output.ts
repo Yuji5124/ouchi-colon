@@ -82,6 +82,8 @@ export class HtmlMediaHarukaOutput implements HarukaAudioOutput {
   }
 
   stop(): void {
+    // The TOHOKU path also calls stop; do not touch an unused native player.
+    if (!this.finishCurrent && !this.audio.src) return;
     this.finishCurrent?.('stopped');
     this.audio.pause();
   }
