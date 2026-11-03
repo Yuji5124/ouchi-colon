@@ -90,12 +90,14 @@ test('accepts several free actions and keeps only the latest child action in sto
   assert.match(moved.context.story?.event ?? '', /右へ進んだ/);
 });
 
-test('asks gently when a free utterance is outside the local rules, without pretending or storing it', () => {
+test('acknowledges an unclear utterance without advancing the story or storing it', () => {
   const engine = createEngine();
   const started = engine.reply('おはなししよう', EMPTY_CONVERSATION_CONTEXT);
   const unclear = engine.reply('ぷるぱらがくるくる', started.context);
-  assert.match(unclear.text, /まだお話のところがわからない|その先も聞きたい/);
-  assert.equal(unclear.context.story?.turns, 1);
+  assert.equal(unclear.quality?.replyType, 'ACKNOWLEDGE');
+  assert.equal(unclear.quality?.fallback, true);
+  assert.doesNotMatch(unclear.text, /[？?]|もう一回|もう一度/);
+  assert.deepEqual(unclear.context.story, started.context.story);
   assert.doesNotMatch(JSON.stringify(unclear.context), /ぷるぱら/);
 });
 

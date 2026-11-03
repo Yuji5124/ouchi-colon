@@ -152,6 +152,10 @@ export class ImaginativePlayConversationEngine implements ConversationEngine {
       return { ...result, context: cleared(result.context) };
     }
 
+    if (result.quality?.fallback && result.quality.intent === 'unknown') {
+      return { ...result, context: { ...result.context, imaginativePlay: state } };
+    }
+
     return resultWithPlay(result, 'そうなんだ！それで、次はどうする？', { ...result.context, imaginativePlay: { ...state, turns: state.turns + 1 } }, 'imaginative-play.follow-up');
   }
 }

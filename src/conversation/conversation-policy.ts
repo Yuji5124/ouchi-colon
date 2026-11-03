@@ -20,7 +20,7 @@ export function chooseReplyType(input: ConversationPolicyInput): ReplyType {
   if (input.intent === 'farewell') return 'ACKNOWLEDGE';
   if (input.intent === 'proposal') return 'PLAY';
   if (input.intent === 'wish' || input.intent === 'preference' || input.intent === 'preference-negative') return 'ACKNOWLEDGE';
-  if (input.intent === 'unknown') return input.lastQuestion ? 'ACKNOWLEDGE' : 'QUESTION';
+  if (input.intent === 'unknown') return 'ACKNOWLEDGE';
 
   const lastTwo = input.recentTypes.slice(-2);
   const questionLimitReached = lastTwo.length === 2 && lastTwo.every((type) => type === 'QUESTION');

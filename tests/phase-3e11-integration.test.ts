@@ -106,3 +106,41 @@ test('calling Colon preserves a story and cannot mask a safety request', () => {
   assert.notEqual(safety.quality?.ruleId, 'colon.name-call');
   assert.equal(safety.context.story, undefined);
 });
+
+test('production conversation uses ten unclear acknowledgements and still answers its name', () => {
+  const engine = productionConversation();
+  let context: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
+  const replies: string[] = [];
+  for (let turn = 0; turn < 10; turn++) {
+    const result = say(engine, 'ぷるぱら', context);
+    assert.equal(result.quality?.replyType, 'ACKNOWLEDGE');
+    assert.equal(result.quality?.fallback, true);
+    assert.doesNotMatch(result.text, /[？?]|もう一回|もう一度/);
+    replies.push(result.text); context = result.context;
+  }
+  assert.equal(new Set(replies).size, 10);
+  const call = say(engine, 'コロン', context);
+  assert.equal(call.quality?.ruleId, 'colon.name-call');
+  assert.equal(call.quality?.fallback, false);
+  const safety = say(engine, 'やけどした', call.context);
+  assert.equal(safety.topic, 'safety');
+});
+
+test('unclear acknowledgements preserve imaginative play and story instead of demanding the next turn', () => {
+  const engine = productionConversation();
+  const bus = say(engine, 'バス！', EMPTY_CONVERSATION_CONTEXT);
+  const unclearBus = say(engine, 'ぷるぱら', bus.context);
+  assert.equal(unclearBus.quality?.replyType, 'ACKNOWLEDGE');
+  assert.equal(unclearBus.quality?.fallback, true);
+  assert.doesNotMatch(unclearBus.text, /[？?]|次はどうする/);
+  assert.deepEqual(unclearBus.context.imaginativePlay, bus.context.imaginativePlay);
+  const space = say(engine, '宇宙！', unclearBus.context);
+  assert.match(space.text, /お月さまに停まろう/);
+
+  const story = say(engine, 'お話ししよう', EMPTY_CONVERSATION_CONTEXT);
+  const unclearStory = say(engine, 'ぷるぱら', story.context);
+  assert.equal(unclearStory.quality?.replyType, 'ACKNOWLEDGE');
+  assert.equal(unclearStory.quality?.fallback, true);
+  assert.deepEqual(unclearStory.context.story, story.context.story);
+  assert.doesNotMatch(unclearStory.text, /[？?]|もう一回|もう一度/);
+});

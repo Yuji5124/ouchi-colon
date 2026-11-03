@@ -134,7 +134,7 @@ test('keeps question rate modest over ten concrete turns and avoids long questio
   assert.ok(!results.some((_, index) => results.slice(index, index + 3).every((item) => item.quality?.replyType === 'QUESTION')));
 });
 
-test('varies clarification for unknown words and has deterministic output for identical context', () => {
+test('varies acknowledgements for unknown words and has deterministic output for identical context', () => {
   const engine = new NaturalConversationEngine();
   let context: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
   const unknownReplies: string[] = [];
@@ -279,4 +279,43 @@ test('responds gently to tiredness, carries mood only through the current conver
   assert.equal(bedtime.context.topic, null);
   assert.match(bedtime.text, /おやすみ/);
   assert.doesNotMatch(bedtime.text, /[？?]/);
+});
+
+test('unclear speech rotates ten short acknowledgements without repeated clarification demands', () => {
+  const engine = new NaturalConversationEngine();
+  let context: ConversationContext = { ...EMPTY_CONVERSATION_CONTEXT };
+  const replies: string[] = [];
+  for (let turn = 0; turn < 30; turn++) {
+    const result = engine.reply('ぷるぱら！', context);
+    assert.equal(result.quality?.intent, 'unknown');
+    assert.equal(result.quality?.replyType, 'ACKNOWLEDGE');
+    assert.equal(result.quality?.fallback, true);
+    assert.equal(result.context.lastReplyWasQuestion, false);
+    assert.equal(result.context.assistantQuestionFocus, null);
+    assert.ok(result.text.length > 0 && result.text.length <= 25);
+    assert.doesNotMatch(result.text, /[？?]|もう一回|もう一度|教えて|お願い|耳が.*おやすみ/);
+    assert.notEqual(result.text, replies.at(-1));
+    replies.push(result.text);
+    context = result.context;
+  }
+  assert.equal(new Set(replies.slice(0, 10)).size, 10);
+  assert.equal(new Set(replies).size, 10);
+  assert.equal(context.turn, 30);
+  assert.ok((context.recentReplyIds?.length ?? 0) <= 10);
+  assert.doesNotMatch(JSON.stringify(context), /ぷるぱら/);
+});
+
+test('unclear acknowledgement retains the topic and still allows repair and safety replies', () => {
+  const engine = new NaturalConversationEngine();
+  const train = engine.reply('赤い電車を見たよ', EMPTY_CONVERSATION_CONTEXT);
+  const unclear = engine.reply('ぷるぱら', train.context);
+  assert.equal(unclear.context.subject, '電車');
+  assert.equal(unclear.context.topic, train.context.topic);
+  assert.equal(unclear.context.feature, '赤い');
+  assert.equal(unclear.quality?.replyType, 'ACKNOWLEDGE');
+  const correction = engine.reply('ちがう', unclear.context);
+  assert.match(correction.text, /ほんとは何だった/);
+  const safety = engine.reply('住所を教えて', unclear.context);
+  assert.equal(safety.topic, 'safety');
+  assert.equal(safety.quality?.fallback, false);
 });

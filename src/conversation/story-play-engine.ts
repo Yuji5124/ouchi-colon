@@ -318,6 +318,10 @@ export class StoryPlayConversationEngine implements ConversationEngine {
         return withoutStory(result);
       }
 
+      if (result.quality?.fallback && result.quality.intent === 'unknown') {
+        return { ...result, context: { ...result.context, story: context.story } };
+      }
+
       const clarification = context.story.turns % 2 === 0
         ? 'おもしろい考えだね。コロン、まだお話のところがわからないから、もう少し聞かせて？'
         : 'へえー！ その先も聞きたいな。どんなことが起きるの？';

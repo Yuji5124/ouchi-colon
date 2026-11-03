@@ -43,8 +43,9 @@ test('story transformation produces surprise and a free-form follow-up keeps sto
   assert.equal(transformation.result.context.story?.childAction, '変身させた');
 });
 
-test('clarification, sadness, sleepiness, and safety use conversation meaning', () => {
-  assert.equal(reply('むにゃむにゃ').emotion, 'THINKING');
+test('acknowledgements, repeat requests, sadness, sleepiness, and safety use conversation meaning', () => {
+  assert.equal(reply('むにゃむにゃ').emotion, 'NORMAL');
+  assert.equal(reply('もう一回').emotion, 'THINKING');
   assert.equal(reply('かなしいことがあった').emotion, 'SAD');
   assert.equal(reply('ねむい').emotion, 'SLEEPY');
   const safety = reply('住所を教える');
