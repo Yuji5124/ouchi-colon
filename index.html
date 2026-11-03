@@ -14,6 +14,21 @@
   <body>
     <main id="app" aria-label="OuchiColon">
       <canvas id="face" aria-label="OuchiColon の顔"></canvas>
+      <section id="voice-conversation" class="voice-conversation" hidden aria-label="春歌ナナの会話">
+        <div class="voice-conversation__header">
+          <div><span>VOICEVOX: 春歌ナナ</span><strong>コロンとお話し</strong></div>
+          <button id="voice-output-toggle" class="voice-conversation__voice" type="button" aria-pressed="false">声 OFF</button>
+        </div>
+        <div class="voice-conversation__messages" aria-live="polite">
+          <p><small>あなた</small><output id="voice-conversation-input">話しかけてね</output></p>
+          <p><small>コロン</small><output id="voice-conversation-reply">ここでお返事するよ</output></p>
+          <output id="voice-conversation-status" class="voice-conversation__status">停止中</output>
+        </div>
+        <label class="voice-conversation__consent"><input id="voice-conversation-consent" type="checkbox" /> 保護者確認：オンライン音声認識を使います</label>
+        <p class="voice-conversation__privacy">認識した音声はブラウザーの音声サービスで処理される場合があります。会話の記録は保存しません。</p>
+        <button id="voice-conversation-toggle" class="voice-conversation__start" type="button" aria-pressed="false">会話をはじめる</button>
+        <small class="voice-conversation__note">辞書に一致した返事を春歌ナナで話します。</small>
+      </section>
       <section id="debug" class="debug" hidden aria-label="デバッグ操作">
         <div class="debug__top"><strong><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.8l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.5-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.5.9l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1-.1 1.7Z" /></svg>OuchiColon / DEBUG</strong><button id="minimize-debug" type="button" aria-label="顔を見やすくする">顔を見る</button><button id="close-debug" type="button" aria-label="閉じる">閉じる</button></div>
         <section class="debug__quick" aria-label="クイック操作">
@@ -190,3 +205,4 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
+
