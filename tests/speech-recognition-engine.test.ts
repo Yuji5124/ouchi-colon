@@ -124,3 +124,54 @@ test('unsupported browsers use the hand-input fallback', () => {
   assert.equal(engine.isSupported, false);
   assert.equal(engine.start({}), 'unsupported');
 });
+
+test('Safari final result finishes once even when onend never arrives', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  const replies: string[] = [];
+  engine.start({ onEnd: text => replies.push(text) });
+  recognizer.onstart?.();
+  recognizer.result('おはよう', true);
+  assert.equal(recognizer.stopCalls, 1);
+  assert.deepEqual(replies, []);
+  t.mock.timers.tick(1200);
+  recognizer.onend?.();
+  assert.deepEqual(replies, ['おはよう']);
+  assert.equal(engine.isActive, false);
+  engine.start({ onEnd: text => replies.push(text) });
+  recognizer.onstart?.();
+  recognizer.result('こんにちは', true);
+  recognizer.onend?.();
+  t.mock.timers.tick(1200);
+  assert.deepEqual(replies, ['おはよう', 'こんにちは']);
+});
+
+test('missing recognition start reports a bounded failure and permits a fresh tap', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  const errors: string[] = [];
+  engine.start({ onError: code => errors.push(code) });
+  t.mock.timers.tick(8000);
+  assert.deepEqual(errors, ['start-timeout']);
+  assert.equal(engine.isActive, false);
+  assert.equal(engine.start({}), 'started');
+  recognizer.onstart?.();
+  t.mock.timers.tick(8000);
+  assert.deepEqual(errors, ['start-timeout']);
+  engine.abort();
+});
+
+test('manual stop discards a pending Safari final-result timer', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recognizer = new FakeRecognizer();
+  const engine = new SpeechRecognitionEngine(() => recognizer);
+  let replies = 0;
+  engine.start({ onEnd: () => replies++ });
+  recognizer.onstart?.();
+  recognizer.result('ありがとう', true);
+  engine.abort();
+  t.mock.timers.tick(1200);
+  assert.equal(replies, 0);
+});
