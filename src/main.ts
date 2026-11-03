@@ -69,7 +69,7 @@ let conversationContentFallbackCount = 0;
 let conversationEngineErrorFallbackCount = 0;
 const recognitionEngine = new SpeechRecognitionEngine();
 const speechEngine = new SpeechSynthesisEngine();
-const harukaNanaAudioPlayer = new HarukaNanaAudioPlayer();
+const harukaNanaAudioPlayer = new HarukaNanaAudioPlayer(new WebAudioTohokuOutput());
 const harukaNanaResponseCatalog = new HarukaNanaResponseCatalog(harukaNanaDictionaryUrl, `${import.meta.env.BASE_URL}voice/haruka-nana/`);
 const nativeSpeechPort = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
   ? window.speechSynthesis as unknown as DiagnosticSpeechPort : null;
@@ -100,7 +100,6 @@ let tohokuGenerationMs: number | null = null;
 let activeReplyEngineForTurn: 'ios' | 'tohoku' | 'haruka' | 'ios-fallback' = 'ios';
 let voiceReactionMs: number | null = null;
 let recognitionEnabled = false;
-let harukaActivationPending = false;
 let muteSpeechStopRequested = false;
 let voiceResponseActive = false;
 let speechEndHandled = false;
@@ -1391,7 +1390,8 @@ function renderSimpleConversation(): void {
   const recognitionFailure = recognitionStatus.value.includes('エラー')
     || recognitionStatus.value.includes('許可されません')
     || recognitionStatus.value.includes('接続できません')
-    || recognitionStatus.value.includes('再開できません');
+    || recognitionStatus.value.includes('再開できません')
+    || recognitionStatus.value.includes('開始できません');
   const speechFailure = speechStatus.value.includes('再生できません')
     || speechStatus.value.includes('再生できませんでした')
     || speechStatus.value.includes('読み上げエラー')
@@ -1401,29 +1401,15 @@ function renderSimpleConversation(): void {
     : recognitionFailure ? recognitionStatus.value
       : speechFailure ? speechStatus.value
         : isAnySpeechActive() ? 'コロンがお返事中'
-          : listening ? '聞いているよ'
-            : '停止中';
+          : listening ? recognitionStatus.value
+            : recognitionStatus.value;
 }
 
-function playHarukaActivationSample(resumeListening: boolean): void {
-  if (harukaActivationPending) return;
-  harukaActivationPending = true;
-  if (resumeListening) stopVoiceRecognition();
-  voiceConversationStatus.value = '春歌ナナの声を確認しています…';
-  speechStatus.value = '春歌ナナの音声を再生しています…';
-  const sampleUrl = import.meta.env.BASE_URL + 'voice/haruka-nana/wav/0001.wav';
-  void harukaNanaAudioPlayer.play(sampleUrl, () => {
-    speechStatus.value = '春歌ナナの声を再生中です。';
+function unlockHarukaFromGesture(): void {
+  // Start resume() in the tap handler; never delay recognition behind an audio promise.
+  void harukaNanaAudioPlayer.unlock().catch(() => {
+    speechStatus.value = '音声を有効にできません。声をOFF→ONにして再度お試しください。';
     renderSimpleConversation();
-  }).then((reason) => {
-    harukaActivationPending = false;
-    if (reason === 'error') {
-      speechStatus.value = '春歌ナナの音声を再生できません。端末の音量・消音設定と通信を確認してください。';
-    } else if (reason === 'finished') {
-      speechStatus.value = '春歌ナナの声を確認しました。';
-    }
-    renderSimpleConversation();
-    if (resumeListening && voiceConversationConsent.checked) startVoiceRecognition();
   });
 }
 
@@ -2085,11 +2071,7 @@ voiceConversationToggleButton.addEventListener('click', () => {
     voiceConversationStatus.value = '保護者確認をしてから会話をはじめてください';
     return;
   }
-  if (harukaActivationPending) return;
-  if (ttsEnabled.checked && !harukaNanaAudioPlayer.isUnlocked) {
-    playHarukaActivationSample(true);
-    return;
-  }
+  if (ttsEnabled.checked) unlockHarukaFromGesture();
   startVoiceRecognition();
 });
 voiceOutputToggleButton.addEventListener('click', () => {
@@ -2101,9 +2083,8 @@ voiceOutputToggleButton.addEventListener('click', () => {
     harukaNanaAudioPlayer.stop();
     if (voiceResponseActive) finishReactionResponse('text-only', conversationGeneration);
     muteSpeechStopRequested = false;
-  } else if (ttsEnabled.checked && !harukaNanaAudioPlayer.isUnlocked) {
-    playHarukaActivationSample(recognitionEnabled || recognitionEngine.isActive);
-    return;
+  } else if (ttsEnabled.checked) {
+    unlockHarukaFromGesture();
   }
   renderSimpleConversation();
 });
