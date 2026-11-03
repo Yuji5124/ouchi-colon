@@ -29,10 +29,18 @@ export class HtmlMediaHarukaOutput implements HarukaAudioOutput {
   }
 
   play(wav: ArrayBuffer, onStart: () => void): Promise<'finished' | 'stopped'> {
+    return this.startSource(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })), onStart, true);
+  }
+
+  playUrl(url: string, onStart: () => void): Promise<'finished' | 'stopped'> {
+    return this.startSource(url, onStart, false);
+  }
+
+  private startSource(url: string, onStart: () => void, objectUrl: boolean): Promise<'finished' | 'stopped'> {
     this.stop();
     if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
-    this.objectUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
-    this.audio.src = this.objectUrl;
+    this.objectUrl = objectUrl ? url : null;
+    this.audio.src = url;
     return new Promise((resolve, reject) => {
       let settled = false;
       let started = false;
@@ -56,15 +64,15 @@ export class HtmlMediaHarukaOutput implements HarukaAudioOutput {
         onStart();
       };
       const end = (): void => { if (started) finish('finished'); else fail(); };
-      const fail = (): void => {
+      const fail = (cause?: unknown): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         cleanup();
         this.audio.pause();
-        reject(new Error('media playback unavailable'));
+        reject(cause instanceof Error ? cause : new Error('media playback unavailable'));
       };
-      const timeout = setTimeout(fail, 18000);
+      const timeout = setTimeout(() => fail(new Error('playback-timeout')), 18000);
       this.finishCurrent = finish;
       this.audio.addEventListener('playing', start);
       this.audio.addEventListener('ended', end);

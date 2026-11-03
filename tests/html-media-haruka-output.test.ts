@@ -65,3 +65,17 @@ test('autoplay denial retains current reply for a direct native replay and permi
   output.stop(); media.emit('ended');
   assert.equal(await next, 'stopped');
 });
+
+test('native recording URL is preserved for repeated automatic turns without Blob conversion', async () => {
+  const media = new Media();
+  const output = new HtmlMediaHarukaOutput(media);
+  const setup = output.playUrl('/voice/wav/0003.wav', () => {});
+  assert.equal(media.plays[0], '/voice/wav/0003.wav');
+  media.emit('playing'); media.emit('ended');
+  assert.equal(await setup, 'finished');
+  const reply = output.playUrl('/voice/wav/0071.wav', () => {});
+  assert.equal(media.src, '/voice/wav/0071.wav');
+  media.emit('playing'); media.emit('ended');
+  assert.equal(await reply, 'finished');
+  assert.equal(media.src, '/voice/wav/0071.wav');
+});

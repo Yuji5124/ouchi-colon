@@ -195,7 +195,7 @@ const speechStopButton = document.querySelector<HTMLButtonElement>('#speech-stop
 const replyVoiceEngineSelect = document.querySelector<HTMLSelectElement>('#reply-voice-engine')!;
 const voiceTestStatus = document.querySelector<HTMLOutputElement>('#voice-test-status')!;
 const ttsEnabled = document.querySelector<HTMLInputElement>('#tts-enabled')!;
-if (simpleConversationMode) ttsEnabled.checked = true;
+if (simpleConversationMode) ttsEnabled.checked = false;
 const reactionHistory = document.querySelector<HTMLOutputElement>('#reaction-history')!;
 const voiceTestButton = document.querySelector<HTMLButtonElement>('#voice-test')!;
 const speechRuntimeOutput = document.querySelector<HTMLOutputElement>('#speech-runtime')!;
@@ -1038,7 +1038,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
       if (reason === 'error') {
         lastErrorCode = 'HARUKA_AUDIO_REQUIRES_TAP';
         finishReactionResponse('text-only', token, expressionGeneration);
-        speechStatus.value = '自動再生できませんでした。「返事をもう一度聞く」の▶で同じ返答を再生できます。';
+        speechStatus.value = '自動再生できませんでした（' + (harukaNanaAudioPlayer.lastError ?? '原因不明') + '）。「返事をもう一度聞く」の▶で再生できます。';
         setVisibleAppState('返答音声の手動再生が必要');
         return;
       }
@@ -1395,7 +1395,8 @@ function renderSimpleConversation(): void {
   const listening = recognitionEnabled || recognitionEngine.isActive;
   voiceConversationToggleButton.textContent = listening ? '会話を止める' : '会話をはじめる';
   voiceConversationToggleButton.setAttribute('aria-pressed', String(listening));
-  voiceOutputToggleButton.textContent = ttsEnabled.checked ? '声 ON' : '声 OFF';
+  voiceOutputToggleButton.textContent = ttsEnabled.checked ? '声 ON' : '声をON';
+  voiceConversationToggleButton.disabled = !listening && (!ttsEnabled.checked || harukaNanaAudioPlayer.isPlaying);
   voiceOutputToggleButton.setAttribute('aria-pressed', String(ttsEnabled.checked));
   const finalText = recognitionFinal.value.replace(/^最終認識:\s*/, '').trim();
   const interimText = recognitionInterim.value.replace(/^途中認識:\s*/, '').trim();
@@ -2093,7 +2094,10 @@ voiceConversationToggleButton.addEventListener('click', () => {
     voiceConversationStatus.value = '保護者確認をしてから会話をはじめてください';
     return;
   }
-  if (ttsEnabled.checked) unlockHarukaFromGesture();
+  if (!ttsEnabled.checked) {
+    voiceConversationStatus.value = '先に「声をON」を押し、声が聞こえてから会話をはじめてください。';
+    return;
+  }
   startVoiceRecognition();
 });
 voiceAudioCheck.addEventListener('play', () => {
@@ -2122,7 +2126,21 @@ voiceOutputToggleButton.addEventListener('click', () => {
     if (voiceResponseActive) finishReactionResponse('text-only', conversationGeneration);
     muteSpeechStopRequested = false;
   } else if (ttsEnabled.checked) {
-    unlockHarukaFromGesture();
+    stopVoiceRecognition();
+    const entry = harukaNanaDictionary.entries.find(item => item.id === 'greeting.01.1')!;
+    const response = entry.responses.find(item => item.id === 'r3')!;
+    const manifest = harukaNanaManifest.find(item => item.id === entry.id + '.' + response.id)!;
+    const confirmation: HarukaNanaSelectedResponse = {
+      id: manifest.id, text: response.text, role: 'reassure',
+      audioUrl: import.meta.env.BASE_URL + 'voice/haruka-nana/' + manifest.file,
+    };
+    conversationReply.value = '確定返答: ' + confirmation.text;
+    voiceAudioCheck.src = confirmation.audioUrl;
+    voiceAudioCheck.hidden = false;
+    voiceAudioNote.value = '表示中の確認音声です。聞こえたら会話をはじめてください。';
+    recognitionStatus.value = '声が聞こえたら「会話をはじめる」を押してください。';
+    const token = ++conversationGeneration;
+    speakReply(confirmation.text, token, 'JOY', confirmation);
   }
   renderSimpleConversation();
 });
