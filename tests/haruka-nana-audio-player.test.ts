@@ -51,3 +51,31 @@ test('missing audio reports an error and a subsequent turn can play', async () =
   assert.equal(player.isPlaying, false);
   assert.equal(await player.play('next.wav', () => {}), 'finished');
 });
+
+test('native URL playback is invoked in the tap stack without waiting for a fetch', async () => {
+  const output = new Output();
+  const urls: string[] = [];
+  const native = Object.assign(output, {
+    async playUrl(url: string, onStart: () => void): Promise<'finished'> {
+      urls.push(url);
+      onStart();
+      return 'finished';
+    },
+  });
+  const noFetch = (() => { throw new Error('native playback must not fetch or create a Blob first'); }) as typeof fetch;
+  const player = new HarukaNanaAudioPlayer(native, noFetch);
+  const first = player.play('/voice/wav/0003.wav', () => {});
+  assert.deepEqual(urls, ['/voice/wav/0003.wav']);
+  assert.equal(await first, 'finished');
+  assert.equal(await player.play('/voice/wav/0071.wav', () => {}), 'finished');
+  assert.deepEqual(urls, ['/voice/wav/0003.wav', '/voice/wav/0071.wav']);
+});
+test('native autoplay denial is reported with its original reason, not flattened', async () => {
+  const output = Object.assign(new Output(), {
+    playUrl(): Promise<'finished'> { return Promise.reject(new DOMException('gesture required', 'NotAllowedError')); },
+  });
+  const player = new HarukaNanaAudioPlayer(output, okFetch);
+  assert.equal(await player.play('/voice/wav/0071.wav', () => {}), 'error');
+  assert.match(player.lastError ?? '', /NotAllowedError/);
+  assert.equal(player.isPlaying, false);
+});
