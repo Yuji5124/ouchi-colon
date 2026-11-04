@@ -1,0 +1,135 @@
+#include <Arduino.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <Preferences.h>
+#include <esp_system.h>
+#include <atomic>
+#include "MotorCore.h"
+
+#ifndef MOTOR_ALLOW_POWERED_TESTS
+#define MOTOR_ALLOW_POWERED_TESTS 0
+#endif
+#if MOTOR_ALLOW_POWERED_TESTS
+constexpr char BUILD_LOCK_TAG[]="COLON_POWER_LOCK=1";
+#else
+constexpr char BUILD_LOCK_TAG[]="COLON_POWER_LOCK=0";
+#endif
+// ATOM S3 C123 only. LCD/IMU pins are not used by this standalone diagnostic target.
+constexpr int AIN1=5, AIN2=6, BIN1=7, BIN2=8;
+static_assert(colon::validPins(AIN1,AIN2,BIN1,BIN2),"Motor GPIO conflict");
+constexpr char SERVICE[]="b4c00001-70f0-4c21-a560-cc0100000001";
+constexpr char COMMAND[]="b4c00002-70f0-4c21-a560-cc0100000001";
+constexpr char MOTOR_STATUS_UUID[]="b4c00003-70f0-4c21-a560-cc0100000001";
+constexpr char MOTOR_PATTERNS_UUID[]="b4c00004-70f0-4c21-a560-cc0100000001";
+constexpr int pins[]={AIN1,AIN2,BIN1,BIN2};
+colon::MotorCore motor(MOTOR_ALLOW_POWERED_TESTS==1);
+QueueHandle_t commands;
+std::atomic<int> connectionEvent{0};
+std::atomic<bool> urgentStop{false},urgentEstop{false};
+portMUX_TYPE statusMux=portMUX_INITIALIZER_UNLOCKED;
+char statusBuffer[512]="{}";
+char patternsBuffer[256]="{}";
+uint32_t bootCount=0, bootId=0;
+bool bootCountKnown=false;
+const char* resetReason="unknown";
+BLECharacteristic* statusChar=nullptr;
+BLEServer* bleServer=nullptr;
+
+const char* resetName(esp_reset_reason_t reason){
+  switch(reason){case ESP_RST_POWERON:return "power-on";case ESP_RST_SW:return "software";case ESP_RST_PANIC:return "panic";case ESP_RST_INT_WDT:return "interrupt-watchdog";case ESP_RST_TASK_WDT:return "task-watchdog";case ESP_RST_WDT:return "watchdog";case ESP_RST_BROWNOUT:return "brownout";case ESP_RST_DEEPSLEEP:return "deep-sleep";default:return "other";}
+}
+void writePair(int channel,int value){
+  const uint32_t duty=uint32_t(abs(value))*255/100;
+  // Clear both inputs before asserting a direction. Stops are 00 / Hi-Z coast.
+  ledcWrite(channel,0);ledcWrite(channel+1,0);
+  if(value>0)ledcWrite(channel,duty);else if(value<0)ledcWrite(channel+1,duty);
+}
+void publishStatus(uint32_t now){
+  char out[512];
+  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-1.1.0\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
+    (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
+  portENTER_CRITICAL(&statusMux);strncpy(statusBuffer,out,sizeof(statusBuffer));statusBuffer[511]=0;portEXIT_CRITICAL(&statusMux);
+  char table[256];size_t used=snprintf(table,sizeof(table),"{\"version\":1,\"build\":\"%s\",\"slots\":[",BUILD_LOCK_TAG);
+  for(uint8_t i=0;i<colon::PATTERN_COUNT;i++)used+=snprintf(table+used,sizeof(table)-used,"%s[%u,%u]",i?",":"",motor.patterns[i].speed,motor.patterns[i].durationMs);
+  snprintf(table+used,sizeof(table)-used,"]}");portENTER_CRITICAL(&statusMux);memcpy(patternsBuffer,table,sizeof(table));portEXIT_CRITICAL(&statusMux);
+}
+bool storePatterns(){
+  uint8_t blob[1+colon::PATTERN_COUNT*3];blob[0]=1;
+  for(uint8_t i=0;i<colon::PATTERN_COUNT;i++){blob[1+i*3]=motor.patterns[i].speed;blob[2+i*3]=motor.patterns[i].durationMs&255;blob[3+i*3]=motor.patterns[i].durationMs>>8;}
+  Preferences p;if(!p.begin("colon-motor",false))return false;const bool ok=p.putBytes("patterns",blob,sizeof(blob))==sizeof(blob);p.end();return ok;
+}
+void loadPatterns(){
+  uint8_t blob[1+colon::PATTERN_COUNT*3];Preferences p;if(!p.begin("colon-motor",true))return;
+  const size_t len=p.getBytes("patterns",blob,sizeof(blob));p.end();if(len!=sizeof(blob)||blob[0]!=1)return;
+  colon::PatternConfig slots[colon::PATTERN_COUNT];
+  for(uint8_t i=0;i<colon::PATTERN_COUNT;i++){slots[i]={blob[1+i*3],uint16_t(blob[2+i*3]|uint16_t(blob[3+i*3])<<8)};if(!colon::validPattern(i,slots[i]))return;}
+  memcpy(motor.patterns,slots,sizeof(slots));
+}
+class StatusCallbacks: public BLECharacteristicCallbacks {
+  void onRead(BLECharacteristic* c) override {char copy[512];portENTER_CRITICAL(&statusMux);memcpy(copy,statusBuffer,512);portEXIT_CRITICAL(&statusMux);c->setValue(copy);}
+};
+class PatternCallbacks: public BLECharacteristicCallbacks {
+  void onRead(BLECharacteristic* c) override {char copy[256];portENTER_CRITICAL(&statusMux);memcpy(copy,patternsBuffer,256);portEXIT_CRITICAL(&statusMux);c->setValue(copy);}
+};
+class CommandCallbacks: public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* c) override {
+    auto bytes=c->getValue();
+    if(bytes.size()!=20){urgentStop.store(true);return;}
+    colon::Frame frame;memcpy(frame.data,bytes.data(),20);
+    if(frame.data[0]!=1){urgentStop.store(true);return;}
+    if(frame.data[1]==colon::ESTOP){urgentEstop.store(true);return;}
+    if(frame.data[1]==colon::STOP||frame.data[1]==colon::DISARM){urgentStop.store(true);return;}
+    if(xQueueSend(commands,&frame,0)!=pdTRUE)urgentStop.store(true);
+  }
+};
+class ServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer*) override {connectionEvent.store(1);}
+  void onDisconnect(BLEServer* s) override {connectionEvent.store(-1);urgentStop.store(true);s->startAdvertising();}
+};
+void motorTask(void*) {
+  uint16_t appliedFrequency=motor.frequency;
+  TickType_t next=xTaskGetTickCount();
+  for(;;){
+    const uint32_t now=millis();
+    const int event=connectionEvent.exchange(0);
+    if(event){xQueueReset(commands);if(event<0)motor.disconnect(now);else motor.connect(esp_random(),now);}
+    if(urgentEstop.exchange(false)){xQueueReset(commands);motor.estop=true;motor.stop("emergency",now);}
+    if(urgentStop.exchange(false)){xQueueReset(commands);motor.stop(event<0?"disconnect":"operator-stop",now);}
+    colon::Frame frame;
+    // Bound command processing so floods cannot starve the safety tick.
+    for(int count=0;count<4&&xQueueReceive(commands,&frame,0)==pdTRUE;count++){
+      if(motor.command(frame,now)&&frame.data[1]==colon::SAVE_PATTERN&&!storePatterns())motor.stop("pattern-save-failed",now);
+    }
+    motor.tick(now);
+    if(appliedFrequency!=motor.frequency){
+      for(int i=0;i<4;i++)ledcWrite(i,0);
+      bool ok=true;for(int i=0;i<4;i++)if(ledcSetup(i,motor.frequency,8)==0)ok=false;
+      appliedFrequency=motor.frequency;if(!ok){motor.ready=false;motor.stop("pwm-init-failed",now);}
+    }
+    writePair(0,motor.physicalLeft());writePair(2,motor.physicalRight());
+    publishStatus(now);
+    vTaskDelayUntil(&next,pdMS_TO_TICKS(5));
+  }
+}
+void setup(){
+  // No network, NVS, display, or BLE work is allowed before outputs are low.
+  for(int pin:pins){digitalWrite(pin,LOW);pinMode(pin,OUTPUT);}
+  bool ok=true;
+  for(int i=0;i<4;i++){if(ledcSetup(i,1000,8)==0)ok=false;ledcAttachPin(pins[i],i);ledcWrite(i,0);}
+  motor.ready=ok;motor.stop(ok?"boot":"gpio-init-failed",millis());
+  bootId=esp_random();resetReason=resetName(esp_reset_reason());
+  Preferences prefs;
+  if(prefs.begin("colon-motor",false)){bootCount=prefs.getUInt("boots",0)+1;bootCountKnown=prefs.putUInt("boots",bootCount)>0;prefs.end();}
+  loadPatterns();
+  commands=xQueueCreate(8,sizeof(colon::Frame));if(!commands){motor.ready=false;return;}
+  if(xTaskCreatePinnedToCore(motorTask,"motor-safety",4096,nullptr,5,nullptr,1)!=pdPASS){motor.ready=false;return;}
+  BLEDevice::init("Colon-Motor-Test");
+  bleServer=BLEDevice::createServer();bleServer->setCallbacks(new ServerCallbacks());
+  BLEService* service=bleServer->createService(SERVICE);
+  auto cmd=service->createCharacteristic(COMMAND,BLECharacteristic::PROPERTY_WRITE);cmd->setCallbacks(new CommandCallbacks());
+  statusChar=service->createCharacteristic(MOTOR_STATUS_UUID,BLECharacteristic::PROPERTY_READ);statusChar->setCallbacks(new StatusCallbacks());
+  auto patternsChar=service->createCharacteristic(MOTOR_PATTERNS_UUID,BLECharacteristic::PROPERTY_READ);patternsChar->setCallbacks(new PatternCallbacks());
+  service->start();auto advertising=bleServer->getAdvertising();advertising->addServiceUUID(SERVICE);advertising->start();
+}
+void loop(){delay(20);} // Motor safety runs independently of this loop and BLE callbacks.

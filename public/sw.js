@@ -1,4 +1,4 @@
-const CACHE = 'ouchicolon-shell-v31';
+const CACHE = 'ouchicolon-shell-v32';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
@@ -67,6 +67,8 @@ self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(request.url);
   const sameOrigin = requestUrl.origin === self.location.origin;
   if (request.method !== 'GET' || (!sameOrigin && !MODEL_ORIGINS.has(requestUrl.origin))) return;
+  // Firmware is fetched and hash-verified online by the writer, never cache-first.
+  if (sameOrigin && requestUrl.pathname.startsWith(`${ROOT}firmware/`)) return;
   if (sameOrigin && requestUrl.pathname.startsWith(`${ROOT}voice/haruka-nana/wav/`)) {
     event.respondWith((async () => {
       const cache = await caches.open(VOICE_CACHE);

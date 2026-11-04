@@ -33,6 +33,7 @@ import { canStartConversation, conversationLaunchSettings, fallbackReplyVoice, I
 import { TurnCompletionGate } from './speech/turn-completion';
 import { canRecoverFromEmptyRecognitionResult, MAX_EMPTY_RESULT_RESTARTS, recognitionErrorAction, recognitionResumeBlockReason, RESUME_BUSY_RETRY_DELAYS_MS, shouldResumeAfterReply } from './speech/recognition-resume';
 import './style.css';
+import { publishMotorExpression } from './motor/bridge';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
 if (!canvas) throw new Error('Face canvas is missing');
@@ -1815,6 +1816,7 @@ function setExpression(expression: Expression): void {
   if (state.expression === expression) return;
   state.expression = expression;
   state.transition = 0;
+  publishMotorExpression(expression);
 }
 
 function setDebug(value: boolean): void {

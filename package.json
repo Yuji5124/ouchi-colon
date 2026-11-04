@@ -8,13 +8,16 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:motor": "node --experimental-strip-types --test tests/motor-test.test.ts tests/motor-patterns.test.ts",
+    "test:motor-native": "node scripts/test-motor-native.mjs"
   },
   "devDependencies": {
     "typescript": "~5.8.3",
     "vite": "~6.3.5"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.1.1"
+    "@mediapipe/tasks-vision": "^1.1.1",
+    "esptool-js": "0.7.1"
   }
 }

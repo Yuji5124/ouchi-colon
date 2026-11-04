@@ -41,6 +41,7 @@
         <section class="debug__quick" aria-label="クイック操作">
           <strong>クイック操作</strong>
           <div id="quick-actions" class="debug__controls">
+            <a href="?motor=1">Motor Test（独立テスト画面）</a>
             <button id="tohoku-init" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2-6 4 12 3-9 2 6h4" /></svg>TOHOKU準備</button>
             <button id="tohoku-conversation-enable" type="button" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6" /></svg>音声を有効化</button>
             <button id="recognition-start" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8" /></svg>マイクで会話開始</button>
@@ -209,6 +210,6 @@
         <small>キー 1〜8: 表情 / ← →: 視線 / Space: 口パク</small>
       </section>
     </main>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/entry.ts"></script>
   </body>
 </html>

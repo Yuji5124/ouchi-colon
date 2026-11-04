@@ -5,6 +5,21 @@ import { runInNewContext } from 'node:vm';
 
 const origin = 'https://ouchicolon.example';
 
+test('firmware manifest and binaries bypass offline caches for verified online writing', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const listeners = new Map<string, (event: any) => void>();
+  runInNewContext(source, {
+    self: { location: { origin }, addEventListener(name: string, handler: (event: any) => void) { listeners.set(name, handler); } },
+    URL,
+    caches: { match() { throw new Error('firmware must not read stale cache'); } },
+  });
+  for (const path of ['manifest.json', 'colon-motor-1.1.0/firmware.bin']) {
+    let intercepted = false;
+    listeners.get('fetch')!({ request: { method: 'GET', url: `${origin}/ouchi-colon/firmware/${path}` }, respondWith() { intercepted = true; } });
+    assert.equal(intercepted, false, 'browser handles the writer no-store request directly');
+  }
+});
+
 test('service worker caches app assets and approved face detector resources offline', async () => {
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
   const entries = new Map<string, Response>();
@@ -199,7 +214,7 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v31');
+  const current = await open('ouchicolon-shell-v32');
   await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest', '/ouchi-colon/icons/ouchicolon-192.png', '/ouchi-colon/icons/ouchicolon-512.png']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
@@ -217,12 +232,12 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v31');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v32');
 });
 
-test('service worker v31 replaces the app shell while retaining lazy TOHOKU assets', async () => {
+test('service worker v32 replaces the app shell while retaining lazy TOHOKU assets', async () => {
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
-  assert.match(source, /ouchicolon-shell-v31/);
+  assert.match(source, /ouchicolon-shell-v32/);
   assert.match(source, /cache\.addAll\(SHELL\)/);
   assert.match(source, /if \(await destination\.match\(request\)\) continue/);
   assert.match(source, /cache\.put\(request, copy\)/);
