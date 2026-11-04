@@ -6,6 +6,7 @@
 #include <esp_system.h>
 #include <atomic>
 #include "MotorCore.h"
+#include "AtomStatusDisplay.h"
 
 #ifndef MOTOR_ALLOW_POWERED_TESTS
 #define MOTOR_ALLOW_POWERED_TESTS 0
@@ -14,10 +15,10 @@
 #define MOTOR_SINGLE_TEST 0
 #endif
 #if MOTOR_SINGLE_TEST
-#define COLON_FIRMWARE_VERSION "1.2.0"
+#define COLON_FIRMWARE_VERSION "1.2.1"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=1";
 #else
-#define COLON_FIRMWARE_VERSION "1.1.0"
+#define COLON_FIRMWARE_VERSION "1.1.1"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0";
 #endif
 #if MOTOR_ALLOW_POWERED_TESTS
@@ -25,7 +26,7 @@ constexpr char BUILD_LOCK_TAG[]="COLON_POWER_LOCK=1";
 #else
 constexpr char BUILD_LOCK_TAG[]="COLON_POWER_LOCK=0";
 #endif
-// ATOM S3 C123 only. LCD/IMU pins are not used by this standalone diagnostic target.
+// ATOM S3 C123 only. LCD uses its dedicated pins; IMU is not initialized.
 constexpr int AIN1=5, AIN2=6, BIN1=7, BIN2=8;
 static_assert(colon::validPins(AIN1,AIN2,BIN1,BIN2),"Motor GPIO conflict");
 constexpr char SERVICE[]="b4c00001-70f0-4c21-a560-cc0100000001";
@@ -40,6 +41,8 @@ std::atomic<bool> urgentStop{false},urgentEstop{false};
 portMUX_TYPE statusMux=portMUX_INITIALIZER_UNLOCKED;
 char statusBuffer[512]="{}";
 char patternsBuffer[256]="{}";
+colon::DisplaySnapshot latestDisplay;
+std::atomic<bool> bleReady{false},lcdReady{false};
 uint32_t bootCount=0, bootId=0;
 bool bootCountKnown=false;
 const char* resetReason="unknown";
@@ -57,9 +60,11 @@ void writePair(int channel,int value){
 }
 void publishStatus(uint32_t now){
   char out[512];
-  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
-    (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
+  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"lcd\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
+    (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",lcdReady.load()?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
   portENTER_CRITICAL(&statusMux);strncpy(statusBuffer,out,sizeof(statusBuffer));statusBuffer[511]=0;portEXIT_CRITICAL(&statusMux);
+  const auto screen=colon::displaySnapshot(motor,now,bleReady.load());
+  portENTER_CRITICAL(&statusMux);latestDisplay=screen;portEXIT_CRITICAL(&statusMux);
   char table[256];size_t used=snprintf(table,sizeof(table),"{\"version\":1,\"build\":\"%s;%s\",\"slots\":[",BUILD_LOCK_TAG,SINGLE_TEST_TAG);
   for(uint8_t i=0;i<colon::PATTERN_COUNT;i++)used+=snprintf(table+used,sizeof(table)-used,"%s[%u,%u]",i?",":"",motor.patterns[i].speed,motor.patterns[i].durationMs);
   snprintf(table+used,sizeof(table)-used,"]}");portENTER_CRITICAL(&statusMux);memcpy(patternsBuffer,table,sizeof(table));portEXIT_CRITICAL(&statusMux);
@@ -122,24 +127,30 @@ void motorTask(void*) {
     vTaskDelayUntil(&next,pdMS_TO_TICKS(5));
   }
 }
+void displayTask(void*){
+  for(;;){colon::DisplaySnapshot copy;portENTER_CRITICAL(&statusMux);copy=latestDisplay;portEXIT_CRITICAL(&statusMux);drawAtomStatus(copy,COLON_FIRMWARE_VERSION);vTaskDelay(pdMS_TO_TICKS(20));}
+}
 void setup(){
   // No network, NVS, display, or BLE work is allowed before outputs are low.
   for(int pin:pins){digitalWrite(pin,LOW);pinMode(pin,OUTPUT);}
   bool ok=true;
   for(int i=0;i<4;i++){if(ledcSetup(i,1000,8)==0)ok=false;ledcAttachPin(pins[i],i);ledcWrite(i,0);}
   motor.ready=ok;motor.stop(ok?"boot":"gpio-init-failed",millis());
+  latestDisplay=colon::displaySnapshot(motor,millis(),false);
+  const bool hasLcd=beginAtomStatusDisplay();if(hasLcd)drawAtomStatus(latestDisplay,COLON_FIRMWARE_VERSION);
   bootId=esp_random();resetReason=resetName(esp_reset_reason());
   Preferences prefs;
   if(prefs.begin("colon-motor",false)){bootCount=prefs.getUInt("boots",0)+1;bootCountKnown=prefs.putUInt("boots",bootCount)>0;prefs.end();}
   loadPatterns();
-  commands=xQueueCreate(8,sizeof(colon::Frame));if(!commands){motor.ready=false;return;}
-  if(xTaskCreatePinnedToCore(motorTask,"motor-safety",4096,nullptr,5,nullptr,1)!=pdPASS){motor.ready=false;return;}
+  commands=xQueueCreate(8,sizeof(colon::Frame));if(!commands){motor.ready=false;if(hasLcd)drawAtomStatus(colon::displaySnapshot(motor,millis(),false),COLON_FIRMWARE_VERSION);return;}
+  if(xTaskCreatePinnedToCore(motorTask,"motor-safety",4096,nullptr,5,nullptr,1)!=pdPASS){motor.ready=false;if(hasLcd)drawAtomStatus(colon::displaySnapshot(motor,millis(),false),COLON_FIRMWARE_VERSION);return;}
+  if(hasLcd)lcdReady.store(xTaskCreatePinnedToCore(displayTask,"lcd-status",6144,nullptr,1,nullptr,0)==pdPASS);
   BLEDevice::init("Colon-Motor-Test");
   bleServer=BLEDevice::createServer();bleServer->setCallbacks(new ServerCallbacks());
   BLEService* service=bleServer->createService(SERVICE);
   auto cmd=service->createCharacteristic(COMMAND,BLECharacteristic::PROPERTY_WRITE);cmd->setCallbacks(new CommandCallbacks());
   statusChar=service->createCharacteristic(MOTOR_STATUS_UUID,BLECharacteristic::PROPERTY_READ);statusChar->setCallbacks(new StatusCallbacks());
   auto patternsChar=service->createCharacteristic(MOTOR_PATTERNS_UUID,BLECharacteristic::PROPERTY_READ);patternsChar->setCallbacks(new PatternCallbacks());
-  service->start();auto advertising=bleServer->getAdvertising();advertising->addServiceUUID(SERVICE);advertising->start();
+  service->start();auto advertising=bleServer->getAdvertising();advertising->addServiceUUID(SERVICE);advertising->start();bleReady.store(true);
 }
-void loop(){delay(20);} // Motor safety runs independently of this loop and BLE callbacks.
+void loop(){delay(20);} // Safety: core1/prio5; LCD: core0/prio1. Neither waits on the other.

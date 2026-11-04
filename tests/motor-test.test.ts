@@ -8,6 +8,8 @@ import {MotorSession} from '../src/motor/session.ts';
 import {MockTransport} from '../src/motor/transport.ts';
 function mock(qualified=false){const c=new MockMotor();c.state.powerQualified=qualified;c.connect(0);return c;}
 function send(c:MockMotor,op:typeof OPS[keyof typeof OPS],now:number,l=0,r=0){c.write(makeFrame(c.state,op,c.state.seq+1,{...INITIAL_SETTINGS,signalOnly:true},l,r),now);}
+
+test('Motor: 本体液晶の通知は旧版と互換、実測と取り違えない',()=>{const c=mock();assert.equal(parseStatus(c.state).lcd,undefined);for(const lcd of [true,false])assert.equal(parseStatus({...c.state,lcd}).lcd,lcd);assert.throws(()=>parseStatus({...c.state,lcd:'true'}));});
 test('Motor: 起動時と未許可時は左右停止',()=>{const c=mock();assert.equal(c.state.left,0);assert.equal(c.state.right,0);assert.equal(c.state.armed,false);send(c,OPS.MOVE,100,50,0);assert.equal(c.state.armed,false);assert.equal(c.state.stopReason,'disarmed');});
 test('Motor: 既定ファーム条件では通電を許可しない',()=>{const c=mock();c.write(makeFrame(c.state,OPS.ARM,1,{...INITIAL_SETTINGS,signalOnly:false}),100);assert.equal(c.state.armed,false);assert.equal(c.state.stopReason,'power-unqualified');});
 test('Motor: 左右を独立に制御する',()=>{const c=mock();send(c,OPS.ARM,100);send(c,OPS.MOVE,101,40,0);c.tick(121);assert.ok(c.state.left>0);assert.equal(c.state.right,0);send(c,OPS.STOP,130);send(c,OPS.ARM,230);send(c,OPS.MOVE,231,0,-30);c.tick(251);assert.equal(c.state.left,0);assert.ok(c.state.right<0);});

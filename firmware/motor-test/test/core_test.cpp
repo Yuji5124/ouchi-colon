@@ -1,4 +1,5 @@
 #include "MotorCore.h"
+#include "DisplayModel.h"
 #include <cassert>
 #include <iostream>
 using namespace colon;
@@ -34,5 +35,11 @@ int main(){
   {MotorCore c(false,true);c.ready=true;c.connect(1,0);armSingle(c);assert(!c.command(frame(c,PATTERN,0),101));assert(!c.armed&&std::string(c.reason)=="single-pattern-disabled");cases++;}
   {MotorCore c(false,true);c.ready=true;c.connect(1,0);armSingle(c);auto old=frame(c,MOVE,25,0);c.disconnect(101);c.connect(2,102);assert(!c.command(old,202));assert(!c.armed&&c.left==0);cases++;}
   {MotorCore c(false,true);c.ready=true;c.connect(1,0);armSingle(c);c.pulseMs=500;assert(c.command(frame(c,MOVE,25,0),101));c.tick(201);assert(!c.armed&&c.left==0);cases++;}
-  std::cout<<"MotorCore: "<<cases<<" safety cases passed\n";
+  {DisplaySnapshot s;assert(displayState(s)==DisplayState::Fault);s.ready=true;assert(displayState(s)==DisplayState::Boot);s.advertising=true;assert(displayState(s)==DisplayState::Waiting);s.connected=true;assert(displayState(s)==DisplayState::Connected);cases++;}
+  {DisplaySnapshot s;s.ready=s.advertising=s.connected=true;s.armed=true;assert(displayState(s)==DisplayState::Armed);s.left=25;assert(displayState(s)==DisplayState::Moving);s.estop=true;assert(displayState(s)==DisplayState::Emergency);cases++;}
+  {MotorCore c(false,true);c.ready=true;c.connect(1,0);armSingle(c);c.command(frame(c,MOVE,25,0),101);c.tick(126);auto s=displaySnapshot(c,126,true);assert(s.single&&s.armed&&s.left>0);c.tick(201);s=displaySnapshot(c,201,true);assert(displayState(s)==DisplayState::Connected);assert(std::string(displayReason(s))=="時間上限・停止");cases++;}
+  {MotorCore c;c.ready=true;c.connect(1,0);arm(c,100,true);c.tick(451);auto s=displaySnapshot(c,451,true);assert(std::string(displayReason(s))=="心拍切れ・停止");c.disconnect(452);s=displaySnapshot(c,452,true);assert(displayState(s)==DisplayState::Waiting);assert(!c.armed&&c.left==0);cases++;}
+  {MotorCore c;c.ready=true;c.connect(1,0);const auto nonce=c.nonce,seq=c.seq;auto a=displaySnapshot(c,1000,true),b=displaySnapshot(c,1999,true);assert(sameDisplay(a,b));b=displaySnapshot(c,2000,true);assert(!sameDisplay(a,b));b=a;b.reason="operator-stop";assert(!sameDisplay(a,b));assert(!c.armed&&c.left==0&&c.nonce==nonce&&c.seq==seq);cases++;}
+  {for(int pin:{LCD_MOSI,LCD_SCLK,LCD_CS,LCD_DC,LCD_RESET,LCD_LIGHT}){assert(lcdPinSafe(pin));assert(!validPins(5,6,7,pin));}cases++;}
+  std::cout<<"MotorCore/display: "<<cases<<" safety cases passed\n";
 }

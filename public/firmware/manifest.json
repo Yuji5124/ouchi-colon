@@ -1,37 +1,38 @@
 {
   "schema": "colon-firmware/1",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "chip": "ESP32-S3",
   "flashBytes": 8388608,
   "poweredTests": false,
+  "lcdDisplay": true,
   "parts": [
     {
-      "path": "colon-motor-1.1.0/bootloader.bin",
+      "path": "colon-motor-1.1.1/bootloader.bin",
       "address": 0,
       "size": 15104,
       "sha256": "1776e4dd896a69d0a5c2e79957b0e2a88aa4129b1381d6478683515a1f6af343",
       "md5": "75adf936bfc0b029ab5fdc6abde165cb"
     },
     {
-      "path": "colon-motor-1.1.0/partitions.bin",
+      "path": "colon-motor-1.1.1/partitions.bin",
       "address": 32768,
       "size": 3072,
       "sha256": "1d9cca96de0fe07ad7fc0648b9878ddecd9ce565e38b589ad20fea698ed4c80c",
       "md5": "801ba71678a964614657a6d8fbc6baca"
     },
     {
-      "path": "colon-motor-1.1.0/boot_app0.bin",
+      "path": "colon-motor-1.1.1/boot_app0.bin",
       "address": 57344,
       "size": 8192,
       "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
       "md5": "e6327541e2dc394ca2c3b3280ac0f39f"
     },
     {
-      "path": "colon-motor-1.1.0/firmware.bin",
+      "path": "colon-motor-1.1.1/firmware.bin",
       "address": 65536,
-      "size": 910256,
-      "sha256": "03e2850b9a51e296090f282545df4fdaa63df704c09fd133a818e7ed70f5f423",
-      "md5": "d64a88b25e131b59c9d04c3477485f07"
+      "size": 1305344,
+      "sha256": "6577404d1f43c41ae47cfb6073b13eed15633080d305d8de5b16435335208496",
+      "md5": "ec9c25a770838dfa0b368f0aa4483d9b"
     }
   ]
 }

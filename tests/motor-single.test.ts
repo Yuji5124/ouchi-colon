@@ -5,7 +5,17 @@ import {INITIAL_SETTINGS,OPS,makeFrame,parseStatus,type Op} from '../src/motor/p
 import {INITIAL_POWER,diagnosticRow,toCSV} from '../src/motor/diagnostics.ts';
 import {singleTestBlock} from '../src/motor/single-test.ts';
 import {validateManifest} from '../src/motor/usb-writer.ts';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 const settings={...INITIAL_SETTINGS,signalOnly:false,singleTest:true,pulseMs:100};
+
+test('Single: LCD版の実配布ファーム2種類の版・制限・ハッシュを検証',()=>{
+  for(const [path,version,powered] of [['../public/firmware/manifest.json','1.1.1',false],['../public/firmware/experimental/manifest.json','1.2.1','experimental-single']] as const){
+    const url=new URL(path,import.meta.url),m=validateManifest(JSON.parse(readFileSync(url,'utf8')));
+    assert.equal(m.version,version);assert.equal(m.poweredTests,powered);assert.equal(m.lcdDisplay,true);
+    for(const part of m.parts){const bytes=readFileSync(new URL(part.path,url));assert.equal(bytes.length,part.size);assert.equal(createHash('sha256').update(bytes).digest('hex'),part.sha256);assert.equal(createHash('md5').update(bytes).digest('hex'),part.md5);if(part.address===0x10000){assert.ok(bytes.includes(Buffer.from(`colon-motor-${version}`)));assert.ok(bytes.includes(Buffer.from('COLON_POWER_LOCK=0')));assert.ok(!bytes.includes(Buffer.from('COLON_POWER_LOCK=1')));}}
+  }
+});
 function core(){const c=new MockMotor(true);c.connect(0);return c;}
 function send(c:MockMotor,op:Op,now:number,l=0,r=0){c.write(makeFrame(c.state,op,c.state.seq+1,settings,l,r),now);}
 function arm(c:MockMotor,now=100){send(c,OPS.CONFIG,now);send(c,OPS.ARM,now);assert.equal(c.state.armed,true);}

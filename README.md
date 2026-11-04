@@ -12,6 +12,8 @@ URLに `?motor=1` を付けると、AtomS3 + AE-DRV8835-Sの左右モーター�
 
 PCのChrome / EdgeからUSB-Cで信号試験ファーム1.1を書き込めます。前進・後進25/50/75%、左右15/30/45°の12パターンをBLE経由でAtomのNVSへ保存します。角度は時間校正による目安で、未校正の旋回は実行禁止です。顔画面のデバッグ内「OuchiColonモーター連動」で表情に割り当てられます。初期OFF、明示許可1回につき1動作です。[USB・パターンの操作手順](docs/motor-test/usb-patterns.md) / [検証結果](docs/motor-test/verification.md)
 
+AtomS3本体の液晶に、給電後の接続待ち・BLE接続・駆動許可・駆動中・緊急停止を表示します。標準1.1.1／本体単独1.2.1への更新が必要です。[本体液晶の表示・更新手順](docs/motor-test/lcd-status.md)
+
 ## 従来の開発手順
 
 Node.js 24 と npm を使います。

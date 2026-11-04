@@ -10,6 +10,7 @@ export interface MotorStatus {
   left:number;right:number;physicalLeft:number;physicalRight:number;stopReason:string;heartbeatAgeMs:number;pulseMs:number;frequency:number;
   patternsVersion?:1;
   singleTest?:boolean;
+  lcd?:boolean;
 }
 export interface MotorSettings {frequency:number;pulseMs:number;invertLeft:boolean;invertRight:boolean;signalOnly:boolean;singleTest?:boolean;}
 export const INITIAL_SETTINGS:MotorSettings={frequency:1000,pulseMs:200,invertLeft:false,invertRight:false,signalOnly:true};
@@ -21,6 +22,7 @@ export function makeFrame(status:MotorStatus,op:Op,seq:number,settings:MotorSett
 export function parseStatus(value:unknown):MotorStatus {
   const s=value as MotorStatus;
   if(!s||s.protocol!==1||!s.firmware?.startsWith('colon-motor-1.')||!['nonce','seq','uptimeMs','bootId','heartbeatAgeMs','pulseMs','frequency','left','right'].every(k=>typeof s[k as keyof MotorStatus]==='number'&&Number.isFinite(s[k as keyof MotorStatus]))||!['connected','gpioReady','armed','estop','powerQualified','signalOnly'].every(k=>typeof s[k as keyof MotorStatus]==='boolean'))throw new Error('対応するMotor Testファームウェアではありません。');
+  if(s.lcd!==undefined&&typeof s.lcd!=='boolean')throw new Error('本体液晶の状態が不正です。');
   if(s.singleTest!==undefined&&typeof s.singleTest!=='boolean')throw new Error('単独試験モードの値が不正です。');
   if(s.singleTest&&(s.powerQualified||!s.firmware.startsWith('colon-motor-1.2.')))throw new Error('単独試験版の適合表示が不正です。');
   if(s.nonce<1||s.nonce>0xffffffff||s.seq<0||s.seq>0xffffffff||s.uptimeMs<0||Math.abs(s.left)>100||Math.abs(s.right)>100||typeof s.stopReason!=='string'||typeof s.resetReason!=='string'||!(s.bootCount===null||Number.isInteger(s.bootCount)))throw new Error('ステータスの値が不正です。');
