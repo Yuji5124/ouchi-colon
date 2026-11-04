@@ -2260,12 +2260,15 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     if (hadController && hasController) location.reload();
     hadController = hasController;
   });
-  window.addEventListener('load', () => {
+  const registerWorker = () => {
     void navigator.serviceWorker.register('/ouchi-colon/sw.js', { scope: '/ouchi-colon/' }).then(async () => {
       await navigator.serviceWorker.ready;
       if (!navigator.serviceWorker.controller) location.reload();
     });
-  });
+  };
+  // The independent entry point may finish importing this module after load.
+  if (document.readyState === 'complete') registerWorker();
+  else window.addEventListener('load', registerWorker, { once: true });
 }
 
 requestAnimationFrame(frame);
