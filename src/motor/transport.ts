@@ -3,7 +3,7 @@ import {MockMotor} from './mock.ts';
 import {parsePatterns,type PatternTable} from './patterns.ts';
 export interface Transport {kind:'mock'|'ble';connect():Promise<void>;disconnect():void;read():Promise<MotorStatus>;write(frame:Uint8Array):Promise<void>;readPatterns():Promise<PatternTable>;onDisconnect:()=>void;}
 export class MockTransport implements Transport {
-  kind='mock' as const;core=new MockMotor();onDisconnect=()=>{};private start=performance.now();private timer:ReturnType<typeof setInterval>|null=null;
+  kind='mock' as const;core:MockMotor;constructor(singleTest=false){this.core=new MockMotor(singleTest);}onDisconnect=()=>{};private start=performance.now();private timer:ReturnType<typeof setInterval>|null=null;
   now(){return Math.floor(performance.now()-this.start);}
   async connect(){this.core.connect(this.now());this.timer=setInterval(()=>this.core.tick(this.now()),5);}
   disconnect(){if(this.timer)clearInterval(this.timer);this.timer=null;this.core.disconnect(this.now());this.onDisconnect();}

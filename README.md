@@ -2,13 +2,13 @@
 
 OuchiColon の iPhone 11 向け顔アニメーションを作る Vite + TypeScript + Canvas 2D の PWA です。画面は顔だけを表示し、Canvas 上に背景・頬・目・口を別レイヤーとして描きます。通常時に操作 UI は表示しません。
 
-## Motor Test v1.1（USB書込み・パターン・連動）
+## Motor Test v1.2（本体単独試験・USB書込み・パターン）
 
 URLに `?motor=1` を付けると、AtomS3 + AE-DRV8835-Sの左右モーター・電源診断画面を開きます。既定はモック。実機BLE接続はユーザー操作で行い、ファーム側も既定でモーター通電を禁止しています。既存の会話・表情画面は通常URLのままです。
 
 [起動・実装範囲](docs/motor-test/README.md) / [GPIO配線](docs/motor-test/hardware.md) / [実機試験順序](docs/motor-test/hardware-test.md) / [未解決リスク](docs/motor-test/risks.md)
 
-専用ファームは `firmware/motor-test/` にあります。既存ATOMのファームウェアソースは本リポジトリにないため、実機上の既存機能へ統合済みとは扱いません。書込み・モーター通電は実施していません。通電適合性を確認するまでVMを接続しないでください。
+専用ファームは `firmware/motor-test/` にあります。既存ATOMのファームウェアソースは本リポジトリにないため、実機上の既存機能へ統合済みとは扱いません。実装作業で実機書込み・モーター通電は代行していません。標準1.1はVMなしの信号試験です。ユーザー指定の1.5V想定・未測定テストには別の本体単独1.2を選びます。[本体単独テストの手順・制限](docs/motor-test/single-motor-test.md)
 
 PCのChrome / EdgeからUSB-Cで信号試験ファーム1.1を書き込めます。前進・後進25/50/75%、左右15/30/45°の12パターンをBLE経由でAtomのNVSへ保存します。角度は時間校正による目安で、未校正の旋回は実行禁止です。顔画面のデバッグ内「OuchiColonモーター連動」で表情に割り当てられます。初期OFF、明示許可1回につき1動作です。[USB・パターンの操作手順](docs/motor-test/usb-patterns.md) / [検証結果](docs/motor-test/verification.md)
 

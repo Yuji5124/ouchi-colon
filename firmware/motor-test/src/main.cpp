@@ -10,6 +10,16 @@
 #ifndef MOTOR_ALLOW_POWERED_TESTS
 #define MOTOR_ALLOW_POWERED_TESTS 0
 #endif
+#ifndef MOTOR_SINGLE_TEST
+#define MOTOR_SINGLE_TEST 0
+#endif
+#if MOTOR_SINGLE_TEST
+#define COLON_FIRMWARE_VERSION "1.2.0"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=1";
+#else
+#define COLON_FIRMWARE_VERSION "1.1.0"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0";
+#endif
 #if MOTOR_ALLOW_POWERED_TESTS
 constexpr char BUILD_LOCK_TAG[]="COLON_POWER_LOCK=1";
 #else
@@ -23,7 +33,7 @@ constexpr char COMMAND[]="b4c00002-70f0-4c21-a560-cc0100000001";
 constexpr char MOTOR_STATUS_UUID[]="b4c00003-70f0-4c21-a560-cc0100000001";
 constexpr char MOTOR_PATTERNS_UUID[]="b4c00004-70f0-4c21-a560-cc0100000001";
 constexpr int pins[]={AIN1,AIN2,BIN1,BIN2};
-colon::MotorCore motor(MOTOR_ALLOW_POWERED_TESTS==1);
+colon::MotorCore motor(MOTOR_ALLOW_POWERED_TESTS==1,MOTOR_SINGLE_TEST==1);
 QueueHandle_t commands;
 std::atomic<int> connectionEvent{0};
 std::atomic<bool> urgentStop{false},urgentEstop{false};
@@ -47,10 +57,10 @@ void writePair(int channel,int value){
 }
 void publishStatus(uint32_t now){
   char out[512];
-  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-1.1.0\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
-    (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
+  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
+    (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
   portENTER_CRITICAL(&statusMux);strncpy(statusBuffer,out,sizeof(statusBuffer));statusBuffer[511]=0;portEXIT_CRITICAL(&statusMux);
-  char table[256];size_t used=snprintf(table,sizeof(table),"{\"version\":1,\"build\":\"%s\",\"slots\":[",BUILD_LOCK_TAG);
+  char table[256];size_t used=snprintf(table,sizeof(table),"{\"version\":1,\"build\":\"%s;%s\",\"slots\":[",BUILD_LOCK_TAG,SINGLE_TEST_TAG);
   for(uint8_t i=0;i<colon::PATTERN_COUNT;i++)used+=snprintf(table+used,sizeof(table)-used,"%s[%u,%u]",i?",":"",motor.patterns[i].speed,motor.patterns[i].durationMs);
   snprintf(table+used,sizeof(table)-used,"]}");portENTER_CRITICAL(&statusMux);memcpy(patternsBuffer,table,sizeof(table));portEXIT_CRITICAL(&statusMux);
 }

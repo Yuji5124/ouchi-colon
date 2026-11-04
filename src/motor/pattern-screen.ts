@@ -34,7 +34,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     el('pattern-write').textContent=activity==='write'?'書込み中…':'Atomへパターンを書き込む';
     section.querySelectorAll<HTMLInputElement>('.pattern-row input').forEach(i=>i.disabled=busy);
     section.querySelectorAll<HTMLSelectElement>('.pattern-row select').forEach((s,i)=>s.disabled=i<6||busy);
-    section.querySelectorAll<HTMLButtonElement>('.pattern-run').forEach(b=>{const id=b.dataset.id as PatternId;b.disabled=busy||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id])||table[id].durationMs===0||verifiedSession!==session;});
+    section.querySelectorAll<HTMLButtonElement>('.pattern-run').forEach(b=>{const id=b.dataset.id as PatternId;b.disabled=busy||!!session?.settings.singleTest||!!session?.status?.singleTest||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id])||table[id].durationMs===0||verifiedSession!==session;});
     el('pattern-link-status').textContent=integrated?(enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF'):'顔画面への移動時に、この画面のBLE接続を終了します。';
   }
   el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('時間は0（未校正）または50〜500ms、出力は25 / 50 / 75%にしてください。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
@@ -45,7 +45,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     catch(e){verifiedSession=null;message(`書込みが完了していません。一部保存の可能性があります。${String(e)}`);hooks.record('patterns-save-error',String(e));}finally{busy=false;activity='';update();}
   });
   async function runPattern(id:PatternId){
-    const s=hooks.session();if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id])||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
+    const s=hooks.session();if(s?.settings.singleTest||s?.status?.singleTest){message('本体単独版ではパターンを実行できません。左右の単体ボタンを使用してください。');return;}if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id])||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
     busy=true;update();try{const current=await s.readPatternTable();if(JSON.stringify(current[id])!==JSON.stringify(table[id]))throw new Error('Atomの設定と編集値が違います。読み込み直してください。');await s.send(OPS.PATTERN,PATTERN_IDS.indexOf(id));hooks.record(`pattern:${id}`,undefined,JSON.stringify(table[id]));message(`${patternLabel(id)}を${table[id].durationMs}msの上限で実行要求しました。角度・距離は実測値ではありません。`);}catch(e){hooks.stop();message(String(e));}finally{busy=false;update();}
   }
   for(const event of COLON_EVENTS){const label=document.createElement('label');label.textContent=event;const select=document.createElement('select');select.setAttribute('aria-label',`${event}の連動パターン`);select.append(new Option('連動なし',''));for(const id of PATTERN_IDS)select.append(new Option(patternLabel(id),id));select.addEventListener('change',()=>{hooks.stop();mappings[event]=(select.value||undefined) as PatternId|undefined;});label.append(select);el('pattern-mappings').append(label);}
