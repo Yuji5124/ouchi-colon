@@ -57,8 +57,8 @@ export function mountMotorTest(){
     const entries:Record<string,string>={'ATOM S3':connected?(session?.transport.kind==='mock'?'仮想接続（実機なし）':'BLE接続中'):'未接続','接続方式':session?.transport.kind==='mock'?'モック':connected?'Web Bluetooth':'未接続','ファーム':s?.firmware??'未取得','稼働時間':s?`${(s.uptimeMs/1000).toFixed(1)}秒${session?.transport.kind==='mock'?'（模擬）':''}`:'未取得','起動回数':s?.bootCount===null?'取得不可':s?String(s.bootCount):'未取得','再起動理由':s?.resetReason??'未取得','最終HB応答':session?.lastHeartbeatAt?new Date(session.lastHeartbeatAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo'}):'未取得','停止理由':s?.stopReason??'接続なし・実機停止は未確認'};
     const dl=el('telemetry');dl.replaceChildren();Object.entries(entries).forEach(([key,value])=>{const d=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;d.append(dt,dd);dl.append(d);});
     for(const side of ['left','right'] as const){const n=s?.[side];el(`${side}-state`).textContent=n===undefined?'未確認':n===0?'出力0% · 空転停止':`${n>0?'論理正転':'論理逆転'} ${Math.abs(n)}%`;el<HTMLMeterElement>(`${side}-meter`).value=Math.abs(n??0);const value=side==='left'?s?.physicalLeft:s?.physicalRight;el(`${side}-gpio`).textContent=value===undefined?(side==='left'?'G5 / G6':'G7 / G8'):`出力指令：IN1 ${value>0?'PWM':'LOW'} / IN2 ${value<0?'PWM':'LOW'}`;}
-    const block=armBlock();el('arm-reason').textContent=block||'条件を確認しました。許可ボタンを押すと1回だけ試験できます。';el<HTMLButtonElement>('arm').disabled=!!block||!!s?.armed||!!session?.busy;
-    const canMove=!!s?.armed&&!s.estop&&connected;
+    const block=armBlock();el('arm-reason').textContent=block||'条件を確認しました。許可ボタンを押すと1回だけ試験できます。';el<HTMLButtonElement>('arm').disabled=!!block||!!s?.armed||!!session?.foregroundBusy;
+    const canMove=!!s?.armed&&!s.estop&&connected&&(!session?.foregroundBusy||held);
     buttons.forEach(b=>{b.disabled=!canMove||(held&&b.dataset.motion!==activeMotion);});
     el<HTMLButtonElement>('disconnect').disabled=!connected;el<HTMLButtonElement>('connect').disabled=connected;
     el<HTMLButtonElement>('reset-estop').disabled=!connected||!s?.estop;
@@ -77,7 +77,7 @@ export function mountMotorTest(){
   el('connect').addEventListener('click',()=>void connect());el('disconnect').addEventListener('click',()=>{stop();session?.disconnect();record('manual-disconnect');update();});
   el('mode').addEventListener('change',()=>{stop();session?.disconnect();session=null;update();});
   el('phase').addEventListener('change',()=>{stop();phase=Number(el<HTMLSelectElement>('phase').value);document.querySelectorAll<HTMLInputElement>('.motor-sidebar .check input:not(#signal-only)').forEach(c=>c.checked=false);record('phase-change');update();});
-  el('arm').addEventListener('click',async()=>{if(armBlock()||!session)return;try{session.settings={...settings};await session.send(OPS.CONFIG);await session.send(OPS.ARM);say('1回の試験を許可しました。押している間だけ、指定時間を上限に動作します。');}catch(e){say(String(e));}update();});
+  el('arm').addEventListener('click',async()=>{if(armBlock()||!session)return;try{session.settings={...settings};await session.arm();say('1回の試験を許可しました。押している間だけ、指定時間を上限に動作します。');}catch(e){say(String(e));}update();});
   el('reset-estop').addEventListener('click',async()=>{try{await session?.send(OPS.RESET_ESTOP);say('緊急停止を解除しました。駆動許可は解除したままです。');}catch(e){say(String(e));}update();});
   for(const id of ['emergency','stop','dpad-stop'])el(id).addEventListener('click',()=>stop(id==='emergency'));
   async function startMotion(name:string){if(held||!session?.status?.armed||armBlock())return;held=true;activeMotion=name;const [l,r]=direction(name,Number(input('left-speed').value),Number(input('right-speed').value));record(`motion-request:${name}`,undefined,`L=${l}% R=${r}%`);try{await session.send(OPS.MOVE,l,r);}catch(e){stop();say(String(e));}update();}
@@ -97,7 +97,7 @@ export function mountMotorTest(){
   el('mock-disconnect').addEventListener('click',()=>{if(session?.transport instanceof MockTransport)session.transport.disconnect();update();});
   el('mock-reboot').addEventListener('click',()=>{if(session?.transport instanceof MockTransport){session.transport.reboot();record('mock-reboot');void session.poll();}});
   setInterval(()=>{void session?.poll();update();},150);
-  setInterval(async()=>{if(heartbeatBusy||document.hidden||!session?.connected||session.busy||(session.transport.kind==='mock'&&input('pause-heartbeat').checked))return;heartbeatBusy=true;try{await session.send(OPS.HEARTBEAT);}catch(e){say(String(e));}finally{heartbeatBusy=false;}},120);
+  setInterval(async()=>{if(heartbeatBusy||document.hidden||!session?.connected||session.busy||(session.transport.kind==='mock'&&input('pause-heartbeat').checked))return;heartbeatBusy=true;try{await session.heartbeat();}catch(e){say(String(e));}finally{heartbeatBusy=false;}},120);
   patternPanel=mountPatternPanel({session:()=>session,blocked:armBlock,stop,say,record});
   mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
   update();

@@ -9,7 +9,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   parent.prepend(section);
   const integrated=parent.id==='colon-motor-patterns';
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;
-  let table:PatternTable=readLocalPatterns(),busy=false,enabled=false;
+  let table:PatternTable=readLocalPatterns(),busy=false,enabled=false,activity='';
   let verifiedSession:MotorSession|null=null;
   const mappings:Partial<Record<ColonEvent,PatternId>>={};const seen=new Set<string>();
   const message=(s:string)=>{el('pattern-message').textContent=s;hooks.say(s);};
@@ -27,17 +27,21 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   function allValid(){return PATTERN_IDS.every(id=>validPattern(id,table[id]));}
   function update(){
     const session=hooks.session(),supported=session?.status?.patternsVersion===1;
-    el<HTMLButtonElement>('pattern-read').disabled=busy||!session?.connected||!!session.busy||!!session.status?.armed||!supported;
-    el<HTMLButtonElement>('pattern-write').disabled=busy||!session?.connected||!!session.busy||!!session.status?.armed||!supported||!allValid();
+    el<HTMLButtonElement>('pattern-read').disabled=busy||!session?.connected||!!session.foregroundBusy||!!session.status?.armed||!supported;
+    el<HTMLButtonElement>('pattern-write').disabled=busy||!session?.connected||!!session.foregroundBusy||!!session.status?.armed||!supported||!allValid();
+    el('pattern-read').textContent=activity==='read'?'読み込み中…':'Atomから読み込む';
+    el('pattern-write').textContent=activity==='write'?'書込み中…':'Atomへパターンを書き込む';
+    section.querySelectorAll<HTMLInputElement>('.pattern-row input').forEach(i=>i.disabled=busy);
+    section.querySelectorAll<HTMLSelectElement>('.pattern-row select').forEach((s,i)=>s.disabled=i<6||busy);
     section.querySelectorAll<HTMLButtonElement>('.pattern-run').forEach(b=>{const id=b.dataset.id as PatternId;b.disabled=busy||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id])||table[id].durationMs===0||verifiedSession!==session;});
     el('pattern-link-status').textContent=enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF';
   }
   el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('時間は0（未校正）または50〜500ms、出力は25 / 50 / 75%にしてください。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
-  el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s||s.status?.armed||busy)return;busy=true;update();try{table=await s.readPatternTable();verifiedSession=s;renderValues();message('Atomのパターンを読み込みました。角度は時間校正の目安です。');hooks.record('patterns-read');}catch(e){message(String(e));}finally{busy=false;update();}});
+  el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s||s.status?.armed||busy)return;busy=true;activity='read';message('Atomのパターンを読み込んでいます。通信の完了を待っています…');update();try{table=await s.readPatternTable();verifiedSession=s;renderValues();message('Atomのパターンを読み込みました。角度は時間校正の目安です。');hooks.record('patterns-read');}catch(e){verifiedSession=null;message(String(e));}finally{busy=false;activity='';update();}});
   el('pattern-write').addEventListener('click',async()=>{
-    const s=hooks.session();if(!s||s.status?.armed||busy||!allValid())return;busy=true;update();
-    try{for(let i=0;i<PATTERN_IDS.length;i++){const id=PATTERN_IDS[i],p=table[id];await s.send(OPS.SAVE_PATTERN,i,p.speed,p.durationMs);message(`パターンを書込み中 ${i+1}/12…`);}const readback=await s.readPatternTable();if(JSON.stringify(readback)!==JSON.stringify(table))throw new Error('読戻しが一致しません。Atomから読み込んで確認してください。');verifiedSession=s;message(s.transport.kind==='mock'?'モック内に12パターンを保存・読戻し確認しました。実機は変更していません。':'12パターンの保存と読戻しを確認しました。NVSに保持されます。');hooks.record('patterns-saved',undefined,`source=${s.transport.kind}`);}
-    catch(e){verifiedSession=null;message(`書込みが完了していません。一部保存の可能性があります。${String(e)}`);hooks.record('patterns-save-error',String(e));}finally{busy=false;update();}
+    const s=hooks.session();if(!s||s.status?.armed||busy||!allValid())return;busy=true;activity='write';update();
+    try{await s.savePatternTable(table,count=>message(`パターンを書込み中 ${count}/12…`));verifiedSession=s;message(s.transport.kind==='mock'?'モック内に12パターンを保存・読戻し確認しました。実機は変更していません。':'12パターンの保存と読戻しを確認しました。NVSに保持されます。');hooks.record('patterns-saved',undefined,`source=${s.transport.kind}`);}
+    catch(e){verifiedSession=null;message(`書込みが完了していません。一部保存の可能性があります。${String(e)}`);hooks.record('patterns-save-error',String(e));}finally{busy=false;activity='';update();}
   });
   async function runPattern(id:PatternId){
     const s=hooks.session();if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id])||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
