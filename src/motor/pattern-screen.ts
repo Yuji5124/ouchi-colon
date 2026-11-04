@@ -2,6 +2,7 @@ import {PATTERN_IDS,patternLabel,readLocalPatterns,validPattern,type PatternTabl
 import {COLON_EVENTS,COLON_MOTOR_CHANNEL,validColonEvent,type ColonEvent} from './bridge.ts';
 import {OPS} from './protocol.ts';
 import type {MotorSession} from './session.ts';
+import './pattern-screen.css';
 interface Hooks {session:()=>MotorSession|null;blocked:()=>string;stop:()=>void;say:(s:string)=>void;record:(event:string,error?:string,result?:string)=>void;}
 export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.querySelector('.motor-content')!){
   const section=document.createElement('section');section.className='motor-card pattern-panel';
@@ -34,7 +35,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     section.querySelectorAll<HTMLInputElement>('.pattern-row input').forEach(i=>i.disabled=busy);
     section.querySelectorAll<HTMLSelectElement>('.pattern-row select').forEach((s,i)=>s.disabled=i<6||busy);
     section.querySelectorAll<HTMLButtonElement>('.pattern-run').forEach(b=>{const id=b.dataset.id as PatternId;b.disabled=busy||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id])||table[id].durationMs===0||verifiedSession!==session;});
-    el('pattern-link-status').textContent=enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF';
+    el('pattern-link-status').textContent=integrated?(enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF'):'顔画面への移動時に、この画面のBLE接続を終了します。';
   }
   el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('時間は0（未校正）または50〜500ms、出力は25 / 50 / 75%にしてください。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
   el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s||s.status?.armed||busy)return;busy=true;activity='read';message('Atomのパターンを読み込んでいます。通信の完了を待っています…');update();try{table=await s.readPatternTable();verifiedSession=s;renderValues();message('Atomのパターンを読み込みました。角度は時間校正の目安です。');hooks.record('patterns-read');}catch(e){verifiedSession=null;message(String(e));}finally{busy=false;activity='';update();}});
@@ -52,7 +53,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   try{if(typeof BroadcastChannel!=='undefined')channel=new BroadcastChannel(COLON_MOTOR_CHANNEL);}catch{/* Same-page events still work when channels are denied. */}
   el<HTMLInputElement>('pattern-link-enabled').disabled=!integrated;
   if(integrated){section.querySelector('.pattern-link .subtle')!.textContent='この顔画面内の表情変化を使います。割当・連動ON・安全確認の後に1回許可すると、次の対応イベントで1動作だけ実行します。非表示・切断・停止では許可を解除します。';section.querySelector<HTMLAnchorElement>('.pattern-link a')!.hidden=true;}
-  else{section.querySelector('.pattern-link .subtle')!.textContent='連動はOuchiColonの顔画面内に追加した「モーター連動」パネルで接続・設定してください。この独立テスト画面は非表示になると停止します。下のリンクから顔画面を開けます。';el('pattern-mappings').hidden=true;el('pattern-link-enabled').closest('label')!.hidden=true;}
+  else{section.querySelector('.pattern-link .subtle')!.textContent='連動は顔画面内の「OuchiColonモーター連動」パネルで設定します。下のリンクで移動後、実機BLEへ再接続し、Atomからパターンを読み込んで表情に割り当ててください。初期状態は連動OFFです。';el('pattern-mappings').hidden=true;el('pattern-link-enabled').closest('label')!.hidden=true;const faceLink=section.querySelector<HTMLAnchorElement>('.pattern-link a')!;faceLink.target='_self';faceLink.href='?debug=1&motorLink=1';faceLink.textContent='顔画面でモーター連動を設定する →';faceLink.addEventListener('click',()=>{hooks.stop();hooks.session()?.disconnect();});}
   el('pattern-link-enabled').addEventListener('change',()=>{hooks.stop();enabled=el<HTMLInputElement>('pattern-link-enabled').checked;seen.clear();update();});
   const onEvent=(value:unknown)=>{if(!enabled||document.hidden||!validColonEvent(value)||seen.has(value.id))return;seen.add(value.id);if(seen.size>100)seen.delete(seen.values().next().value!);const id=mappings[value.expression];if(id&&hooks.session()?.status?.armed){hooks.record(`colon-event:${value.expression}`);void runPattern(id);}};
   if(channel)channel.onmessage=event=>onEvent(event.data);

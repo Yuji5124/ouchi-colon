@@ -27,4 +27,5 @@ export function mountColonMotorLink(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)session?.requestStop();});window.addEventListener('pagehide',()=>{session?.requestStop();session?.disconnect();});window.addEventListener('blur',()=>session?.requestStop());
   setInterval(()=>void session?.poll(),150);setInterval(()=>{if(session?.connected&&!session.busy&&!document.hidden)void session.heartbeat().catch(e=>say(String(e)));},120);
   update();
+  if(new URLSearchParams(location.search).get('motorLink')==='1'){root.querySelector('details')!.open=true;root.scrollIntoView({block:'start'});}
 }
