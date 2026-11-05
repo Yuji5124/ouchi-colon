@@ -41,5 +41,61 @@ int main(){
   {MotorCore c;c.ready=true;c.connect(1,0);arm(c,100,true);c.tick(451);auto s=displaySnapshot(c,451,true);assert(std::string(displayReason(s))=="心拍切れ・停止");c.disconnect(452);s=displaySnapshot(c,452,true);assert(displayState(s)==DisplayState::Waiting);assert(!c.armed&&c.left==0);cases++;}
   {MotorCore c;c.ready=true;c.connect(1,0);const auto nonce=c.nonce,seq=c.seq;auto a=displaySnapshot(c,1000,true),b=displaySnapshot(c,1999,true);assert(sameDisplay(a,b));b=displaySnapshot(c,2000,true);assert(!sameDisplay(a,b));b=a;b.reason="operator-stop";assert(!sameDisplay(a,b));assert(!c.armed&&c.left==0&&c.nonce==nonce&&c.seq==seq);cases++;}
   {for(int pin:{LCD_MOSI,LCD_SCLK,LCD_CS,LCD_DC,LCD_RESET,LCD_LIGHT}){assert(lcdPinSafe(pin));assert(!validPins(5,6,7,pin));}cases++;}
+  for(bool single:{false,true}){
+    MotorCore c(false,single);
+    c.ready=true;
+    c.connect(1,0);
+    auto request=frame(c,ARM);
+    request.data[16]=RC_ARM;
+    assert(!c.command(request,100)&&!c.armed);
+    cases++;
+  }
+  {
+    MotorCore c(false,false,true);
+    c.ready=true;
+    c.connect(1,0);
+    assert(!c.command(frame(c,ARM),100)&&!c.armed);
+    auto config=frame(c,CONFIG);
+    config.data[12]=0xe8;
+    config.data[13]=3;
+    config.data[17]=0xf4;
+    config.data[18]=1;
+    assert(c.command(config,200));
+    auto request=frame(c,ARM);
+    request.data[16]=RC_ARM;
+    assert(c.command(request,200)&&!c.powerQualified);
+    assert(c.command(frame(c,MOVE,50,-50),201));
+    c.tick(251);
+    assert(c.left==50&&c.right==-50);
+    c.command(frame(c,HEARTBEAT),500);
+    c.tick(701);
+    assert(!c.armed&&c.left==0&&c.right==0&&std::string(c.reason)=="pulse-limit");
+    cases++;
+  }
+  for(Op op:{MOVE,PATTERN}){
+    MotorCore c(false,false,true);
+    c.ready=true;
+    c.connect(1,0);
+    auto request=frame(c,ARM);
+    request.data[16]=RC_ARM;
+    assert(c.command(request,100));
+    assert(!c.command(frame(c,op,op==MOVE?76:0,50),101));
+    assert(!c.armed&&c.left==0&&c.right==0);
+    cases++;
+  }
+  {
+    MotorCore c(false,false,true);
+    c.ready=true;
+    c.connect(1,0);
+    auto request=frame(c,ARM);
+    request.data[16]=RC_ARM;
+    assert(c.command(request,100));
+    assert(c.command(frame(c,MOVE,50,50),101));
+    auto stale=frame(c,MOVE,50,50);
+    c.disconnect(102);
+    c.connect(2,103);
+    assert(!c.command(stale,203)&&!c.armed&&c.left==0&&c.right==0);
+    cases++;
+  }
   std::cout<<"MotorCore/display: "<<cases<<" safety cases passed\n";
 }

@@ -8,6 +8,8 @@ constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 350;
 constexpr uint32_t MAX_PULSE_MS = 500;
 constexpr uint32_t REVERSAL_DWELL_MS = 100;
 constexpr uint8_t PROTOCOL = 1;
+constexpr uint8_t RC_ARM = 3;
+constexpr int RC_MAX_DUTY = 75;
 enum Op : uint8_t { ARM=1, DISARM=2, MOVE=3, STOP=4, HEARTBEAT=5, CONFIG=6, ESTOP=7, RESET_ESTOP=8, PATTERN=9, SAVE_PATTERN=10 };
 struct Frame { uint8_t data[20]; };
 inline uint32_t u32(const uint8_t* p) {return uint32_t(p[0]) | uint32_t(p[1])<<8 | uint32_t(p[2])<<16 | uint32_t(p[3])<<24;}
@@ -18,13 +20,16 @@ constexpr bool validPins(int a,int b,int c,int d) {
 struct MotorCore {
   bool ready=false, connected=false, armed=false, estop=false, signalOnly=false;
   bool powerQualified=false, invertLeft=false, invertRight=false;
-  bool singleTest=false, experimentalActive=false;
+  bool singleTest=false, rcTest=false, experimentalActive=false;
   uint32_t nonce=1, seq=0, heartbeatAt=0, startedAt=0, stoppedAt=0, rampAt=0;
   uint16_t pulseMs=200, frequency=1000;
   int targetLeft=0,targetRight=0,left=0,right=0;
   const char* reason="boot";
   PatternConfig patterns[PATTERN_COUNT];
-  explicit MotorCore(bool qualified=false,bool single=false) : powerQualified(qualified&&!single),singleTest(single) {for(uint8_t i=0;i<PATTERN_COUNT;i++)patterns[i]=defaultPattern(i);}
+  explicit MotorCore(bool qualified=false,bool single=false,bool rc=false)
+    : powerQualified(qualified&&!single&&!rc),singleTest(single),rcTest(rc) {
+    for(uint8_t i=0;i<PATTERN_COUNT;i++)patterns[i]=defaultPattern(i);
+  }
   static uint32_t elapsed(uint32_t now,uint32_t then) {return now-then;}
   void rotate() {if(++nonce==0)nonce=1; seq=0;}
   void stop(const char* why,uint32_t now) {
@@ -56,16 +61,19 @@ struct MotorCore {
       const uint16_t hz=u16(p+12),pulse=u16(p+17);
       if(hz<100||hz>20000||pulse<50||pulse>MAX_PULSE_MS||(p[14]&~3))return reject("invalid-config",now);
       if(singleTest&&(hz!=1000||pulse>100))return reject("single-config-limit",now);
+      if(rcTest&&hz!=1000)return reject("rc-frequency",now);
       frequency=hz;pulseMs=pulse;invertLeft=(p[14]&1)!=0;invertRight=(p[14]&2)!=0;return true;
     }
     if(p[1]==ARM){
       // All four safety acknowledgements; VM physically removed for signal-only tests.
-      if(p[15]!=15||p[16]>2)return reject("safety-unconfirmed",now);
+      if(p[15]!=15||p[16]>RC_ARM)return reject("safety-unconfirmed",now);
+      if(armed)return reject("already-armed",now);
       if(singleTest&&p[16]!=2)return reject("single-mode-required",now);
       if(p[16]==2&&(!singleTest||pulseMs>100||frequency!=1000))return reject("single-mode-unavailable",now);
+      if(p[16]==RC_ARM&&(!rcTest||frequency!=1000))return reject("rc-mode-unavailable",now);
       signalOnly=p[16]==1;
       experimentalActive=p[16]==2;
-      if(!powerQualified&&!signalOnly&&!experimentalActive)return reject("power-unqualified",now);
+      if(!powerQualified&&!signalOnly&&!experimentalActive&&p[16]!=RC_ARM)return reject("power-unqualified",now);
       if(elapsed(now,stoppedAt)<REVERSAL_DWELL_MS)return reject("stop-dwell",now);
       armed=true;heartbeatAt=now;reason="armed";return true;
     }
@@ -73,6 +81,7 @@ struct MotorCore {
     int l=int(int8_t(p[10])),r=int(int8_t(p[11]));
     if(p[1]==PATTERN){
       if(singleTest)return reject("single-pattern-disabled",now);
+      if(rcTest&&!signalOnly)return reject("rc-pattern-disabled",now);
       if(p[10]>=PATTERN_COUNT)return reject("unknown-pattern",now);
       const auto config=patterns[p[10]];
       if(!validPattern(p[10],config)||config.durationMs==0)return reject("pattern-uncalibrated",now);
@@ -80,6 +89,7 @@ struct MotorCore {
     }
     if(l < -100||l>100||r < -100||r>100)return reject("invalid-pwm",now);
     if(singleTest&&(!experimentalActive||(l!=0&&r!=0)||(l==0&&r==0)||l < -75||l>75||r < -75||r>75))return reject("single-motor-limit",now);
+    if(rcTest&&!signalOnly&&(l < -RC_MAX_DUTY||l > RC_MAX_DUTY||r < -RC_MAX_DUTY||r > RC_MAX_DUTY||(!l&&!r)))return reject("rc-duty-limit",now);
     if(!armed)return reject("disarmed",now);
     if(elapsed(now,heartbeatAt)>=HEARTBEAT_TIMEOUT_MS)return reject("heartbeat-timeout",now);
     // A press is a single bounded pulse, never an extendable motion lease.

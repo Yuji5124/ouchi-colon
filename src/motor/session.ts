@@ -60,8 +60,15 @@ export class MotorSession {
   async poll(){if(!this.connected||this.busy||this.foregroundReserved)return;this.busy=true;this.wireIsBackground=true;try{const previous=this.status;this.observe(await this.bounded(this.transport.read()));if(previous&&previous.bootId!==this.status!.bootId){this.generation++;this.onEvent('restart-detected');this.requestStop();}this.onStatus();}catch(e){this.onEvent('read-error',String(e));this.disconnect();}finally{this.releaseWire();}}
   async heartbeat(){if(!this.connected||this.busy||this.foregroundReserved)return;await this.sendNow(OPS.HEARTBEAT);}
   async send(op:Op,left=0,right=0,patternDuration?:number){
-    // Motion commands are never queued behind a read/save operation.
     if(this.foregroundReserved)throw new Error('読み込み・書込み中です。動作要求は送信していません。');
+    // A held press can wait for an in-flight heartbeat or poll. Stop, release,
+    // and disconnect invalidate the reservation before any command is written.
+    if(op===OPS.MOVE){
+      return this.foreground(async()=>{
+        if(!this.status?.armed)throw new Error('停止しました。もう一度試験を許可してください。');
+        await this.sendNow(op,left,right);
+      });
+    }
     return this.sendNow(op,left,right,patternDuration);
   }
   private async sendNow(op:Op,left=0,right=0,patternDuration?:number){
@@ -72,7 +79,8 @@ export class MotorSession {
       const before=await this.bounded(this.transport.read());this.observe(before);
       if(generation!==this.generation)throw new Error('操作は停止要求で取り消されました。');
       this.sequence=Math.max(this.sequence,before.seq)+1;
-      const frame=makeFrame(before,op,this.sequence,this.settings,left,right);
+      const stop=op===OPS.STOP||op===OPS.ESTOP||op===OPS.DISARM;
+      const frame=makeFrame(before,op,this.sequence,stop?INITIAL_SETTINGS:this.settings,left,right);
       if(op===OPS.SAVE_PATTERN){if(!Number.isInteger(patternDuration)||!(patternDuration===0||(patternDuration!>=50&&patternDuration!<=500)))throw new Error('パターン時間は未校正0、または50〜500msです。');new DataView(frame.buffer).setUint16(17,patternDuration!,true);}
       await this.bounded(this.transport.write(frame));
       for(let i=0;i<12;i++){

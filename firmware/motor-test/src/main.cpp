@@ -14,7 +14,15 @@
 #ifndef MOTOR_SINGLE_TEST
 #define MOTOR_SINGLE_TEST 0
 #endif
-#if MOTOR_SINGLE_TEST
+#ifndef MOTOR_RC_TEST
+#define MOTOR_RC_TEST 0
+#endif
+static_assert(!(MOTOR_SINGLE_TEST && MOTOR_RC_TEST), "Select one motor test target");
+static_assert(!(MOTOR_RC_TEST && MOTOR_ALLOW_POWERED_TESTS), "RC trials cannot certify the supply");
+#if MOTOR_RC_TEST
+#define COLON_FIRMWARE_VERSION "1.3.0"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_RC_TEST=1";
+#elif MOTOR_SINGLE_TEST
 #define COLON_FIRMWARE_VERSION "1.2.1"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=1";
 #else
@@ -34,7 +42,7 @@ constexpr char COMMAND[]="b4c00002-70f0-4c21-a560-cc0100000001";
 constexpr char MOTOR_STATUS_UUID[]="b4c00003-70f0-4c21-a560-cc0100000001";
 constexpr char MOTOR_PATTERNS_UUID[]="b4c00004-70f0-4c21-a560-cc0100000001";
 constexpr int pins[]={AIN1,AIN2,BIN1,BIN2};
-colon::MotorCore motor(MOTOR_ALLOW_POWERED_TESTS==1,MOTOR_SINGLE_TEST==1);
+colon::MotorCore motor(MOTOR_ALLOW_POWERED_TESTS==1,MOTOR_SINGLE_TEST==1,MOTOR_RC_TEST==1);
 QueueHandle_t commands;
 std::atomic<int> connectionEvent{0};
 std::atomic<bool> urgentStop{false},urgentEstop{false};

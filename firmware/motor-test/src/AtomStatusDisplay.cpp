@@ -40,7 +40,9 @@ void drawAtomStatus(const colon::DisplaySnapshot& s,const char* version){
   frame.fillRoundRect(0,17,128,24,3,color);frame.setTextSize(1.5);frame.drawString(colon::displayTitle(state),4,19);
   frame.setTextSize(1);frame.setTextColor(0xFFFF);frame.drawString(s.connected?"BLE: 接続済み":"BLE: 未接続",4,46);
   frame.drawString(colon::displayReason(s),4,62);frame.setCursor(4,79);frame.printf("指令 L:%+d R:%+d",s.left,s.right);
-  frame.setTextColor(0xFFE0);frame.drawString(s.single?"片側100ms試験":"VMなし信号試験",4,95);
-  frame.setTextColor(0xBDF7);frame.drawString("VM未測定",4,112);frame.setCursor(83,112);if(s.uptimeSeconds<10000)frame.printf("%lus",(unsigned long)s.uptimeSeconds);else frame.printf("%lum",(unsigned long)(s.uptimeSeconds/60));
+  frame.setTextColor(0xFFE0);
+  const char* mode=s.rc?"ラジコン試験":s.single?"片側100ms試験":"VMなし信号試験";
+  frame.drawString(mode,4,95);
+  frame.setTextColor(0xBDF7);frame.drawString(s.rc?"VM手動確認":"VM未測定",4,112);frame.setCursor(83,112);if(s.uptimeSeconds<10000)frame.printf("%lus",(unsigned long)s.uptimeSeconds);else frame.printf("%lum",(unsigned long)(s.uptimeSeconds/60));
   frame.pushSprite(0,0);
 }

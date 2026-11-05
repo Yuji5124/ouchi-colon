@@ -9,13 +9,14 @@ constexpr bool lcdPinSafe(int pin){return pin<5||pin>8;}
 static_assert(lcdPinSafe(LCD_MOSI)&&lcdPinSafe(LCD_SCLK)&&lcdPinSafe(LCD_CS)&&lcdPinSafe(LCD_DC)&&lcdPinSafe(LCD_RESET)&&lcdPinSafe(LCD_LIGHT),"LCD/motor GPIO conflict");
 enum class DisplayState {Boot,Waiting,Connected,Armed,Moving,Emergency,Fault};
 struct DisplaySnapshot {
-  bool ready=false,connected=false,armed=false,estop=false,advertising=false,single=false;
+  bool ready=false,connected=false,armed=false,estop=false,advertising=false,single=false,rc=false;
   int left=0,right=0;
   uint32_t uptimeSeconds=0;
   const char* reason="boot";
 };
 inline DisplaySnapshot displaySnapshot(const MotorCore& motor,uint32_t now,bool advertising){
   DisplaySnapshot out;out.ready=motor.ready;out.connected=motor.connected;out.armed=motor.armed;out.estop=motor.estop;out.advertising=advertising;out.single=motor.singleTest;
+  out.rc=motor.rcTest;
   out.left=motor.left;out.right=motor.right;out.uptimeSeconds=now/1000;out.reason=motor.reason;return out;
 }
 inline DisplayState displayState(const DisplaySnapshot& s){
@@ -39,6 +40,6 @@ inline const char* displayReason(const DisplaySnapshot& s){
   return "停止・許可なし";
 }
 inline bool sameDisplay(const DisplaySnapshot& a,const DisplaySnapshot& b){
-  return a.ready==b.ready&&a.connected==b.connected&&a.armed==b.armed&&a.estop==b.estop&&a.advertising==b.advertising&&a.single==b.single&&a.left==b.left&&a.right==b.right&&a.uptimeSeconds==b.uptimeSeconds&&!strcmp(a.reason,b.reason);
+  return a.ready==b.ready&&a.connected==b.connected&&a.armed==b.armed&&a.estop==b.estop&&a.advertising==b.advertising&&a.single==b.single&&a.rc==b.rc&&a.left==b.left&&a.right==b.right&&a.uptimeSeconds==b.uptimeSeconds&&!strcmp(a.reason,b.reason);
 }
 }

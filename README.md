@@ -4,6 +4,8 @@ OuchiColon の iPhone 11 向け顔アニメーションを作る Vite + TypeScri
 
 ## Motor Test v1.2（本体単独試験・USB書込み・パターン）
 
+ラジコン試験版1.3.0を追加しました。Motor Testの「モックを接続」→「1回の操作を許可」で十字キーを試せます。実機はUSBで1.3.0を書き込み、BLE接続と電源の実測・配線確認を済ませてから操作します。[ラジコン試験の手順](docs/motor-test/hardware-test.md#phase-6浮かせた走行試験)
+
 URLに `?motor=1` を付けると、AtomS3 + AE-DRV8835-Sの左右モーター・電源診断画面を開きます。既定はモック。実機BLE接続はユーザー操作で行い、ファーム側も既定でモーター通電を禁止しています。既存の会話・表情画面は通常URLのままです。
 
 [起動・実装範囲](docs/motor-test/README.md) / [GPIO配線](docs/motor-test/hardware.md) / [実機試験順序](docs/motor-test/hardware-test.md) / [未解決リスク](docs/motor-test/risks.md)

@@ -83,3 +83,47 @@ test('Session: 設定と許可の2コマンドを一続きで送り、その間�
     assert.equal(s.status?.armed,true);assert.equal(s.status?.left,0);assert.equal(s.status?.right,0);
   }finally{s.disconnect();}
 });
+
+test('Session: 方向を押し続けると、定期読取り直後の通信枠で移動を送る',async()=>{
+  const transport=new MockTransport();
+  const session=new MotorSession(transport);
+  await session.connect();
+  try{
+    transport.core.connect(-150);
+    await session.arm();
+    const held=holdNextRead(transport);
+    const poll=session.poll();
+    const motion=session.send(OPS.MOVE,50,-50);
+    assert.equal(session.foregroundBusy,true);
+    assert.equal(transport.core.state.stopReason,'armed');
+    held.release();
+    await poll;
+    await motion;
+    transport.core.tick(transport.now()+65);
+    assert.equal(transport.core.state.left,50);
+    assert.equal(transport.core.state.right,-50);
+  }finally{session.disconnect();}
+});
+
+test('Session: 定期読取りの間に指を離すと、待機していた移動を一度も送らない',async()=>{
+  const transport=new MockTransport();
+  const session=new MotorSession(transport);
+  await session.connect();
+  try{
+    transport.core.connect(-150);
+    await session.arm();
+    const writes:number[]=[];
+    const write=transport.write.bind(transport);
+    transport.write=async frame=>{writes.push(frame[1]);await write(frame);};
+    const held=holdNextRead(transport);
+    const poll=session.poll();
+    const motion=session.send(OPS.MOVE,50,50);
+    session.requestStop();
+    await assert.rejects(motion,/取り消し/);
+    held.release();
+    await poll;
+    await nextTurn();
+    assert.deepEqual(writes,[OPS.STOP]);
+    assert.equal(transport.core.state.armed,false);
+  }finally{session.disconnect();}
+});
