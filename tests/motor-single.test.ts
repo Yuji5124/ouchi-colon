@@ -5,9 +5,42 @@ import {INITIAL_SETTINGS,OPS,makeFrame,parseStatus,type Op} from '../src/motor/p
 import {INITIAL_POWER,diagnosticRow,toCSV} from '../src/motor/diagnostics.ts';
 import {singleTestBlock} from '../src/motor/single-test.ts';
 import {validateManifest} from '../src/motor/usb-writer.ts';
+import {bootPowerBlock} from '../src/motor/boot-test.ts';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 const settings={...INITIAL_SETTINGS,signalOnly:false,singleTest:true,pulseMs:100};
+
+test('Boot trial: 設定値3VとVMの実測を区別し、電圧超過や書きかけの記録を拒否',()=>{
+  const assumed={...INITIAL_POWER,settingV:3};
+  assert.match(bootPowerBlock(assumed,false),/実測値/);
+  const measured={...assumed,measuredV:3,measuredAt:'2026-11-07T00:00:00Z'};
+  assert.equal(bootPowerBlock(measured,false),'');
+  assert.notEqual(bootPowerBlock(measured,true),'');
+  assert.notEqual(bootPowerBlock({...measured,measuredV:3.01},false),'');
+  assert.notEqual(bootPowerBlock({...measured,measuredAt:null},false),'');
+  assert.notEqual(bootPowerBlock({...measured,heat:'present'},false),'');
+});
+
+test('Boot trial: 起動版の実配布ファームと制限を検証',()=>{
+  const url=new URL('../public/firmware/boot/manifest.json',import.meta.url);
+  const data=JSON.parse(readFileSync(url,'utf8'));
+  const manifest=validateManifest(data);
+  assert.equal(manifest.poweredTests,'boot-trial');
+  assert.equal(manifest.powerQualified,false);
+  assert.equal(manifest.maxVmV,3);
+  assert.equal(manifest.maxPulseMs,100);
+  assert.equal(manifest.maxDuty,50);
+  assert.throws(()=>validateManifest({...data,maxVmV:3.3}));
+  for(const part of manifest.parts){
+    const bytes=readFileSync(new URL(part.path,url));
+    assert.equal(bytes.length,part.size);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),part.sha256);
+    if(part.address===0x10000){
+      assert.ok(bytes.includes(Buffer.from('COLON_BOOT_TEST=1')));
+      assert.ok(bytes.includes(Buffer.from('COLON_POWER_LOCK=0')));
+    }
+  }
+});
 
 test('Single: LCD版の実配布ファーム2種類の版・制限・ハッシュを検証',()=>{
   for(const [path,version,powered] of [['../public/firmware/manifest.json','1.1.1',false],['../public/firmware/experimental/manifest.json','1.2.1','experimental-single']] as const){

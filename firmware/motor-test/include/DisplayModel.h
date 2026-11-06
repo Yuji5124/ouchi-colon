@@ -13,6 +13,7 @@ struct DisplaySnapshot {
   int left=0,right=0;
   uint32_t uptimeSeconds=0;
   const char* reason="boot";
+  const char* startupResult=nullptr;
 };
 inline DisplaySnapshot displaySnapshot(const MotorCore& motor,uint32_t now,bool advertising){
   DisplaySnapshot out;out.ready=motor.ready;out.connected=motor.connected;out.armed=motor.armed;out.estop=motor.estop;out.advertising=advertising;out.single=motor.singleTest;
@@ -40,6 +41,6 @@ inline const char* displayReason(const DisplaySnapshot& s){
   return "停止・許可なし";
 }
 inline bool sameDisplay(const DisplaySnapshot& a,const DisplaySnapshot& b){
-  return a.ready==b.ready&&a.connected==b.connected&&a.armed==b.armed&&a.estop==b.estop&&a.advertising==b.advertising&&a.single==b.single&&a.rc==b.rc&&a.left==b.left&&a.right==b.right&&a.uptimeSeconds==b.uptimeSeconds&&!strcmp(a.reason,b.reason);
+  return a.ready==b.ready&&a.connected==b.connected&&a.armed==b.armed&&a.estop==b.estop&&a.advertising==b.advertising&&a.single==b.single&&a.rc==b.rc&&a.left==b.left&&a.right==b.right&&a.uptimeSeconds==b.uptimeSeconds&&a.startupResult==b.startupResult&&!strcmp(a.reason,b.reason);
 }
 }

@@ -1,11 +1,12 @@
 import './screen.css';
-import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isBootFirmware,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,validatePower,type DiagnosticRow,type PowerRecord} from './diagnostics.ts';
 import {mountPatternPanel} from './pattern-screen.ts';
 import {mountUsbWriter} from './usb-screen.ts';
 import {singleTestBlock} from './single-test.ts';
+import {bootPowerBlock} from './boot-test.ts';
 
 export function mountMotorTest(){
   document.title='Colon · Motor Test v1.3';
@@ -23,7 +24,7 @@ export function mountMotorTest(){
   <p id="rc-motion" class="subtle">方向ボタンを押し続けると動きます。PCでは矢印キーでも操作できます。</p>
   <p id="rc-last" class="subtle" hidden></p>
   <div class="drive-section"><div class="dpad"><button class="motion up" data-motion="forward">▲<span>前進</span></button><button class="motion left" data-motion="left">◀<span>左旋回</span></button><button id="dpad-stop" class="center">■<span>停止</span></button><button class="motion right" data-motion="right">▶<span>右旋回</span></button><button class="motion down" data-motion="backward">▼<span>後退</span></button></div><div class="speed-settings"><label>左の速度 <output id="left-percent">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20"></label><label>右の速度 <output id="right-percent">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20"></label><label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label><label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label></div></div><div class="timing-settings"><label>最大パルス（ms）<input id="pulse" type="number" value="200" min="50" max="500" step="10"></label><label>PWM周波数（Hz）<input id="frequency" type="number" value="1000" min="100" max="20000" step="100"></label></div><p class="subtle">ソフトスタート：0→100%に約100ms。正逆切替は停止・100ms待機・再許可が必要です。PWMは速度制御であり、過電圧を安全にするものではありません。</p></section>
-  <section class="motor-card"><div class="section-top"><h2>電源診断メモ</h2><span class="badge neutral">手入力・測定記録</span></div><div class="unmeasured"><span>SMARTCOBY内部電圧 <b>未測定</b></span><span>DC-DC入力電圧 <b>未測定</b></span><span>出力電圧の自動取得 <b>未測定</b></span><span>モーター実電流 <b>未測定</b></span><span>低負荷停止判定 <b>取得不可</b></span></div><form id="power-form"><div class="power-grid"><label>DC-DC設定値（V・実測ではない）<input id="setting-v" type="number" step="0.01" min="0" max="12" value="1.5" required></label><label>DC-DC実測電圧（V）<input id="measured-v" type="number" step="0.01" min="0" max="20" placeholder="未測定"></label><label>表示消灯まで（秒）<input id="display-off" type="number" step="0.1" min="0" placeholder="未測定"></label><label>消灯後のUSB出力<select id="output-after"><option value="unknown">未確認</option><option value="maintained">出力は維持（測定で確認）</option><option value="stopped">出力停止（測定で確認）</option></select></label><label>モーター駆動時の電源状態<input id="motor-power" maxlength="150" placeholder="未確認"></label><label>発熱<select id="heat"><option value="unknown">未確認</option><option value="none">なし（観察）</option><option value="present">あり → 試験中止</option></select></label><label>測定日時（端末のローカル時刻）<input id="measured-at" type="datetime-local"></label><label>試験結果メモ<input id="result" maxlength="150" placeholder="例：表示消灯後も出力を実測できた"></label></div><button class="motor-secondary" type="submit">診断メモをログへ記録</button></form><p class="subtle">画面の入力値はセンサー値ではありません。無負荷 / 駆動中、単独 / 同時給電を区別して記録してください。発熱時は通電を中止してください。</p></section>
+  <section class="motor-card"><div class="section-top"><h2>電源診断メモ</h2><span class="badge neutral">手入力・測定記録</span></div><div class="unmeasured"><span>SMARTCOBY内部電圧 <b>未測定</b></span><span>DC-DC入力電圧 <b>未測定</b></span><span>出力電圧の自動取得 <b>未測定</b></span><span>モーター実電流 <b>未測定</b></span><span>低負荷停止判定 <b>取得不可</b></span></div><form id="power-form"><div class="power-grid"><label>モーター電源の設定値（V・実測ではない）<input id="setting-v" type="number" step="0.01" min="0" max="12" value="1.5" required></label><label>ドライバのVM–GND実測電圧（V）<input id="measured-v" type="number" step="0.01" min="0" max="20" placeholder="未測定"></label><label>表示消灯まで（秒）<input id="display-off" type="number" step="0.1" min="0" placeholder="未測定"></label><label>消灯後のUSB出力<select id="output-after"><option value="unknown">未確認</option><option value="maintained">出力は維持（測定で確認）</option><option value="stopped">出力停止（測定で確認）</option></select></label><label>モーター駆動時の電源状態<input id="motor-power" maxlength="150" placeholder="未確認"></label><label>発熱<select id="heat"><option value="unknown">未確認</option><option value="none">なし（観察）</option><option value="present">あり → 試験中止</option></select></label><label>測定日時（端末のローカル時刻）<input id="measured-at" type="datetime-local"></label><label>試験結果メモ<input id="result" maxlength="150" placeholder="例：表示消灯後も出力を実測できた"></label></div><button class="motor-secondary" type="submit">診断メモをログへ記録</button></form><p class="subtle">画面の入力値はセンサー値ではありません。無負荷 / 駆動中、単独 / 同時給電を区別して記録してください。発熱時は通電を中止してください。</p></section>
   <section class="motor-card"><div class="section-top"><h2>診断ログ <small id="log-count">0件</small></h2><div><button id="export-json" class="motor-secondary compact">JSON</button><button id="export-csv" class="motor-secondary compact">CSV</button></div></div><div class="log-scroll"><table><thead><tr><th>時刻 / 情報源</th><th>操作・停止理由</th><th>結果</th></tr></thead><tbody id="log-body"></tbody></table></div><div class="mock-tools"><button id="mock-disconnect" class="motor-secondary">モック通信断</button><button id="mock-reboot" class="motor-secondary">モック再起動</button><label class="check"><input id="pause-heartbeat" type="checkbox"> モックのHBを停止して試験</label></div><p class="subtle">ログはこの画面のメモリ内に最大1000件。再読込み前に書き出してください。モックの値は実測値として出力しません。</p></section>
   <footer class="motor-footer"><a href="?debug=1">← Colonの画面に戻る</a><span>ラジコン走行試験はVM実測・配線確認後に実施</span></footer></div></div></main>`;
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -32,6 +33,7 @@ export function mountMotorTest(){
   let logs:DiagnosticRow[]=[],phase=2,heartbeatBusy=false,held=false,activeMotion='',pointerId:number|null=null,heldKey:string|null=null,lastHeartbeatLog=0,observedStop='';
   let patternPanel:{update():void}|null=null;
   let powerRecordDirty=false;
+  let usbWriter:{update():void}|null=null;
   let lastMotion='';
   const buttons=Array.from(document.querySelectorAll<HTMLButtonElement>('[data-motion]'));
   const say=(message:string)=>{el('feedback').textContent=message;};
@@ -44,6 +46,7 @@ export function mountMotorTest(){
   function armBlock(){
     if(!session?.connected||!session.status)return '先に接続してください。';
     if(session.status.estop)return '緊急停止中。解除後に安全確認と再許可が必要です。';
+    if(isBootFirmware(session.status))return '起動試験版です。本体正面のボタンを押しながら給電します。';
     if(!session.status.gpioReady)return 'GPIO初期化が完了していません。';
     if(!validSettings(settings))return 'PWM周波数・最大パルスを確認してください。';
     if(session.transport.kind==='mock'){
@@ -69,7 +72,7 @@ export function mountMotorTest(){
   function update(){
     patternPanel?.update();
     const s=session?.status??null,connected=!!session?.connected;
-    const patternSection=document.querySelector<HTMLElement>('.motor-content > .pattern-panel');if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest;
+    const patternSection=document.querySelector<HTMLElement>('.motor-content > .pattern-panel');if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest||isBootFirmware(s);
     if(!connected){held=false;pointerId=null;heldKey=null;lastMotion='';}
     el('mode-badge').textContent=el<HTMLSelectElement>('mode').value==='mock'?'モック · 実機を動かしません':'実機 BLE · 対応FWと安全確認が必要';
     el('connect').textContent=el<HTMLSelectElement>('mode').value==='mock'?'モックを接続':'実機BLEを選んで接続';
@@ -83,6 +86,7 @@ export function mountMotorTest(){
     const mock=session?.transport.kind==='mock';
     const drivingSupported=(mock&&!settings.singleTest)||!!settings.rcTest;
     const rcBlock=!connected?'左側の「接続と試験段階」からモック、または実機BLEへ接続してください。'
+      :isBootFirmware(s)?block
       :!drivingSupported?(settings.singleTest?'本体単独版は下の「モーター単体テスト」で操作します。十字キーで走行するにはラジコン試験版1.3.0が必要です。':'信号試験版ではモーターは回りません。十字キーで走行するにはラジコン試験版1.3.0を選んでください。')
       :block;
     el('rc-help').textContent=rcBlock||(motionActive?'出力指令中。離すか、上限時間に達すると停止します。':s?.armed?'操作できます。方向ボタンを押し続けてください。':'「1回の操作を許可」を押してから、前進・後退・左右旋回を試してください。');
@@ -206,13 +210,14 @@ export function mountMotorTest(){
   for(const id of ['check-wiring','check-switch','check-tracks','check-power'])el(id).addEventListener('change',()=>{if(!input(id).checked)stop();update();});
   el('power-form').addEventListener('input',()=>{
     powerRecordDirty=true;
+    usbWriter?.update();
     if(settings.rcTest){
       input('check-power').checked=false;
       if(session?.status?.armed||session?.foregroundBusy)stop();
     }
     update();
   });
-  el('power-form').addEventListener('submit',event=>{event.preventDefault();const nullable=(id:string)=>input(id).value===''?null:Number(input(id).value);const measuredAt=input('measured-at').value;const p:PowerRecord={settingV:Number(input('setting-v').value),measuredV:nullable('measured-v'),displayOffSeconds:nullable('display-off'),outputAfterOff:el<HTMLSelectElement>('output-after').value as PowerRecord['outputAfterOff'],motorPowerState:input('motor-power').value||'未確認',heat:el<HTMLSelectElement>('heat').value as PowerRecord['heat'],measuredAt:measuredAt?new Date(measuredAt).toISOString():null};if(!validatePower(p)){say('実測値を入れた場合は測定日時も入力してください。数値と日時を確認してください。');return;}power=p;powerRecordDirty=false;if(power.heat==='present')stop(true);else if(settings.rcTest)stop();record('manual-power-record',undefined,input('result').value||'手入力の診断記録');say('設定値・手動実測値を分けて記録しました。自動測定は行っていません。');update();});
+  el('power-form').addEventListener('submit',event=>{event.preventDefault();const nullable=(id:string)=>input(id).value===''?null:Number(input(id).value);const measuredAt=input('measured-at').value;const p:PowerRecord={settingV:Number(input('setting-v').value),measuredV:nullable('measured-v'),displayOffSeconds:nullable('display-off'),outputAfterOff:el<HTMLSelectElement>('output-after').value as PowerRecord['outputAfterOff'],motorPowerState:input('motor-power').value||'未確認',heat:el<HTMLSelectElement>('heat').value as PowerRecord['heat'],measuredAt:measuredAt?new Date(measuredAt).toISOString():null};if(!validatePower(p)){say('実測値を入れた場合は測定日時も入力してください。数値と日時を確認してください。');return;}power=p;powerRecordDirty=false;usbWriter?.update();if(power.heat==='present')stop(true);else if(settings.rcTest)stop();record('manual-power-record',undefined,input('result').value||'手入力の診断記録');say('設定値・手動実測値を分けて記録しました。自動測定は行っていません。');update();});
   function download(data:string,type:string,extension:string){const url=URL.createObjectURL(new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=`colon-motor-${new Date().toISOString().replace(/[:.]/g,'-')}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   el('export-json').addEventListener('click',()=>{record('export-json');download(JSON.stringify({schema:'colon-motor-diagnostics/1',unmeasured:['smartcobyInternalV','dcdcInputV','dcdcOutputVAuto','motorCurrent','lowLoadDecision'],logs},null,2),'application/json','json');});
   el('export-csv').addEventListener('click',()=>{record('export-csv');download(toCSV(logs),'text/csv;charset=utf-8','csv');});
@@ -221,7 +226,7 @@ export function mountMotorTest(){
   setInterval(()=>{void session?.poll();update();},150);
   setInterval(async()=>{if(heartbeatBusy||document.hidden||!session?.connected||session.busy||(session.transport.kind==='mock'&&input('pause-heartbeat').checked))return;heartbeatBusy=true;try{await session.heartbeat();}catch(e){say(String(e));}finally{heartbeatBusy=false;}},120);
   patternPanel=mountPatternPanel({session:()=>session,blocked:armBlock,stop,say,record});
-  mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
+  usbWriter=mountUsbWriter({bootPowerBlock:()=>bootPowerBlock(power,powerRecordDirty),beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
   document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!);
   update();
 }

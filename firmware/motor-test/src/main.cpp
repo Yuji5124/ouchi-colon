@@ -17,9 +17,21 @@
 #ifndef MOTOR_RC_TEST
 #define MOTOR_RC_TEST 0
 #endif
+#ifndef MOTOR_BOOT_TEST
+#define MOTOR_BOOT_TEST 0
+#endif
+#if MOTOR_BOOT_TEST
+#include "BootTrial.h"
+#endif
 static_assert(!(MOTOR_SINGLE_TEST && MOTOR_RC_TEST), "Select one motor test target");
 static_assert(!(MOTOR_RC_TEST && MOTOR_ALLOW_POWERED_TESTS), "RC trials cannot certify the supply");
-#if MOTOR_RC_TEST
+static_assert(!(MOTOR_BOOT_TEST && (MOTOR_SINGLE_TEST || MOTOR_RC_TEST || MOTOR_ALLOW_POWERED_TESTS)),
+              "The boot trial must be a standalone target");
+#if MOTOR_BOOT_TEST
+#define COLON_FIRMWARE_VERSION "1.4.0"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_BOOT_TEST=1";
+const char* startupResult="起動試験なし";
+#elif MOTOR_RC_TEST
 #define COLON_FIRMWARE_VERSION "1.3.0"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_RC_TEST=1";
 #elif MOTOR_SINGLE_TEST
@@ -71,7 +83,10 @@ void publishStatus(uint32_t now){
   snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":1,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"lcd\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
     (unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",lcdReady.load()?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.pulseMs,motor.frequency);
   portENTER_CRITICAL(&statusMux);strncpy(statusBuffer,out,sizeof(statusBuffer));statusBuffer[511]=0;portEXIT_CRITICAL(&statusMux);
-  const auto screen=colon::displaySnapshot(motor,now,bleReady.load());
+  auto screen=colon::displaySnapshot(motor,now,bleReady.load());
+#if MOTOR_BOOT_TEST
+  screen.startupResult=startupResult;
+#endif
   portENTER_CRITICAL(&statusMux);latestDisplay=screen;portEXIT_CRITICAL(&statusMux);
   char table[256];size_t used=snprintf(table,sizeof(table),"{\"version\":1,\"build\":\"%s;%s\",\"slots\":[",BUILD_LOCK_TAG,SINGLE_TEST_TAG);
   for(uint8_t i=0;i<colon::PATTERN_COUNT;i++)used+=snprintf(table+used,sizeof(table)-used,"%s[%u,%u]",i?",":"",motor.patterns[i].speed,motor.patterns[i].durationMs);
@@ -111,7 +126,9 @@ class ServerCallbacks: public BLEServerCallbacks {
   void onDisconnect(BLEServer* s) override {connectionEvent.store(-1);urgentStop.store(true);s->startAdvertising();}
 };
 void motorTask(void*) {
+#if !MOTOR_BOOT_TEST
   uint16_t appliedFrequency=motor.frequency;
+#endif
   TickType_t next=xTaskGetTickCount();
   for(;;){
     const uint32_t now=millis();
@@ -122,15 +139,22 @@ void motorTask(void*) {
     colon::Frame frame;
     // Bound command processing so floods cannot starve the safety tick.
     for(int count=0;count<4&&xQueueReceive(commands,&frame,0)==pdTRUE;count++){
+#if MOTOR_BOOT_TEST
+      if(frame.data[1]==colon::HEARTBEAT||frame.data[1]==colon::RESET_ESTOP)motor.command(frame,now);
+      else motor.stop("boot-test-only",now);
+#else
       if(motor.command(frame,now)&&frame.data[1]==colon::SAVE_PATTERN&&!storePatterns())motor.stop("pattern-save-failed",now);
+#endif
     }
     motor.tick(now);
+#if !MOTOR_BOOT_TEST
     if(appliedFrequency!=motor.frequency){
       for(int i=0;i<4;i++)ledcWrite(i,0);
       bool ok=true;for(int i=0;i<4;i++)if(ledcSetup(i,motor.frequency,8)==0)ok=false;
       appliedFrequency=motor.frequency;if(!ok){motor.ready=false;motor.stop("pwm-init-failed",now);}
     }
     writePair(0,motor.physicalLeft());writePair(2,motor.physicalRight());
+#endif
     publishStatus(now);
     vTaskDelayUntil(&next,pdMS_TO_TICKS(5));
   }
@@ -142,9 +166,16 @@ void setup(){
   // No network, NVS, display, or BLE work is allowed before outputs are low.
   for(int pin:pins){digitalWrite(pin,LOW);pinMode(pin,OUTPUT);}
   bool ok=true;
+#if MOTOR_BOOT_TEST
+  startupResult=runBootTrial(AIN1,ok,esp_reset_reason());
+#else
   for(int i=0;i<4;i++){if(ledcSetup(i,1000,8)==0)ok=false;ledcAttachPin(pins[i],i);ledcWrite(i,0);}
+#endif
   motor.ready=ok;motor.stop(ok?"boot":"gpio-init-failed",millis());
   latestDisplay=colon::displaySnapshot(motor,millis(),false);
+#if MOTOR_BOOT_TEST
+  latestDisplay.startupResult=startupResult;
+#endif
   const bool hasLcd=beginAtomStatusDisplay();if(hasLcd)drawAtomStatus(latestDisplay,COLON_FIRMWARE_VERSION);
   bootId=esp_random();resetReason=resetName(esp_reset_reason());
   Preferences prefs;
