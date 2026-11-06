@@ -20,6 +20,9 @@
 #ifndef MOTOR_BOOT_TEST
 #define MOTOR_BOOT_TEST 0
 #endif
+#ifndef MOTOR_BOOT_DUAL_TEST
+#define MOTOR_BOOT_DUAL_TEST 0
+#endif
 #if MOTOR_BOOT_TEST
 #include "BootTrial.h"
 #endif
@@ -28,8 +31,13 @@ static_assert(!(MOTOR_RC_TEST && MOTOR_ALLOW_POWERED_TESTS), "RC trials cannot c
 static_assert(!(MOTOR_BOOT_TEST && (MOTOR_SINGLE_TEST || MOTOR_RC_TEST || MOTOR_ALLOW_POWERED_TESTS)),
               "The boot trial must be a standalone target");
 #if MOTOR_BOOT_TEST
+#if MOTOR_BOOT_DUAL_TEST
+#define COLON_FIRMWARE_VERSION "1.4.1"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_BOOT_TEST=1;COLON_BOOT_DUAL_TEST=1";
+#else
 #define COLON_FIRMWARE_VERSION "1.4.0"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_BOOT_TEST=1";
+#endif
 const char* startupResult="起動試験なし";
 #elif MOTOR_RC_TEST
 #define COLON_FIRMWARE_VERSION "1.3.0"
@@ -167,7 +175,7 @@ void setup(){
   for(int pin:pins){digitalWrite(pin,LOW);pinMode(pin,OUTPUT);}
   bool ok=true;
 #if MOTOR_BOOT_TEST
-  startupResult=runBootTrial(AIN1,ok,esp_reset_reason());
+  startupResult=runBootTrial(AIN1,MOTOR_BOOT_DUAL_TEST ? BIN1 : -1,ok,esp_reset_reason());
 #else
   for(int i=0;i<4;i++){if(ledcSetup(i,1000,8)==0)ok=false;ledcAttachPin(pins[i],i);ledcWrite(i,0);}
 #endif

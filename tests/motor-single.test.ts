@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MockMotor} from '../src/motor/mock.ts';
-import {INITIAL_SETTINGS,OPS,makeFrame,parseStatus,type Op} from '../src/motor/protocol.ts';
+import {INITIAL_SETTINGS,OPS,isBootFirmware,makeFrame,parseStatus,type Op} from '../src/motor/protocol.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV} from '../src/motor/diagnostics.ts';
 import {singleTestBlock} from '../src/motor/single-test.ts';
 import {validateManifest} from '../src/motor/usb-writer.ts';
@@ -21,26 +21,37 @@ test('Boot trial: 設定値3VとVMの実測を区別し、電圧超過や書き�
   assert.notEqual(bootPowerBlock({...measured,heat:'present'},false),'');
 });
 
-test('Boot trial: 起動版の実配布ファームと制限を検証',()=>{
-  const url=new URL('../public/firmware/boot/manifest.json',import.meta.url);
-  const data=JSON.parse(readFileSync(url,'utf8'));
-  const manifest=validateManifest(data);
-  assert.equal(manifest.poweredTests,'boot-trial');
-  assert.equal(manifest.powerQualified,false);
-  assert.equal(manifest.maxVmV,3);
-  assert.equal(manifest.maxPulseMs,100);
-  assert.equal(manifest.maxDuty,50);
-  assert.throws(()=>validateManifest({...data,maxVmV:3.3}));
-  for(const part of manifest.parts){
-    const bytes=readFileSync(new URL(part.path,url));
-    assert.equal(bytes.length,part.size);
-    assert.equal(createHash('sha256').update(bytes).digest('hex'),part.sha256);
-    if(part.address===0x10000){
-      assert.ok(bytes.includes(Buffer.from('COLON_BOOT_TEST=1')));
-      assert.ok(bytes.includes(Buffer.from('COLON_POWER_LOCK=0')));
+for(const [dir,version,kind,pulseMs] of [['boot','1.4.0','boot-trial',100],['boot-dual','1.4.1','boot-dual',3000]] as const){
+  test(`Boot trial: ${version}の実配布ファームと制限を検証`,()=>{
+    const url=new URL(`../public/firmware/${dir}/manifest.json`,import.meta.url);
+    const data=JSON.parse(readFileSync(url,'utf8'));
+    const manifest=validateManifest(data);
+    assert.equal(manifest.version,version);
+    assert.equal(manifest.poweredTests,kind);
+    assert.equal(manifest.powerQualified,false);
+    assert.equal(manifest.maxVmV,3);
+    assert.equal(manifest.maxPulseMs,pulseMs);
+    assert.equal(manifest.maxDuty,50);
+    assert.throws(()=>validateManifest({...data,maxVmV:3.3}));
+    assert.throws(()=>validateManifest({...data,maxPulseMs:pulseMs===100?3000:100}));
+    const firmware=`colon-motor-${version}`;
+    const status={...new MockMotor().state,firmware,powerQualified:false};
+    assert.ok(isBootFirmware(parseStatus(status)));
+    assert.throws(()=>parseStatus({...status,powerQualified:true}));
+    for(const part of manifest.parts){
+      const bytes=readFileSync(new URL(part.path,url));
+      assert.equal(bytes.length,part.size);
+      assert.equal(createHash('sha256').update(bytes).digest('hex'),part.sha256);
+      assert.equal(createHash('md5').update(bytes).digest('hex'),part.md5);
+      if(part.address===0x10000){
+        assert.ok(bytes.includes(Buffer.from(firmware)));
+        assert.ok(bytes.includes(Buffer.from('COLON_BOOT_TEST=1')));
+        assert.ok(bytes.includes(Buffer.from('COLON_POWER_LOCK=0')));
+        assert.equal(bytes.includes(Buffer.from('COLON_BOOT_DUAL_TEST=1')),kind==='boot-dual');
+      }
     }
-  }
-});
+  });
+}
 
 test('Single: LCD版の実配布ファーム2種類の版・制限・ハッシュを検証',()=>{
   for(const [path,version,powered] of [['../public/firmware/manifest.json','1.1.1',false],['../public/firmware/experimental/manifest.json','1.2.1','experimental-single']] as const){
