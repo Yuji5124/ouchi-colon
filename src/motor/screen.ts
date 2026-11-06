@@ -72,12 +72,23 @@ export function mountMotorTest(){
   function update(){
     patternPanel?.update();
     const s=session?.status??null,connected=!!session?.connected;
-    const patternSection=document.querySelector<HTMLElement>('.motor-content > .pattern-panel');if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest||isBootFirmware(s);
+    const boot=isBootFirmware(s);
+    const patternSection=document.querySelector<HTMLElement>('.motor-content > .pattern-panel');
+    if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest||boot;
+    for(const id of ['single-test','signal-only']){
+      input(id).closest('label')?.classList.toggle('hidden',boot);
+    }
+    el('single-note').hidden=boot;
     if(!connected){held=false;pointerId=null;heldKey=null;lastMotion='';}
     el('mode-badge').textContent=el<HTMLSelectElement>('mode').value==='mock'?'モック · 実機を動かしません':'実機 BLE · 対応FWと安全確認が必要';
     el('connect').textContent=el<HTMLSelectElement>('mode').value==='mock'?'モックを接続':'実機BLEを選んで接続';
     el('arm-badge').textContent=s?.armed?(session?.transport.kind==='mock'?'モックで許可中':settings.singleTest?'未測定1.5V想定・片側100msのみ':s.signalOnly?'GPIO信号試験を許可':'通電試験を許可'):s?.estop?'緊急停止・再許可禁止':'駆動禁止';
-    const entries:Record<string,string>={'ATOM S3':connected?(session?.transport.kind==='mock'?'仮想接続（実機なし）':'BLE接続中'):'未接続','接続方式':session?.transport.kind==='mock'?'モック':connected?'Web Bluetooth':'未接続','ファーム':s?.firmware??'未取得','本体液晶':!s?'未取得':s.lcd===true?'表示処理起動済み（現物で確認）':s.lcd===false?'表示の初期化未完了':'この版は液晶の状態通知なし','稼働時間':s?`${(s.uptimeMs/1000).toFixed(1)}秒${session?.transport.kind==='mock'?'（模擬）':''}`:'未取得','起動回数':s?.bootCount===null?'取得不可':s?String(s.bootCount):'未取得','再起動理由':s?.resetReason??'未取得','最終HB応答':session?.lastHeartbeatAt?new Date(session.lastHeartbeatAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo'})+(connected?'':'（切断前）'):'未取得','停止理由':s?.stopReason??'接続なし・実機停止は未確認','電源扱い':settings.singleTest?'1.5V想定・実測未確認／適合保証なし':power.measuredV===null?'未測定':'手入力実測（適合判定とは別）'};
+    const measured=powerRecordDirty?null:power.measuredV;
+    const measurement=measured===null?'実測記録なし':`手入力実測 ${measured}V`;
+    const powerDisplay=boot?`起動試験 1.5〜3.0V／${measurement}`
+      :(s?.singleTest??settings.singleTest)?'1.5V想定・実測未確認／適合保証なし'
+      :measurement;
+    const entries:Record<string,string>={'ATOM S3':connected?(session?.transport.kind==='mock'?'仮想接続（実機なし）':'BLE接続中'):'未接続','接続方式':session?.transport.kind==='mock'?'モック':connected?'Web Bluetooth':'未接続','ファーム':s?.firmware??'未取得','本体液晶':!s?'未取得':s.lcd===true?'表示処理起動済み（現物で確認）':s.lcd===false?'表示の初期化未完了':'この版は液晶の状態通知なし','稼働時間':s?`${(s.uptimeMs/1000).toFixed(1)}秒${session?.transport.kind==='mock'?'（模擬）':''}`:'未取得','起動回数':s?.bootCount===null?'取得不可':s?String(s.bootCount):'未取得','再起動理由':s?.resetReason??'未取得','最終HB応答':session?.lastHeartbeatAt?new Date(session.lastHeartbeatAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo'})+(connected?'':'（切断前）'):'未取得','停止理由':s?.stopReason??'接続なし・実機停止は未確認','電源扱い':powerDisplay};
     const dl=el('telemetry');dl.replaceChildren();Object.entries(entries).forEach(([key,value])=>{const d=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;d.append(dt,dd);dl.append(d);});
     for(const side of ['left','right'] as const){const n=s?.[side];el(`${side}-state`).textContent=n===undefined?'未確認':n===0?'出力0% · 空転停止':`${n>0?'論理正転':'論理逆転'} ${Math.abs(n)}%`;el<HTMLMeterElement>(`${side}-meter`).value=Math.abs(n??0);const value=side==='left'?s?.physicalLeft:s?.physicalRight;el(`${side}-gpio`).textContent=value===undefined?(side==='left'?'G5 / G6':'G7 / G8'):`出力指令：IN1 ${value>0?'PWM':'LOW'} / IN2 ${value<0?'PWM':'LOW'}`;}
     const block=armBlock();
@@ -86,7 +97,7 @@ export function mountMotorTest(){
     const mock=session?.transport.kind==='mock';
     const drivingSupported=(mock&&!settings.singleTest)||!!settings.rcTest;
     const rcBlock=!connected?'左側の「接続と試験段階」からモック、または実機BLEへ接続してください。'
-      :isBootFirmware(s)?block
+      :boot?block
       :!drivingSupported?(settings.singleTest?'本体単独版は下の「モーター単体テスト」で操作します。十字キーで走行するにはラジコン試験版1.3.0が必要です。':'信号試験版ではモーターは回りません。十字キーで走行するにはラジコン試験版1.3.0を選んでください。')
       :block;
     el('rc-help').textContent=rcBlock||(motionActive?'出力指令中。離すか、上限時間に達すると停止します。':s?.armed?'操作できます。方向ボタンを押し続けてください。':'「1回の操作を許可」を押してから、前進・後退・左右旋回を試してください。');
@@ -123,7 +134,11 @@ export function mountMotorTest(){
         el<HTMLSelectElement>('phase').value='5';
         applySingleMode();
       }
-      say(transport.kind==='mock'?'モックに接続しました。実機への信号送信はありません。':'専用ファームへ接続しました。まだ駆動は許可されていません。');
+      if(isBootFirmware(session.status)){
+        say('起動試験版に接続しました。起動試験の結果はAtomS3の液晶で確認してください。');
+      }else{
+        say(transport.kind==='mock'?'モックに接続しました。実機への信号送信はありません。':'専用ファームへ接続しました。まだ駆動は許可されていません。');
+      }
     }catch(e){session?.disconnect();say(String(e));record('connect-error',String(e));}update();
   }
   function stop(emergency=false){held=false;pointerId=null;heldKey=null;session?.requestStop(emergency);say(emergency?'緊急停止を要求しました。実機の場合はVMの物理スイッチも切ってください。':'停止を要求しました。応答がない場合もファーム側の上限時間で停止します。');record(emergency?'emergency-request':'stop-request');update();}
