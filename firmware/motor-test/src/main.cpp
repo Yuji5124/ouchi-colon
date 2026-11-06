@@ -32,7 +32,7 @@ static_assert(!(MOTOR_BOOT_TEST && (MOTOR_SINGLE_TEST || MOTOR_RC_TEST || MOTOR_
               "The boot trial must be a standalone target");
 #if MOTOR_BOOT_TEST
 #if MOTOR_BOOT_DUAL_TEST
-#define COLON_FIRMWARE_VERSION "1.4.1"
+#define COLON_FIRMWARE_VERSION "1.4.2"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_BOOT_TEST=1;COLON_BOOT_DUAL_TEST=1";
 #else
 #define COLON_FIRMWARE_VERSION "1.4.0"

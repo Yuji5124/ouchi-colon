@@ -15,7 +15,8 @@ export interface MotorStatus {
 export interface MotorSettings {frequency:number;pulseMs:number;invertLeft:boolean;invertRight:boolean;signalOnly:boolean;singleTest?:boolean;rcTest?:boolean;}
 export const RC_MAX_DUTY=75;
 export function isBootFirmware(status:MotorStatus|null|undefined){
-  return status?.firmware==='colon-motor-1.4.0'||status?.firmware==='colon-motor-1.4.1';
+  return status?.firmware==='colon-motor-1.4.0'||status?.firmware==='colon-motor-1.4.1'
+    ||status?.firmware==='colon-motor-1.4.2';
 }
 export function isRcFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.3.0';}
 export const INITIAL_SETTINGS:MotorSettings={frequency:1000,pulseMs:200,invertLeft:false,invertRight:false,signalOnly:true};

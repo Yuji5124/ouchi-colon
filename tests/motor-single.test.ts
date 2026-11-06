@@ -21,7 +21,10 @@ test('Boot trial: 設定値3VとVMの実測を区別し、電圧超過や書き�
   assert.notEqual(bootPowerBlock({...measured,heat:'present'},false),'');
 });
 
-for(const [dir,version,kind,pulseMs] of [['boot','1.4.0','boot-trial',100],['boot-dual','1.4.1','boot-dual',3000]] as const){
+for(const [dir,version,kind,pulseMs,duty] of [
+  ['boot','1.4.0','boot-trial',100,50],
+  ['boot-dual','1.4.2','boot-dual',2000,100],
+] as const){
   test(`Boot trial: ${version}の実配布ファームと制限を検証`,()=>{
     const url=new URL(`../public/firmware/${dir}/manifest.json`,import.meta.url);
     const data=JSON.parse(readFileSync(url,'utf8'));
@@ -31,9 +34,10 @@ for(const [dir,version,kind,pulseMs] of [['boot','1.4.0','boot-trial',100],['boo
     assert.equal(manifest.powerQualified,false);
     assert.equal(manifest.maxVmV,3);
     assert.equal(manifest.maxPulseMs,pulseMs);
-    assert.equal(manifest.maxDuty,50);
+    assert.equal(manifest.maxDuty,duty);
     assert.throws(()=>validateManifest({...data,maxVmV:3.3}));
-    assert.throws(()=>validateManifest({...data,maxPulseMs:pulseMs===100?3000:100}));
+    assert.throws(()=>validateManifest({...data,maxPulseMs:3000}));
+    assert.throws(()=>validateManifest({...data,maxDuty:duty===50?100:50}));
     const firmware=`colon-motor-${version}`;
     const status={...new MockMotor().state,firmware,powerQualified:false};
     assert.ok(isBootFirmware(parseStatus(status)));

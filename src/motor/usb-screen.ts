@@ -12,7 +12,7 @@ export function mountUsbWriter(hooks:Hooks){
   const section=document.createElement('section');section.className='motor-card usb-writer';section.id='usb-writer';section.innerHTML=`<div class="section-top"><h2>USB-CでAtomS3へ書き込む</h2><span class="badge">PC Chrome / Edge · Web Serial</span></div><p class="subtle">データ通信対応USB-Cケーブルを使用します。初回はAtomS3のリセットを約2秒長押しし、内部の緑LEDが点灯したら離してダウンロードモードにしてください。USB接続操作でも機器がリセットされます。</p><label class="check"><input id="usb-vm-off" type="checkbox"> モーター電源VMと外付け回路を外した</label><label class="check"><input id="usb-board" type="checkbox"> 接続する実機がAtomS3 C123であることを確認した</label><label class="check"><input id="usb-replace" type="checkbox"> 既存ファームを置き換えることと、復元方法を確認した</label><div class="pattern-actions"><button id="usb-connect" class="motor-secondary" disabled>USBを選んで接続（リセット）</button><button id="usb-backup" class="motor-secondary" disabled>既存内容をバックアップ（8MB）</button><button id="usb-disconnect" class="motor-secondary" disabled>USBを切断</button></div><label class="check"><input id="usb-backup-confirmed" type="checkbox"> バックアップ済み、または既存ファームを復元できる</label><button id="usb-write" class="motor-primary" disabled>信号試験ファーム1.1を書き込む</button><progress id="usb-progress" max="100" value="0"></progress><p id="usb-message" class="motor-feedback" role="status">ファームウェアの準備状態を確認中…</p><button id="usb-reset" class="motor-secondary" disabled>書込み確認後に再起動</button><details><summary>書込みログ</summary><pre id="usb-log"></pre></details><p class="subtle">書込み中はケーブルを抜かないでください。信号試験版はVMなし、本体単独版は未測定1.5V想定の限定試験です。書込み後の操作・パターン保存はBLEで行います。iPhone SafariのUSB書込みは未対応です。</p>`;
   document.querySelector('.motor-content')!.prepend(section);
   const firmwareChoice=document.createElement('label');firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="rc">ラジコン試験 1.3.0（実測・配線確認後／最大500ms）</option><option value="signal">信号試験 1.1.1・本体LCD表示（VMなし）</option><option value="single">本体単独 1.2.1・本体LCD表示（1.5V想定・未測定／片側100ms）</option><option value="boot">起動試験 1.4.0（本体ボタン／左のみ100ms）</option></select>';section.querySelector('.check')!.before(firmwareChoice);
-  firmwareChoice.querySelector('select')!.add(new Option('起動試験 1.4.1（本体ボタン／両側3秒）','bootDual'));
+  firmwareChoice.querySelector('select')!.add(new Option('起動試験 1.4.2（本体ボタン／両側100%・2秒）','bootDual'));
   const bootCheck=document.createElement('div');
   bootCheck.hidden=true;
   bootCheck.innerHTML=`<p id="usb-boot-motion" class="subtle"></p>
@@ -61,7 +61,7 @@ export function mountUsbWriter(hooks:Hooks){
     const selected=kind();
     bootCheck.hidden=!isBootChoice();
     el('usb-boot-motion').textContent='FA-130RA-2270相当と仮定した試験です。AtomS3正面のボタンを押したままUSBで給電すると、'
-      +(selected==='bootDual'?'左右に同時に最大3秒の指令を1回出します。':'左側に最大100msの指令を1回出します。')
+      +(selected==='bootDual'?'左右に同時に100%で最大2秒の指令を1回出します。':'左側に最大100msの指令を1回出します。')
       +'途中でボタンを離すと停止します。';
     el<HTMLSelectElement>('usb-firmware-kind').disabled=busy||!!loader;
     choiceHelp.textContent=loader?'版を変更するには「USBを切断」を押してください。'

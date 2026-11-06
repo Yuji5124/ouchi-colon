@@ -7,7 +7,7 @@ const boot=process.argv.includes('--boot');
 const bootDual=process.argv.includes('--boot-dual');
 const bootTrial=boot||bootDual;
 if([single,rc,boot,bootDual].filter(Boolean).length>1)throw new Error('試験ファームの種類は1つだけ選べます。');
-const version=bootDual?'1.4.1':boot?'1.4.0':rc?'1.3.0':single?'1.2.1':'1.1.1',core=process.env.PLATFORMIO_CORE_DIR;
+const version=bootDual?'1.4.2':boot?'1.4.0':rc?'1.3.0':single?'1.2.1':'1.1.1',core=process.env.PLATFORMIO_CORE_DIR;
 if(!core)throw new Error('PLATFORMIO_CORE_DIRをビルドで使用したパスに設定してください。');
 const build=join(process.env.PLATFORMIO_BUILD_DIR||'firmware/motor-test/.pio/build',bootDual?'atoms3-boot-dual-test':boot?'atoms3-boot-test':rc?'atoms3-rc-test':single?'atoms3-single-test':'atoms3-signal-test');
 const parts=[['bootloader.bin',0,join(build,'bootloader.bin')],['partitions.bin',0x8000,join(build,'partitions.bin')],['boot_app0.bin',0xe000,join(core,'packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin')],['firmware.bin',0x10000,join(build,'firmware.bin')]];
@@ -15,7 +15,7 @@ const partition=await readFile(parts[1][2]);let nvs=null,app=null;
 for(let p=0;p+32<=partition.length;p+=32){if(partition.readUInt16LE(p)!==0x50aa)break;const item={type:partition[p+2],subtype:partition[p+3],offset:partition.readUInt32LE(p+4),size:partition.readUInt32LE(p+8)};if(item.type===1&&item.subtype===2)nvs=item;if(item.type===0&&item.offset===0x10000)app=item;}
 if(!nvs||!app||nvs.offset!==0x9000)throw new Error('検証済みパーティション配置ではありません。');
 const base=bootDual?'public/firmware/boot-dual':boot?'public/firmware/boot':rc?'public/firmware/rc':single?'public/firmware/experimental':'public/firmware';
-const dir=`${base}/colon-motor-${version}`;await mkdir(dir,{recursive:true});const manifest={schema:'colon-firmware/1',version,chip:'ESP32-S3',flashBytes:8388608,poweredTests:bootDual?'boot-dual':boot?'boot-trial':rc?'rc-trial':single?'experimental-single':false,lcdDisplay:true,...(bootTrial?{powerQualified:false,maxVmV:3,maxPulseMs:bootDual?3000:100,maxDuty:50}:rc?{powerQualified:false,maxPulseMs:500,maxDuty:75}:single?{powerQualified:false,assumedV:1.5,maxPulseMs:100,maxDuty:75}:{}),parts:[]};
+const dir=`${base}/colon-motor-${version}`;await mkdir(dir,{recursive:true});const manifest={schema:'colon-firmware/1',version,chip:'ESP32-S3',flashBytes:8388608,poweredTests:bootDual?'boot-dual':boot?'boot-trial':rc?'rc-trial':single?'experimental-single':false,lcdDisplay:true,...(bootTrial?{powerQualified:false,maxVmV:3,maxPulseMs:bootDual?2000:100,maxDuty:bootDual?100:50}:rc?{powerQualified:false,maxPulseMs:500,maxDuty:75}:single?{powerQualified:false,assumedV:1.5,maxPulseMs:100,maxDuty:75}:{}),parts:[]};
 const firmware=await readFile(join(build,'firmware.bin'));
 if(!firmware.includes(Buffer.from(`colon-motor-${version}`)))throw new Error('ファームの版が配布版と一致しません。ビルド先を確認してください。');
 if(!firmware.includes(Buffer.from('COLON_POWER_LOCK=0'))||firmware.includes(Buffer.from('COLON_POWER_LOCK=1')))throw new Error('通常運転の電源適合フラグを0にしたビルドだけをUSB配布できます。');
