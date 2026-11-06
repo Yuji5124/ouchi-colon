@@ -1,30 +1,29 @@
 import './screen.css';
-import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isBootFirmware,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isBootFirmware,isProgramFirmware,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,validatePower,type DiagnosticRow,type PowerRecord} from './diagnostics.ts';
 import {mountPatternPanel} from './pattern-screen.ts';
 import {mountUsbWriter} from './usb-screen.ts';
 import {singleTestBlock} from './single-test.ts';
+import {driveKey} from './keyboard.ts';
 import {bootPowerBlock} from './boot-test.ts';
 
 export function mountMotorTest(){
-  document.title='Colon · Motor Test v1.3';
-  document.body.innerHTML=`<header class="motor-header"><a href="?debug=1" class="motor-brand">c: <span>Colon <small>Motor Test <b>v1.3</b></small></span></a><button id="emergency" class="emergency">■ 緊急停止</button></header>
-  <main class="motor-shell"><section class="motor-intro"><div><p class="eyebrow">ATOM S3 × AE-DRV8835-S</p><h1>AtomS3 ラジコン操作</h1><p>最初はモックから。1回の操作は最大500ms、停止後は再許可が必要です。</p></div><span id="mode-badge" class="badge">モック · 実機を動かしません</span></section>
-  <section class="motor-alert"><strong>電源は、まだ未確認です</strong><p>DC-DCの1.5Vは設定値です。実測値ではありません。表示消灯とUSB出力停止は別々に記録してください。信号試験版はVMなし。本体単独版は1.5V想定・未測定の限定試験です。短いパルスやPWMは過電圧対策にはなりません。</p></section>
-  <div class="motor-layout"><aside class="motor-sidebar"><section class="motor-card"><h2>01 接続と試験段階</h2><label>接続方式<select id="mode"><option value="mock">モック（実機接続なし）</option><option value="ble">実機 BLE（対応ブラウザ）</option></select></label><p class="subtle">iPhone Safari：モック・診断記録のみ。実機BLEはPC Chrome / Edge、Android Chromeなど。</p><button id="connect" class="motor-primary">モックを接続</button><button id="disconnect" class="motor-secondary" disabled>切断</button><label>現在のテスト段階<select id="phase"><option value="2">Phase 2 · モック確認</option><option value="3">Phase 3 · ATOM単体 / VMを外す</option><option value="4">Phase 4 · 信号試験 / モーターなし</option><option value="5">Phase 5 · 本体のモーター単独試験</option><option value="6">Phase 6 · 走行（適合確認後）</option><option value="7">Phase 7 · 電源観察 / 駆動なし</option></select></label></section>
-  <section class="motor-card"><h2>02 制御を許可する</h2><p class="subtle">モックはそのまま試せます。実機では現物を確認してください。</p><label class="check"><input type="checkbox" id="check-wiring"> GPIO・MODE=GND・共通GNDを確認</label><label class="check"><input type="checkbox" id="check-switch"> VMの物理スイッチ・遮断手段を用意</label><label class="check"><input type="checkbox" id="check-tracks"> キャタピラを浮かせ、周囲を確保</label><label class="check"><input type="checkbox" id="check-power"> 信号試験ではVMを物理的に外した</label><label class="check"><input type="checkbox" id="signal-only" checked> 信号のみ試験（モーター電源なし）</label><label class="check"><input type="checkbox" id="single-test"> 本体単独試験（1.5V想定・未測定／片側100ms）</label><p class="subtle" id="single-note">単独版は左右1個ずつ、出力25/50/75%、最大100ms。走行・パターン実行・表情連動は使えません。電圧・電流・部品適合を保証するモードではありません。</p><p id="arm-reason" class="arm-reason">先にモックを接続してください。</p><button id="arm" class="motor-primary" disabled>確認して1回の試験を許可</button><button id="reset-estop" class="motor-secondary" disabled>緊急停止を解除（再許可は別）</button></section>
+  document.title='Colon · Motor Test v1.5';
+  document.body.innerHTML=`<header class="motor-header"><a href="?debug=1" class="motor-brand">c: <span>Colon <small>Motor Test <b>v1.5</b></small></span></a><button id="emergency" class="emergency">■ 緊急停止</button></header>
+  <main class="motor-shell"><section class="motor-intro"><div><p class="eyebrow">ATOM S3 × AE-DRV8835-S</p><h1>AtomS3 ラジコン操作</h1><p>W・S・A・Dで走行を試し、動作パターンをAtomS3へ保存できます。</p></div><span id="mode-badge" class="badge">モック · 実機を動かしません</span></section>
+  <div class="motor-layout"><aside class="motor-sidebar"><section class="motor-card"><h2>01 接続と試験段階</h2><label>接続方式<select id="mode"><option value="mock">モック（実機接続なし）</option><option value="ble">実機 BLE（対応ブラウザ）</option></select></label><p class="subtle">iPhone Safari：モックのみ。実機BLEはPC Chrome / Edge、Android Chromeなど。</p><button id="connect" class="motor-primary">モックを接続</button><button id="disconnect" class="motor-secondary" disabled>切断</button><label>現在のテスト段階<select id="phase"><option value="2">Phase 2 · モック確認</option><option value="3">Phase 3 · ATOM単体 / VMを外す</option><option value="4">Phase 4 · 信号試験 / モーターなし</option><option value="5">Phase 5 · 本体のモーター単独試験</option><option value="6">Phase 6 · 走行（適合確認後）</option><option value="7">Phase 7 · 電源観察 / 駆動なし</option></select></label></section>
+  <section class="motor-card"><h2>02 制御を許可する</h2><p class="subtle">モックはそのまま試せます。実機では現物を確認してください。</p><label class="check"><input type="checkbox" id="check-wiring"> GPIO・MODE=GND・共通GNDを確認</label><label class="check"><input type="checkbox" id="check-switch"> VMの物理スイッチ・遮断手段を用意</label><label class="check"><input type="checkbox" id="check-tracks"> キャタピラを浮かせ、周囲を確保</label><label class="check"><input type="checkbox" id="check-power"> 信号試験ではVMを物理的に外した</label><label class="check"><input type="checkbox" id="signal-only" checked> 信号のみ試験（モーター電源なし）</label><label class="check hidden" id="current-check"><input type="checkbox" id="check-current"> 共通VM電源を外部で1.0A以下に制限した</label><form id="power-form"><label>VM–GNDの実測値（V）<input id="measured-v" type="number" step="0.01" min="0.01" max="3" placeholder="未測定" required></label><button class="motor-secondary" type="submit">今の実測値を確認</button><p id="vm-confirmation" class="subtle"></p></form><label class="check"><input type="checkbox" id="single-test"> 本体単独試験（1.5V想定・未測定／片側100ms）</label><p class="subtle" id="single-note">単独版は左右1個ずつ、出力25/50/75%、最大100ms。走行・パターン実行・表情連動は使えません。電圧・電流・部品適合を保証するモードではありません。</p><p id="arm-reason" class="arm-reason">先にモックを接続してください。</p><button id="arm" class="motor-primary" disabled>確認して1回の試験を許可</button><button id="reset-estop" class="motor-secondary" disabled>緊急停止を解除（再許可は別）</button></section>
   <section class="motor-card wiring"><h2>GPIO / IN・IN</h2><p>G5 → AIN1　G6 → AIN2<br>G7 → BIN1　G8 → BIN2<br>3V3 → VCC　GND → MODE / GND</p><p class="subtle">A出力：左 / B出力：右<br>LOW・LOWはHi-Zの空転停止。<br>軸の即時停止や固定は保証しません。</p></section></aside>
   <div class="motor-content"><section class="motor-card motor-state"><div class="section-top"><h2>接続・停止状態</h2><span id="arm-badge" class="badge">駆動禁止</span></div><dl id="telemetry"></dl><div class="track-preview"><div><span>左モーター</span><strong id="left-state">未確認</strong><meter id="left-meter" min="0" max="100" value="0"></meter><small id="left-gpio">G5 / G6</small></div><span class="track-divider">＋</span><div><span>右モーター</span><strong id="right-state">未確認</strong><meter id="right-meter" min="0" max="100" value="0"></meter><small id="right-gpio">G7 / G8</small></div></div><p id="feedback" class="motor-feedback" role="status">接続後に安全確認を行ってください。自動で実機に接続・送信しません。</p></section>
   <section class="motor-card"><div class="section-top"><h2>モーター単体テスト</h2><span class="subtle">押している間のみ · 上限到達で停止</span></div><div class="single-controls"><button class="motion" data-motion="lf">左 正転 ↻</button><button class="motion" data-motion="lr">左 逆転 ↺</button><button class="motion" data-motion="rf">右 正転 ↻</button><button class="motion" data-motion="rr">右 逆転 ↺</button></div><button id="stop" class="stop-wide">■ 左右停止・許可解除</button></section>
   <section class="motor-card" id="rc-control"><div class="section-top"><h2>ラジコン操作</h2><span id="rc-badge" class="badge">未接続</span></div>
   <p id="rc-help" class="motor-feedback"></p>
-  <div class="rc-actions"><button id="rc-arm" class="motor-primary" disabled>1回の操作を許可</button><a href="#power-form">実測値を記録</a><a href="#usb-writer">ファームを書き込む</a></div>
-  <p id="rc-motion" class="subtle">方向ボタンを押し続けると動きます。PCでは矢印キーでも操作できます。</p>
+  <div class="rc-actions"><button id="rc-arm" class="motor-primary" disabled>1回の操作を許可</button><a href="#power-form">VMの実測値を確認</a><a href="#usb-writer">ファームを書き込む</a></div>
+  <p id="rc-motion" class="subtle"></p><p id="rc-keyboard" tabindex="0" class="keyboard-help"><kbd>W</kbd> 前進　<kbd>S</kbd> 後進　<kbd>A</kbd> 左　<kbd>D</kbd> 右</p><p id="rc-key" class="subtle" role="status">キー入力待ち</p>
   <p id="rc-last" class="subtle" hidden></p>
-  <div class="drive-section"><div class="dpad"><button class="motion up" data-motion="forward">▲<span>前進</span></button><button class="motion left" data-motion="left">◀<span>左旋回</span></button><button id="dpad-stop" class="center">■<span>停止</span></button><button class="motion right" data-motion="right">▶<span>右旋回</span></button><button class="motion down" data-motion="backward">▼<span>後退</span></button></div><div class="speed-settings"><label>左の速度 <output id="left-percent">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20"></label><label>右の速度 <output id="right-percent">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20"></label><label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label><label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label></div></div><div class="timing-settings"><label>最大パルス（ms）<input id="pulse" type="number" value="200" min="50" max="500" step="10"></label><label>PWM周波数（Hz）<input id="frequency" type="number" value="1000" min="100" max="20000" step="100"></label></div><p class="subtle">ソフトスタート：0→100%に約100ms。正逆切替は停止・100ms待機・再許可が必要です。PWMは速度制御であり、過電圧を安全にするものではありません。</p></section>
-  <section class="motor-card"><div class="section-top"><h2>電源診断メモ</h2><span class="badge neutral">手入力・測定記録</span></div><div class="unmeasured"><span>SMARTCOBY内部電圧 <b>未測定</b></span><span>DC-DC入力電圧 <b>未測定</b></span><span>出力電圧の自動取得 <b>未測定</b></span><span>モーター実電流 <b>未測定</b></span><span>低負荷停止判定 <b>取得不可</b></span></div><form id="power-form"><div class="power-grid"><label>モーター電源の設定値（V・実測ではない）<input id="setting-v" type="number" step="0.01" min="0" max="12" value="1.5" required></label><label>ドライバのVM–GND実測電圧（V）<input id="measured-v" type="number" step="0.01" min="0" max="20" placeholder="未測定"></label><label>表示消灯まで（秒）<input id="display-off" type="number" step="0.1" min="0" placeholder="未測定"></label><label>消灯後のUSB出力<select id="output-after"><option value="unknown">未確認</option><option value="maintained">出力は維持（測定で確認）</option><option value="stopped">出力停止（測定で確認）</option></select></label><label>モーター駆動時の電源状態<input id="motor-power" maxlength="150" placeholder="未確認"></label><label>発熱<select id="heat"><option value="unknown">未確認</option><option value="none">なし（観察）</option><option value="present">あり → 試験中止</option></select></label><label>測定日時（端末のローカル時刻）<input id="measured-at" type="datetime-local"></label><label>試験結果メモ<input id="result" maxlength="150" placeholder="例：表示消灯後も出力を実測できた"></label></div><button class="motor-secondary" type="submit">診断メモをログへ記録</button></form><p class="subtle">画面の入力値はセンサー値ではありません。無負荷 / 駆動中、単独 / 同時給電を区別して記録してください。発熱時は通電を中止してください。</p></section>
+  <div class="drive-section"><div class="dpad"><button class="motion up" data-motion="forward">W ▲<span>前進</span></button><button class="motion left" data-motion="left">A ◀<span>左旋回</span></button><button id="dpad-stop" class="center">■<span>停止</span></button><button class="motion right" data-motion="right">D ▶<span>右旋回</span></button><button class="motion down" data-motion="backward">S ▼<span>後進</span></button></div><div class="speed-settings"><label>左の速度 <output id="left-percent">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20"></label><label>右の速度 <output id="right-percent">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20"></label><label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label><label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label></div></div><div class="timing-settings"><label>最大パルス（ms）<input id="pulse" type="number" value="200" min="50" max="500" step="10"></label><label>PWM周波数（Hz）<input id="frequency" type="number" value="1000" min="100" max="20000" step="100"></label></div><p class="subtle">方向ボタンとキー操作はソフトスタートです。正逆切替は停止・100ms待機・再許可が必要です。PWMは速度制御であり、過電圧を安全にするものではありません。</p></section>
   <section class="motor-card"><div class="section-top"><h2>診断ログ <small id="log-count">0件</small></h2><div><button id="export-json" class="motor-secondary compact">JSON</button><button id="export-csv" class="motor-secondary compact">CSV</button></div></div><div class="log-scroll"><table><thead><tr><th>時刻 / 情報源</th><th>操作・停止理由</th><th>結果</th></tr></thead><tbody id="log-body"></tbody></table></div><div class="mock-tools"><button id="mock-disconnect" class="motor-secondary">モック通信断</button><button id="mock-reboot" class="motor-secondary">モック再起動</button><label class="check"><input id="pause-heartbeat" type="checkbox"> モックのHBを停止して試験</label></div><p class="subtle">ログはこの画面のメモリ内に最大1000件。再読込み前に書き出してください。モックの値は実測値として出力しません。</p></section>
   <footer class="motor-footer"><a href="?debug=1">← Colonの画面に戻る</a><span>ラジコン走行試験はVM実測・配線確認後に実施</span></footer></div></div></main>`;
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -53,9 +52,13 @@ export function mountMotorTest(){
       return singleTestBlock(session.status,settings,power,phase);
     }
     if(settings.rcTest){
+      const program=isProgramFirmware(session.status);
       if(phase!==6)return '走行試験はPhase 6を選んでください。';
-      if(powerRecordDirty||power.measuredV===null||!power.measuredAt)return 'VM–GND間を実測し、電源診断で電圧と測定日時を記録してください。';
-      if(!(power.measuredV>0&&power.measuredV<=1.5))return '試験範囲外です。VMの実測値は0Vより大きく1.5V以下が条件です。';
+      if(powerRecordDirty||power.measuredV===null||!power.measuredAt)return 'VM–GND間を実測し、「今の実測値を確認」を押してください。';
+      if(program){
+        if(power.measuredV<1.5||power.measuredV>3)return '走行プログラム版はVMの実測1.5〜3.0Vが条件です。';
+        if(!input('check-current').checked)return '共通VM電源の外部電流制限（1.0A以下）を確認してください。';
+      }else if(!(power.measuredV>0&&power.measuredV<=1.5))return 'ラジコン試験1.3.0はVM実測1.5V以下が条件です。';
       if(power.heat==='present'||power.outputAfterOff==='stopped')return '電源停止または発熱の記録があります。原因の確認が必要です。';
     }
     if(!['check-wiring','check-switch','check-tracks','check-power'].every(id=>input(id).checked))return '左側の「制御を許可する」で、実機の4項目を確認してください。';
@@ -74,7 +77,12 @@ export function mountMotorTest(){
     const s=session?.status??null,connected=!!session?.connected;
     const boot=isBootFirmware(s);
     const patternSection=document.querySelector<HTMLElement>('.motor-content > .pattern-panel');
-    if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest||boot;
+    if(patternSection)patternSection.hidden=!!s?.singleTest||!!settings.singleTest||!!settings.rcTest&&!isProgramFirmware(s)||boot;
+    const poweredProgram=!!settings.rcTest&&isProgramFirmware(s);
+    el('current-check').classList.toggle('hidden',!poweredProgram);
+    input('check-tracks').closest('label')!.lastChild!.textContent=poweredProgram
+      ?' 初回はキャタピラを浮かせ、走行時は周囲を確保した':' キャタピラを浮かせ、周囲を確保';
+    el('vm-confirmation').textContent=powerRecordDirty||power.measuredV===null?'手入力による安全確認':`実測 ${power.measuredV}V を確認済み`;
     for(const id of ['single-test','signal-only']){
       input(id).closest('label')?.classList.toggle('hidden',boot);
     }
@@ -95,23 +103,23 @@ export function mountMotorTest(){
     el('arm-reason').textContent=block||'条件を確認しました。許可ボタンを押すと1回だけ試験できます。';
     const motionActive=!!s&&(s.left!==0||s.right!==0);
     const mock=session?.transport.kind==='mock';
-    const drivingSupported=(mock&&!settings.singleTest)||!!settings.rcTest;
+    const drivingSupported=(mock&&!settings.singleTest)||isRcFirmware(s);
     const rcBlock=!connected?'左側の「接続と試験段階」からモック、または実機BLEへ接続してください。'
-      :boot?block
-      :!drivingSupported?(settings.singleTest?'本体単独版は下の「モーター単体テスト」で操作します。十字キーで走行するにはラジコン試験版1.3.0が必要です。':'信号試験版ではモーターは回りません。十字キーで走行するにはラジコン試験版1.3.0を選んでください。')
+      :boot?'接続中のファームは起動試験用です。W・S・A・Dで操作するには走行プログラム1.5.0を書き込んでください。'
+      :!drivingSupported?(settings.singleTest?'本体単独版は「モーター単体テスト」で操作します。ラジコン操作には走行プログラム1.5.0を書き込んでください。':'ラジコン操作には走行プログラム1.5.0を書き込んでください。')
       :block;
-    el('rc-help').textContent=rcBlock||(motionActive?'出力指令中。離すか、上限時間に達すると停止します。':s?.armed?'操作できます。方向ボタンを押し続けてください。':'「1回の操作を許可」を押してから、前進・後退・左右旋回を試してください。');
+    el('rc-help').textContent=rcBlock||(motionActive?'出力指令中。離すか、上限時間に達すると停止します。':s?.armed?'操作できます。W・S・A・Dまたは方向ボタンを押してください。':'「1回の操作を許可」を押してから、前進・後退・左右旋回を試してください。');
     el('rc-badge').textContent=!connected?'未接続':motionActive?(mock?'モック動作中':'出力指令中'):s?.armed?'許可済み':mock?'モック接続済み':'実機BLE接続済み';
     const armDisabled=!!block||!!s?.armed||!!session?.foregroundBusy;
     el<HTMLButtonElement>('arm').disabled=armDisabled;
     el<HTMLButtonElement>('rc-arm').disabled=armDisabled||!drivingSupported;
     el('rc-motion').textContent=s?.stopReason==='pulse-limit'
       ?'上限時間で停止しました。次の操作には再許可が必要です。'
-      :'方向を押し続けて操作、離すと停止。PCでは矢印キーも使えます。';
+      :'押している間だけ操作し、離すと停止します。矢印キーも使えます。';
     el('rc-last').hidden=!lastMotion;
     el('rc-last').textContent=lastMotion;
     const canMove=!!s?.armed&&!s.estop&&connected&&!block&&(!session?.foregroundBusy||held);
-    buttons.forEach(b=>{b.disabled=!canMove||(held&&b.dataset.motion!==activeMotion)||(!!settings.singleTest&&!['lf','lr','rf','rr'].includes(b.dataset.motion!));});
+    buttons.forEach(b=>{b.classList.toggle('is-held',held&&b.dataset.motion===activeMotion);b.disabled=!canMove||(held&&b.dataset.motion!==activeMotion)||(!!!drivingSupported&&!['lf','lr','rf','rr'].includes(b.dataset.motion!));});
     el<HTMLButtonElement>('disconnect').disabled=!connected;el<HTMLButtonElement>('connect').disabled=connected;
     el<HTMLButtonElement>('reset-estop').disabled=!connected||!s?.estop;
     el<HTMLSelectElement>('mode').disabled=connected;
@@ -120,13 +128,13 @@ export function mountMotorTest(){
     if(s&&observedStop!==s.stopReason){observedStop=s.stopReason;if(!s.armed&&held){held=false;pointerId=null;heldKey=null;say(`停止しました：${s.stopReason}。次の操作前に再許可してください。`);}}
   }
   async function connect(){
-    try{const transport=el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(!!settings.singleTest):new BleTransport();session=new MotorSession(transport);session.settings=settings;
+    try{const transport=el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(!!settings.singleTest,true):new BleTransport();session=new MotorSession(transport);session.settings=settings;
       session.onStatus=update;session.onEvent=(event,error)=>{if(event!=='HEARTBEAT'||Date.now()-lastHeartbeatLog>1000){record(event,error);if(event==='HEARTBEAT')lastHeartbeatLog=Date.now();}if(error)say(error);};
       await session.connect();
       if(transport.kind==='ble'){
         input('single-test').checked=!!session.status?.singleTest;
-        input('signal-only').checked=!input('single-test').checked&&!isRcFirmware(session.status);
-        phase=isRcFirmware(session.status)?6:session.status?.singleTest?5:3;
+        input('signal-only').checked=!input('single-test').checked&&(!isRcFirmware(session.status)||isProgramFirmware(session.status));
+        phase=isProgramFirmware(session.status)?4:isRcFirmware(session.status)?6:session.status?.singleTest?5:3;
         el<HTMLSelectElement>('phase').value=String(phase);
         applySingleMode();
       }else if(session.status?.singleTest){
@@ -154,17 +162,18 @@ export function mountMotorTest(){
     }
     update();
   });
-  el('phase').addEventListener('change',()=>{stop();phase=Number(el<HTMLSelectElement>('phase').value);['check-wiring','check-switch','check-tracks','check-power'].forEach(id=>input(id).checked=false);record('phase-change');update();});
-  async function arm(){
+  el('phase').addEventListener('change',()=>{stop();phase=Number(el<HTMLSelectElement>('phase').value);['check-wiring','check-switch','check-tracks','check-power','check-current'].forEach(id=>input(id).checked=false);record('phase-change');update();});
+  async function arm(focusKeyboard=false){
     if(armBlock()||!session)return;
     try{
       session.settings={...settings};
       await session.arm();
+      if(focusKeyboard&&session.status?.armed&&!document.hidden)el('rc-keyboard').focus({preventScroll:true});
       say('1回の試験を許可しました。押している間だけ、指定時間を上限に動作します。');
     }catch(e){say(String(e));}
     update();
   }
-  for(const id of ['arm','rc-arm'])el(id).addEventListener('click',()=>void arm());
+  for(const id of ['arm','rc-arm'])el(id).addEventListener('click',()=>void arm(id==='rc-arm'));
   el('reset-estop').addEventListener('click',async()=>{try{await session?.send(OPS.RESET_ESTOP);say('緊急停止を解除しました。駆動許可は解除したままです。');}catch(e){say(String(e));}update();});
   for(const id of ['emergency','stop','dpad-stop'])el(id).addEventListener('click',()=>stop(id==='emergency'));
   async function startMotion(name:string){
@@ -189,23 +198,29 @@ export function mountMotorTest(){
     button.addEventListener('pointerup',e=>{if(pointerId===e.pointerId)stop();});button.addEventListener('pointercancel',()=>stop());button.addEventListener('lostpointercapture',()=>{if(held)stop();});
     button.addEventListener('keydown',e=>{if((e.key===' '||e.key==='Enter')&&!e.repeat){e.preventDefault();void startMotion(button.dataset.motion!);}});button.addEventListener('keyup',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();stop();}});
   });
-  const arrowDirections:Record<string,string>={ArrowUp:'forward',ArrowDown:'backward',ArrowLeft:'left',ArrowRight:'right'};
-  document.addEventListener('keydown',event=>{
-    const motion=arrowDirections[event.key];
-    if(!motion||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||document.hidden||held||
-      event.target instanceof Element&&event.target.closest('input,select,textarea,[contenteditable]'))return;
-    const button=buttons.find(control=>control.dataset.motion===motion);
-    if(!button||button.disabled)return;
-    event.preventDefault();
+  const editableTarget=(target:EventTarget|null)=>target instanceof Element&&!!target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"])');
+  window.addEventListener('keydown',event=>{
+    const key=driveKey(event.code,event.key);
+    if(!key||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||document.hidden||editableTarget(event.target))return;
+    if(held){if(heldKey===key.token)event.preventDefault();return;}
     if(event.repeat)return;
-    heldKey=event.key;
-    void startMotion(motion);
-  });
-  document.addEventListener('keyup',event=>{
-    if(heldKey!==event.key)return;
+    const button=buttons.find(control=>control.dataset.motion===key.motion);
+    if(!button||button.disabled){
+      el('rc-key').textContent=`${key.label} を検知。操作するには上の案内を確認してください。`;
+      return;
+    }
     event.preventDefault();
+    heldKey=key.token;
+    el('rc-key').textContent=`${key.label} を受け付けました。`;
+    void startMotion(key.motion);
+  },true);
+  window.addEventListener('keyup',event=>{
+    const key=driveKey(event.code,event.key);
+    if(!key||heldKey!==key.token)return;
+    event.preventDefault();
+    el('rc-key').textContent=`${key.label} を離しました。停止要求を送ります。`;
     stop();
-  });
+  },true);
   document.addEventListener('visibilitychange',()=>{if(document.hidden){stop();record('browser-hidden');}});window.addEventListener('blur',()=>{if(session?.connected)stop();});window.addEventListener('pagehide',()=>{stop();session?.disconnect();});
   function settingsChanged(){stop();settings={frequency:Number(input('frequency').value),pulseMs:Number(input('pulse').value),invertLeft:input('invert-left').checked,invertRight:input('invert-right').checked,signalOnly:input('signal-only').checked,singleTest:input('single-test').checked,rcTest:isRcFirmware(session?.status)&&!input('signal-only').checked};if(session)session.settings=settings;el('left-percent').textContent=input('left-speed').value+'%';el('right-percent').textContent=input('right-speed').value+'%';el('check-power').closest('label')!.lastChild!.textContent=settings.singleTest?' 1.5Vは想定・未測定で、部品適合も未確認の短時間試験と理解した':settings.signalOnly?' 信号試験ではVMを物理的に外した':' VM実測値の安定・部品適合・左右同時に必要な電流容量を確認した';update();}
   function applySingleMode(){
@@ -213,16 +228,22 @@ export function mountMotorTest(){
     if(rc){input('frequency').value='1000';input('pulse').value='500';for(const side of ['left','right'])input(`${side}-speed`).value='50';}
     if(single){input('signal-only').checked=false;input('frequency').value='1000';input('pulse').value='100';for(const side of ['left','right'])input(`${side}-speed`).value='25';}
     input('signal-only').disabled=single;input('frequency').disabled=single||rc;input('pulse').max=single?'100':'500';
-    for(const side of ['left','right']){const speed=input(`${side}-speed`);speed.min=single?'25':'0';speed.max=single||rc?String(RC_MAX_DUTY):'100';speed.step=single?'25':'1';}
-    ['check-wiring','check-switch','check-tracks','check-power'].forEach(id=>input(id).checked=false);settingsChanged();
+    for(const side of ['left','right']){const speed=input(`${side}-speed`);speed.min=single?'25':'0';speed.max=single||rc&&!isProgramFirmware(session?.status)?String(RC_MAX_DUTY):'100';speed.step=single?'25':'1';}
+    ['check-wiring','check-switch','check-tracks','check-power','check-current'].forEach(id=>input(id).checked=false);settingsChanged();
   }
   el('single-test').addEventListener('change',applySingleMode);
   el('signal-only').addEventListener('input',()=>{
     input('check-power').checked=false;
+    input('check-current').checked=false;
+    if(isProgramFirmware(session?.status)&&session?.transport.kind==='ble'){
+      input('check-tracks').checked=false;
+      phase=input('signal-only').checked?4:6;
+      el<HTMLSelectElement>('phase').value=String(phase);
+    }
     settingsChanged();
   });
   for(const id of ['frequency','pulse','invert-left','invert-right','left-speed','right-speed'])el(id).addEventListener('input',settingsChanged);
-  for(const id of ['check-wiring','check-switch','check-tracks','check-power'])el(id).addEventListener('change',()=>{if(!input(id).checked)stop();update();});
+  for(const id of ['check-wiring','check-switch','check-tracks','check-power','check-current'])el(id).addEventListener('change',()=>{if(!input(id).checked)stop();update();});
   el('power-form').addEventListener('input',()=>{
     powerRecordDirty=true;
     usbWriter?.update();
@@ -232,7 +253,17 @@ export function mountMotorTest(){
     }
     update();
   });
-  el('power-form').addEventListener('submit',event=>{event.preventDefault();const nullable=(id:string)=>input(id).value===''?null:Number(input(id).value);const measuredAt=input('measured-at').value;const p:PowerRecord={settingV:Number(input('setting-v').value),measuredV:nullable('measured-v'),displayOffSeconds:nullable('display-off'),outputAfterOff:el<HTMLSelectElement>('output-after').value as PowerRecord['outputAfterOff'],motorPowerState:input('motor-power').value||'未確認',heat:el<HTMLSelectElement>('heat').value as PowerRecord['heat'],measuredAt:measuredAt?new Date(measuredAt).toISOString():null};if(!validatePower(p)){say('実測値を入れた場合は測定日時も入力してください。数値と日時を確認してください。');return;}power=p;powerRecordDirty=false;usbWriter?.update();if(power.heat==='present')stop(true);else if(settings.rcTest)stop();record('manual-power-record',undefined,input('result').value||'手入力の診断記録');say('設定値・手動実測値を分けて記録しました。自動測定は行っていません。');update();});
+  el('power-form').addEventListener('submit',event=>{
+    event.preventDefault();
+    const measuredV=input('measured-v').valueAsNumber;
+    const measured={...INITIAL_POWER,measuredV,measuredAt:new Date().toISOString()};
+    if(!validatePower(measured)||measuredV<=0||measuredV>3){say('VM–GNDの実測値を確認してください。');return;}
+    power=measured;powerRecordDirty=false;
+    if(settings.rcTest)stop();
+    record('manual-vm-confirmation',undefined,`VM ${measuredV}V（手入力）`);
+    say(`VMの手入力実測値 ${measuredV}V を確認しました。`);
+    usbWriter?.update();update();
+  });
   function download(data:string,type:string,extension:string){const url=URL.createObjectURL(new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=`colon-motor-${new Date().toISOString().replace(/[:.]/g,'-')}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   el('export-json').addEventListener('click',()=>{record('export-json');download(JSON.stringify({schema:'colon-motor-diagnostics/1',unmeasured:['smartcobyInternalV','dcdcInputV','dcdcOutputVAuto','motorCurrent','lowLoadDecision'],logs},null,2),'application/json','json');});
   el('export-csv').addEventListener('click',()=>{record('export-csv');download(toCSV(logs),'text/csv;charset=utf-8','csv');});

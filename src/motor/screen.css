@@ -13,3 +13,7 @@
 .rc-actions a { font-size: 12px; }
 #rc-last { color: #345e49; }
 #usb-writer, #power-form { scroll-margin-top: 100px; }
+.keyboard-help { display: inline-block; padding: 6px 10px; border-radius: 7px; background: #edf4ec; color: #214e3b; }
+.keyboard-help:focus-visible { outline: 3px solid #78bfa2; outline-offset: 2px; }
+.keyboard-help kbd { font: inherit; font-weight: 700; }
+.dpad .motion.is-held { background: #d0ebdb; border-color: #328968; }

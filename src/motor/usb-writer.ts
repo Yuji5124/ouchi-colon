@@ -1,12 +1,13 @@
 export interface FirmwarePart {path:string;address:number;size:number;sha256:string;md5:string;}
-export interface FirmwareManifest {schema:'colon-firmware/1';version:string;chip:'ESP32-S3';flashBytes:8388608;poweredTests:false|'experimental-single'|'rc-trial'|'boot-trial'|'boot-dual';lcdDisplay?:boolean;powerQualified?:false;assumedV?:1.5;maxPulseMs?:100|500|2000;maxDuty?:50|75|100;maxVmV?:3;parts:FirmwarePart[];}
+export interface FirmwareManifest {schema:'colon-firmware/1';version:string;chip:'ESP32-S3';flashBytes:8388608;poweredTests:false|'experimental-single'|'rc-trial'|'boot-trial'|'boot-dual'|'drive-program';lcdDisplay?:boolean;powerQualified?:false;assumedV?:1.5;maxPulseMs?:100|500|1000|2000;maxDuty?:50|75|100;maxVmV?:3;parts:FirmwarePart[];}
 export function validateManifest(value:unknown):FirmwareManifest {
   const m=value as FirmwareManifest;
-  const bootVersionMatches=(m?.poweredTests==='boot-trial'&&m.version==='1.4.0'&&m.maxPulseMs===100&&m.maxDuty===50)
-    ||(m?.poweredTests==='boot-dual'&&m.version==='1.4.2'&&m.maxPulseMs===2000&&m.maxDuty===100);
-  const bootValid=bootVersionMatches&&m.powerQualified===false&&m.lcdDisplay===true
+  const versionMatches=(m?.poweredTests==='boot-trial'&&m.version==='1.4.0'&&m.maxPulseMs===100&&m.maxDuty===50)
+    ||(m?.poweredTests==='boot-dual'&&m.version==='1.4.2'&&m.maxPulseMs===2000&&m.maxDuty===100)
+    ||(m?.poweredTests==='drive-program'&&m.version==='1.5.0'&&m.maxPulseMs===1000&&m.maxDuty===100);
+  const limitedValid=versionMatches&&m.powerQualified===false&&m.lcdDisplay===true
     &&m.assumedV===undefined&&m.maxVmV===3;
-  if(!m||m.schema!=='colon-firmware/1'||m.chip!=='ESP32-S3'||m.flashBytes!==8388608||!((m.poweredTests===false&&/^1\.1\.\d+$/.test(m.version))||(m.poweredTests==='experimental-single'&&/^1\.2\.\d+$/.test(m.version)&&m.powerQualified===false&&m.assumedV===1.5&&m.maxPulseMs===100&&m.maxDuty===75)||(m.poweredTests==='rc-trial'&&m.version==='1.3.0'&&m.powerQualified===false&&m.lcdDisplay===true&&m.assumedV===undefined&&m.maxPulseMs===500&&m.maxDuty===75)||bootValid)||!Array.isArray(m.parts)||m.parts.length!==4)throw new Error('対応する試験ファームではありません。');
+  if(!m||m.schema!=='colon-firmware/1'||m.chip!=='ESP32-S3'||m.flashBytes!==8388608||!((m.poweredTests===false&&/^1\.1\.\d+$/.test(m.version))||(m.poweredTests==='experimental-single'&&/^1\.2\.\d+$/.test(m.version)&&m.powerQualified===false&&m.assumedV===1.5&&m.maxPulseMs===100&&m.maxDuty===75)||(m.poweredTests==='rc-trial'&&m.version==='1.3.0'&&m.powerQualified===false&&m.lcdDisplay===true&&m.assumedV===undefined&&m.maxPulseMs===500&&m.maxDuty===75)||limitedValid)||!Array.isArray(m.parts)||m.parts.length!==4)throw new Error('対応する試験ファームではありません。');
   const expected=[0,0x8000,0xe000,0x10000];
   m.parts.forEach((p,i)=>{if(p.address!==expected[i]||!Number.isInteger(p.size)||p.size<=0||!/^colon-motor-[\d.]+\/[a-z0-9_-]+\.bin$/.test(p.path)||!/^([a-f0-9]){64}$/i.test(p.sha256)||!/^([a-f0-9]){32}$/i.test(p.md5))throw new Error('ファームウェア一覧が不正です。');const end=p.address+Math.ceil(p.size/4096)*4096;if(end>8388608||(i<3&&end>expected[i+1])||(p.address<0xe000&&end>0x9000))throw new Error('書込み範囲が重複しています。');});return m;
 }

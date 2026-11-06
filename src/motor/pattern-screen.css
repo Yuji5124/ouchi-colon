@@ -2,3 +2,4 @@
 .pattern-panel [hidden] {
   display: none !important;
 }
+.pattern-row.pattern-hidden { display: none; }

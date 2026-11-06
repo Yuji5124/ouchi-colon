@@ -1,7 +1,7 @@
 import {INITIAL_SETTINGS,makeFrame,OPS,type MotorSettings,type MotorStatus,type Op} from './protocol.ts';
 import type {Transport} from './transport.ts';
 import type {PatternTable} from './patterns.ts';
-import {PATTERN_IDS,validPattern} from './patterns.ts';
+import {fixedProgram,patternIds,validPattern} from './patterns.ts';
 export class MotorSession {
   status:MotorStatus|null=null;busy=false;connected=false;lastHeartbeatAt:string|null=null;settings:MotorSettings={...INITIAL_SETTINGS};
   onStatus:()=>void=()=>{};onEvent:(event:string,error?:string)=>void=()=>{};
@@ -43,15 +43,16 @@ export class MotorSession {
   async readPatternTable():Promise<PatternTable>{return this.foreground(async()=>this.readPatternsNow());}
   async savePatternTable(table:PatternTable,progress:(count:number)=>void=()=>{}):Promise<PatternTable>{
     const snapshot=structuredClone(table);
-    if(!PATTERN_IDS.every(id=>validPattern(id,snapshot[id])))throw new Error('パターンの出力・時間が不正です。');
+    const ids=patternIds(this.status?.patternsVersion);
+    if(!ids.every(id=>validPattern(id,snapshot[id])))throw new Error('パターンの出力・時間が不正です。');
     return this.foreground(async assertCurrent=>{
       if(this.status?.armed)throw new Error('許可を解除してから書き込んでください。');
-      for(let i=0;i<PATTERN_IDS.length;i++){
-        assertCurrent();const p=snapshot[PATTERN_IDS[i]];
+      for(let i=0;i<ids.length;i++){
+        assertCurrent();const p=snapshot[ids[i]];
         await this.sendNow(OPS.SAVE_PATTERN,i,p.speed,p.durationMs);assertCurrent();progress(i+1);
       }
       assertCurrent();const readback=await this.readPatternsNow();assertCurrent();
-      if(JSON.stringify(readback)!==JSON.stringify(snapshot))throw new Error('読戻しが一致しません。Atomから読み込んで確認してください。');
+      if(ids.some(id=>readback[id].speed!==snapshot[id].speed||readback[id].durationMs!==snapshot[id].durationMs))throw new Error('読戻しが一致しません。Atomから読み込んで確認してください。');
       return readback;
     });
   }
@@ -63,7 +64,7 @@ export class MotorSession {
     if(this.foregroundReserved)throw new Error('読み込み・書込み中です。動作要求は送信していません。');
     // A held press can wait for an in-flight heartbeat or poll. Stop, release,
     // and disconnect invalidate the reservation before any command is written.
-    if(op===OPS.MOVE){
+    if(op===OPS.MOVE||op===OPS.PATTERN){
       return this.foreground(async()=>{
         if(!this.status?.armed)throw new Error('停止しました。もう一度試験を許可してください。');
         await this.sendNow(op,left,right);
@@ -81,7 +82,11 @@ export class MotorSession {
       this.sequence=Math.max(this.sequence,before.seq)+1;
       const stop=op===OPS.STOP||op===OPS.ESTOP||op===OPS.DISARM;
       const frame=makeFrame(before,op,this.sequence,stop?INITIAL_SETTINGS:this.settings,left,right);
-      if(op===OPS.SAVE_PATTERN){if(!Number.isInteger(patternDuration)||!(patternDuration===0||(patternDuration!>=50&&patternDuration!<=500)))throw new Error('パターン時間は未校正0、または50〜500msです。');new DataView(frame.buffer).setUint16(17,patternDuration!,true);}
+      if(op===OPS.SAVE_PATTERN){
+        const id=patternIds(before.patternsVersion)[left];
+        if(!id||!validPattern(id,{speed:right as 25|50|75|100,durationMs:patternDuration??NaN}))throw new Error(fixedProgram(id)?'前進・後進は100%・1000ms固定です。':'パターンの出力・時間が不正です。');
+        new DataView(frame.buffer).setUint16(17,patternDuration!,true);
+      }
       await this.bounded(this.transport.write(frame));
       for(let i=0;i<12;i++){
         const status=await this.bounded(this.transport.read());this.observe(status);

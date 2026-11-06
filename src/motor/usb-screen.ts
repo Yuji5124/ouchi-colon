@@ -1,6 +1,7 @@
 import {fetchFirmware,verifyChip,writeBundle,type FirmwareBundle,type LoaderPort} from './usb-writer.ts';
 import {loadUsbLibrary,type UsbLibrary} from './usb-library.ts';
 const firmwareChoices={
+  program:{name:'走行プログラム',path:'program/',kind:'drive-program'},
   signal:{name:'信号試験ファーム',path:'',kind:false},
   single:{name:'本体単独ファーム',path:'experimental/',kind:'experimental-single'},
   rc:{name:'ラジコン試験ファーム',path:'rc/',kind:'rc-trial'},
@@ -13,11 +14,14 @@ export function mountUsbWriter(hooks:Hooks){
   document.querySelector('.motor-content')!.prepend(section);
   const firmwareChoice=document.createElement('label');firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="rc">ラジコン試験 1.3.0（実測・配線確認後／最大500ms）</option><option value="signal">信号試験 1.1.1・本体LCD表示（VMなし）</option><option value="single">本体単独 1.2.1・本体LCD表示（1.5V想定・未測定／片側100ms）</option><option value="boot">起動試験 1.4.0（本体ボタン／左のみ100ms）</option></select>';section.querySelector('.check')!.before(firmwareChoice);
   firmwareChoice.querySelector('select')!.add(new Option('起動試験 1.4.2（本体ボタン／両側100%・2秒）','bootDual'));
+  const programOption=new Option('走行プログラム 1.5.0（W・S・A・D／動作 No. 1〜8）','program',true,true);
+  firmwareChoice.querySelector('select')!.add(programOption,0);
+  firmwareChoice.querySelector('select')!.value='program';
   const bootCheck=document.createElement('div');
   bootCheck.hidden=true;
   bootCheck.innerHTML=`<p id="usb-boot-motion" class="subtle"></p>
     <label class="check"><input id="usb-boot-current" type="checkbox"> VM電源全体を外部で1.0A以下に制限し、キャタピラを浮かせて試験する</label>
-    <a class="subtle" href="#power-form">VM実測値を記録</a>`;
+    <a class="subtle" href="#power-form">VM実測値を確認</a>`;
   firmwareChoice.after(bootCheck);
   const prerequisite=document.createElement('p');prerequisite.id='usb-prerequisites';prerequisite.className='motor-feedback';prerequisite.setAttribute('role','status');section.querySelector('.pattern-actions')!.before(prerequisite);
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;
@@ -97,7 +101,7 @@ export function mountUsbWriter(hooks:Hooks){
       if(attempt!==preparation)return;
       if(b.manifest.poweredTests!==choice.kind)throw new Error('選んだファームの種別と配布内容が一致しません。');
       bundle=b;library=l;
-      const detail=isBootChoice()?' VM実測値と外部電流制限の確認後に書き込めます。':choice.kind==='rc-trial'?' 実機の走行許可にはVMの実測と配線確認が必要です。':choice.kind==='experimental-single'?' 片側のみ最大100msの限定試験です。':' VMを外した信号試験用です。';
+      const detail=choice.kind==='drive-program'?' 書き込み後はBLE接続し、VMを外した信号試験から始めてください。':isBootChoice()?' VM実測値と外部電流制限の確認後に書き込めます。':choice.kind==='rc-trial'?' 実機の走行許可にはVMの実測と配線確認が必要です。':choice.kind==='experimental-single'?' 片側のみ最大100msの限定試験です。':' VMを外した信号試験用です。';
       msg(`${choice.name} ${b.manifest.version}のSHA-256を確認しました。${detail}`);
     }catch(e){if(attempt!==preparation)return;prepareError=String(e);msg(`書込みツールを読み込めませんでした。ページを再読み込みしてください。${prepareError}`);hooks.record('usb-prepare-error',prepareError);}finally{if(attempt===preparation)update();}
   }
