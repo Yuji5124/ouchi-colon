@@ -15,26 +15,72 @@ export function mountUsbWriter(hooks:Hooks){
   bootCheck.hidden=true;
   bootCheck.innerHTML=`<p class="subtle">FA-130RA-2270相当と仮定した試験です。AtomS3正面のボタンを押したままUSBで給電すると左側へ1回だけ指令を出します。</p>
     <label class="check"><input id="usb-boot-current" type="checkbox"> VM電源に1.0A以下の外部電流制限を用意し、キャタピラを浮かせて試験する</label>
-    <p id="usb-boot-block" class="arm-reason" role="status"></p>
     <a class="subtle" href="#power-form">VM実測値を記録</a>`;
   firmwareChoice.after(bootCheck);
   const prerequisite=document.createElement('p');prerequisite.id='usb-prerequisites';prerequisite.className='motor-feedback';prerequisite.setAttribute('role','status');section.querySelector('.pattern-actions')!.before(prerequisite);
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;
+  const choiceHelp=document.createElement('p');
+  choiceHelp.id='usb-choice-help';
+  choiceHelp.className='subtle';
+  firmwareChoice.after(choiceHelp);
+  el('usb-firmware-kind').setAttribute('aria-describedby',choiceHelp.id);
+
+  const writeHelp=document.createElement('p');
+  writeHelp.id='usb-write-help';
+  writeHelp.className='arm-reason';
+  writeHelp.setAttribute('role','status');
+  el('usb-write').before(writeHelp);
+  el('usb-write').setAttribute('aria-describedby',writeHelp.id);
   let bundle:FirmwareBundle|null=null,library:UsbLibrary|null=null,prepareError:string|null=null,loader:LoaderPort|null=null,transport:{disconnect():Promise<void>}|null=null,busy=false,verified=false;
   let preparation=0;
   const kind=()=>el<HTMLSelectElement>('usb-firmware-kind').value as keyof typeof firmwareChoices;
   const msg=(s:string)=>el('usb-message').textContent=s;
   const log=(s:string)=>{el('usb-log').textContent=(el('usb-log').textContent+'\n'+s).slice(-12000);};
   const ready=()=>['usb-vm-off','usb-board','usb-replace'].every(id=>el<HTMLInputElement>(id).checked);
-  function bootBlock(){
-    if(kind()!=='boot')return '';
-    return hooks.bootPowerBlock()||(!el<HTMLInputElement>('usb-boot-current').checked?'外部電流制限と車体の準備を確認すると、この版を書き込めます。':'');
+  function writeBlock(){
+    if(busy)return 'USB処理中です。完了までお待ちください。';
+    if(verified)return '書込みと照合が完了しました。VMを外したまま再起動してください。';
+    if(kind()==='boot'){
+      const powerBlock=hooks.bootPowerBlock();
+      const currentConfirmed=el<HTMLInputElement>('usb-boot-current').checked;
+      const bootBlock=[powerBlock,currentConfirmed?'':'VM電源の外部電流制限（1.0A以下）と車体の準備を確認してください。']
+        .filter(Boolean).join(' ');
+      if(bootBlock)return bootBlock;
+    }
+    if(!bundle)return '書込み用ファームの準備状態を確認してください。';
+    if(!ready())return 'USB欄の機器・配線・復元の確認項目を確認してください。';
+    if(!loader)return '先に「USBを選んで接続」を押してください。';
+    if(!el<HTMLInputElement>('usb-backup-confirmed').checked)return 'バックアップ、または復元手段の確認が必要です。';
+    return '';
   }
+
   function update(){
-    bootCheck.hidden=kind()!=='boot';
-    const block=bootBlock();
-    el('usb-boot-block').textContent=block||'起動試験の電源条件を記録しました。';
-    el<HTMLSelectElement>('usb-firmware-kind').disabled=busy||!!loader;el('usb-write').textContent=firmwareChoices[kind()].name+(bundle?' '+bundle.manifest.version:'')+'を書き込む';const hasSerial=typeof navigator!=='undefined'&&'serial' in navigator&&isSecureContext;const missing=['usb-vm-off','usb-board','usb-replace'].filter(id=>!el<HTMLInputElement>(id).checked).length;prerequisite.textContent=!hasSerial?'このブラウザはUSB書込み未対応です。PCのChrome / EdgeでこのURLを開いてください。':prepareError?'書込みツールの準備に失敗しました。ページを再読み込みしてください。':!bundle||!library?'ファームとUSB書込みツールを準備しています。USB機器への接続はまだ行いません。':busy?'USBの選択・通信処理中です。画面の案内を確認してください。':loader?'USB接続済みです。バックアップ後に、書込みボタンを別途押してください。':missing?`接続ボタンを使うには、上の確認項目をあと${missing}項目確認してください。ケーブルを挿すだけでは接続は始まりません。`:'準備できました。「USBを選んで接続」を押し、表示される一覧からAtomS3を選んでください。';el<HTMLButtonElement>('usb-connect').disabled=!bundle||!library||!!prepareError||!ready()||busy||!!loader||!hasSerial;el<HTMLButtonElement>('usb-backup').disabled=!loader||busy;el<HTMLButtonElement>('usb-disconnect').disabled=!loader||busy;el<HTMLButtonElement>('usb-write').disabled=!loader||!bundle||!ready()||!!block||busy||verified||!el<HTMLInputElement>('usb-backup-confirmed').checked;el<HTMLButtonElement>('usb-reset').disabled=!verified||busy||!loader;section.querySelectorAll<HTMLInputElement>('input').forEach(i=>i.disabled=busy);}
+    const selected=kind();
+    bootCheck.hidden=selected!=='boot';
+    el<HTMLSelectElement>('usb-firmware-kind').disabled=busy||!!loader;
+    choiceHelp.textContent=loader?'版を変更するには「USBを切断」を押してください。'
+      :busy?'USB処理が完了すると、版を変更できます。':'';
+    choiceHelp.hidden=!choiceHelp.textContent;
+    el('usb-write').textContent=firmwareChoices[selected].name+(bundle?' '+bundle.manifest.version:'')+'を書き込む';
+
+    const hasSerial=typeof navigator!=='undefined'&&'serial' in navigator&&isSecureContext;
+    const missing=['usb-vm-off','usb-board','usb-replace'].filter(id=>!el<HTMLInputElement>(id).checked).length;
+    prerequisite.textContent=!hasSerial?'このブラウザはUSB書込み未対応です。PCのChrome / EdgeでこのURLを開いてください。'
+      :prepareError?'書込みツールの準備に失敗しました。ページを再読み込みしてください。'
+      :!bundle||!library?'ファームとUSB書込みツールを準備しています。USB機器への接続はまだ行いません。'
+      :busy?'USBの選択・通信処理中です。画面の案内を確認してください。'
+      :loader?'USB接続済みです。バックアップ後に、書込みボタンを別途押してください。'
+      :missing?`接続ボタンを使うには、上の確認項目をあと${missing}項目確認してください。ケーブルを挿すだけでは接続は始まりません。`
+      :'準備できました。「USBを選んで接続」を押し、表示される一覧からAtomS3を選んでください。';
+    const blocked=writeBlock();
+    writeHelp.textContent=blocked||'書込みの準備ができました。';
+    el<HTMLButtonElement>('usb-write').disabled=!!blocked;
+    el<HTMLButtonElement>('usb-connect').disabled=!bundle||!library||!!prepareError||!ready()||busy||!!loader||!hasSerial;
+    el<HTMLButtonElement>('usb-backup').disabled=!loader||busy;
+    el<HTMLButtonElement>('usb-disconnect').disabled=!loader||busy;
+    el<HTMLButtonElement>('usb-reset').disabled=!verified||busy||!loader;
+    section.querySelectorAll<HTMLInputElement>('input').forEach(i=>i.disabled=busy);
+  }
   async function close(){try{await transport?.disconnect();}catch{}loader=null;transport=null;verified=false;update();}
   section.querySelectorAll('input').forEach(i=>i.addEventListener('change',update));
   async function prepare(){
@@ -55,7 +101,7 @@ export function mountUsbWriter(hooks:Hooks){
     catch(e){msg(`USB接続できませんでした。${String(e)}`);await close();}finally{busy=false;update();}
   });
   el('usb-backup').addEventListener('click',async()=>{if(!loader||busy)return;busy=true;update();msg('8MBを読み出しています。ケーブルを抜かないでください。');try{const bytes=await loader.readFlash(0,8388608,(_packet:unknown,current:number,total:number)=>{el<HTMLProgressElement>('usb-progress').value=Math.floor(current/total*100);});if(bytes.length!==8388608)throw new Error('読出しサイズが一致しません。');const a=document.createElement('a'),url=URL.createObjectURL(new Blob([bytes as BlobPart],{type:'application/octet-stream'}));a.href=url;a.download=`atoms3-backup-${Date.now()}.bin`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);el<HTMLInputElement>('usb-backup-confirmed').checked=true;msg('バックアップをダウンロードしました。機器固有の設定を含むため、このPCで保管してください。');hooks.record('usb-backup-complete');}catch(e){msg(String(e));}finally{busy=false;update();}});
-  el('usb-write').addEventListener('click',async()=>{if(!loader||!bundle||busy||!ready()||bootBlock()||!el<HTMLInputElement>('usb-backup-confirmed').checked)return;busy=true;update();msg('書込み中です。ケーブルを抜かないでください。');try{await writeBundle(loader,bundle,n=>{el<HTMLProgressElement>('usb-progress').value=n;});verified=true;msg('書込みと実機MD5照合が完了しました。VMを外したまま、再起動してください。');hooks.record('usb-flash-verified',undefined,bundle.manifest.version);}catch(e){verified=false;msg(`書込み未完了・内容が一部変わった可能性があります。${String(e)}`);hooks.record('usb-flash-error',String(e));}finally{busy=false;update();}});
+  el('usb-write').addEventListener('click',async()=>{if(writeBlock()||!loader||!bundle)return;busy=true;update();msg('書込み中です。ケーブルを抜かないでください。');try{await writeBundle(loader,bundle,n=>{el<HTMLProgressElement>('usb-progress').value=n;});verified=true;msg('書込みと実機MD5照合が完了しました。VMを外したまま、再起動してください。');hooks.record('usb-flash-verified',undefined,bundle.manifest.version);}catch(e){verified=false;msg(`書込み未完了・内容が一部変わった可能性があります。${String(e)}`);hooks.record('usb-flash-error',String(e));}finally{busy=false;update();}});
   el('usb-reset').addEventListener('click',async()=>{if(!verified||!loader||busy)return;busy=true;update();try{await loader.after('hard_reset');msg('再起動を要求しました。USBを切断してBLEへ接続し、版と停止状態を確認してください。');}catch(e){msg(`再起動要求の結果は未確認です。VMを外したままUSBを抜き差ししてください。${String(e)}`);}finally{busy=false;update();}});
   el('usb-disconnect').addEventListener('click',()=>void close());
   update();
