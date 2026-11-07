@@ -16,7 +16,7 @@ export function mountUsbWriter(hooks:Hooks){
   document.querySelectorAll('a[href="#usb-writer"]').forEach(link=>link.addEventListener('click',reveal));
   window.addEventListener('hashchange',()=>{if(location.hash==='#usb-writer')reveal();});
   const firmwareChoice=document.createElement('label');
-  firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="program">走行プログラム1.6.0（電池3V・出力100%・直接操作）</option></select>';
+  firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="program">走行プログラム1.6.1（電池3V・出力100%・直接操作）</option></select>';
   section.querySelector('.check')!.before(firmwareChoice);
   const prerequisite=document.createElement('p');prerequisite.id='usb-prerequisites';prerequisite.className='motor-feedback';prerequisite.setAttribute('role','status');section.querySelector('.pattern-actions')!.before(prerequisite);
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {defaultPatterns,adaptPatterns,PATTERN_IDS,PROGRAM_IDS,validPattern,patternOutput,parsePatterns} from '../src/motor/patterns.ts';
+import {defaultPatterns,adaptPatterns,swapTurnPatterns,PATTERN_IDS,PROGRAM_IDS,validPattern,patternOutput,parsePatterns} from '../src/motor/patterns.ts';
 import {driveKey} from '../src/motor/keyboard.ts';
 import {validColonEvent,publishMotorExpression} from '../src/motor/bridge.ts';
 import {MockMotor} from '../src/motor/mock.ts';
-import {OPS,INITIAL_SETTINGS,makeFrame} from '../src/motor/protocol.ts';
+import {OPS,INITIAL_SETTINGS,makeFrame,direction} from '../src/motor/protocol.ts';
 import {validateManifest,verifyChip,writeBundle,sha256,type FirmwareBundle} from '../src/motor/usb-writer.ts';
 import {loadUsbLibrary} from '../src/motor/usb-library.ts';
 function send(c:MockMotor,op:typeof OPS[keyof typeof OPS],now:number,left=0,right=0,duration?:number){const f=makeFrame(c.state,op,c.state.seq+1,INITIAL_SETTINGS,left,right);if(duration!==undefined)new DataView(f.buffer).setUint16(17,duration,true);c.write(f,now);}
@@ -23,6 +23,21 @@ test('Program: No. 1〜8の順序、固定の前後動作、時間未校正の�
   assert.throws(()=>parsePatterns({version:2,slots:[[100,999],...slots.slice(1)]},2));
   assert.throws(()=>parsePatterns({version:2,slots:[...slots.slice(0,7),[75,501]]},2));
 });
+test('Program: 実機で逆だった左右旋回をキーと全角度パターンでそろえる',()=>{
+  assert.deepEqual(direction('right',100,100,true),[-100,100]);
+  assert.deepEqual(direction('left',100,100,true),[100,-100]);
+  for(const angle of [15,30,45] as const){
+    assert.deepEqual(patternOutput(`right${angle}`,100,true),[-100,100]);
+    assert.deepEqual(patternOutput(`left${angle}`,100,true),[100,-100]);
+  }
+  const before=defaultPatterns(3);
+  before.right15.durationMs=150;before.left15.durationMs=250;
+  const after=swapTurnPatterns(before);
+  assert.equal(after.right15.durationMs,250);assert.equal(after.left15.durationMs,150);
+  assert.deepEqual(after.forward100,before.forward100);
+  assert.deepEqual(after.backward100,before.backward100);
+  assert.deepEqual(swapTurnPatterns(after),before);
+});
 test('Program: 全方向100%と時間で制御し、低出力の校正時間を引き継がない',()=>{
   const old=defaultPatterns();
   old.right15={speed:75,durationMs:180};
@@ -37,7 +52,7 @@ test('Program: 全方向100%と時間で制御し、低出力の校正時間を�
   const c=new MockMotor(false,true);c.connect(0);
   send(c,OPS.SAVE_PATTERN,100,2,100,150);
   send(c,OPS.ARM,101);send(c,OPS.PATTERN,102,2);
-  assert.deepEqual([c.state.left,c.state.right],[100,-100]);
+  assert.deepEqual([c.state.left,c.state.right],[-100,100]);
   assert.equal(c.status(252).stopReason,'pulse-limit');
 });
 test('Program: モックでも前後は全出力で1000ms、または通信断で停止',()=>{
@@ -75,7 +90,7 @@ test('USB: 同梱バイナリのSHA-256を確認するヘルパー',async()=>{as
 test('USB: 走行プログラム実配布ファームの版・時間・ハッシュ',async()=>{
   const url=new URL('../public/firmware/program/manifest.json',import.meta.url);
   const data=JSON.parse(readFileSync(url,'utf8')),program=validateManifest(data);
-  assert.equal(program.version,'1.6.0');assert.equal(program.poweredTests,'drive-program');
+  assert.equal(program.version,'1.6.1');assert.equal(program.poweredTests,'drive-program');
   assert.equal(program.maxPulseMs,1000);assert.equal(program.maxDuty,100);
   assert.throws(()=>validateManifest({...data,maxPulseMs:2000}));
   assert.throws(()=>validateManifest({...data,powerQualified:true}));

@@ -8,7 +8,7 @@ export interface MotorStatus {
   protocol:1;firmware:string;bootId:number;bootCount:number|null;uptimeMs:number;resetReason:string;
   nonce:number;seq:number;connected:boolean;gpioReady:boolean;armed:boolean;estop:boolean;powerQualified:boolean;signalOnly:boolean;
   left:number;right:number;physicalLeft:number;physicalRight:number;stopReason:string;heartbeatAgeMs:number;pulseMs:number;frequency:number;
-  patternsVersion?:1|2|3;
+  patternsVersion?:1|2|3|4;
   singleTest?:boolean;
   lcd?:boolean;
 }
@@ -18,7 +18,8 @@ export function isBootFirmware(status:MotorStatus|null|undefined){
   return status?.firmware==='colon-motor-1.4.0'||status?.firmware==='colon-motor-1.4.1'
     ||status?.firmware==='colon-motor-1.4.2';
 }
-export function isDirectFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.6.0';}
+export function isCorrectedTurnFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.6.1';}
+export function isDirectFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.6.0'||isCorrectedTurnFirmware(status);}
 export function isFullPowerFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.5.1'||isDirectFirmware(status);}
 export function isProgramFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.5.0'||isFullPowerFirmware(status);}
 export function isRcFirmware(status:MotorStatus|null|undefined){return status?.firmware==='colon-motor-1.3.0'||isProgramFirmware(status);}
@@ -43,14 +44,15 @@ export function parseStatus(value:unknown):MotorStatus {
   if(s.singleTest!==undefined&&typeof s.singleTest!=='boolean')throw new Error('単独試験モードの値が不正です。');
   if(s.singleTest&&(s.powerQualified||!s.firmware.startsWith('colon-motor-1.2.')))throw new Error('単独試験版の適合表示が不正です。');
   if((isRcFirmware(s)||isBootFirmware(s))&&(s.powerQualified||s.singleTest))throw new Error('試験ファームの適合表示が不正です。');
-  if((s.patternsVersion!==undefined&&s.patternsVersion!==1&&s.patternsVersion!==2&&s.patternsVersion!==3)||
-    isProgramFirmware(s)!==(s.patternsVersion===2||s.patternsVersion===3)||
-    isFullPowerFirmware(s)!==(s.patternsVersion===3))throw new Error('走行プログラムのパターン形式が違います。');
+  if((s.patternsVersion!==undefined&&s.patternsVersion!==1&&s.patternsVersion!==2&&s.patternsVersion!==3&&s.patternsVersion!==4)||
+    isProgramFirmware(s)!==(s.patternsVersion===2||s.patternsVersion===3||s.patternsVersion===4)||
+    isFullPowerFirmware(s)!==(s.patternsVersion===3||s.patternsVersion===4)||
+    isCorrectedTurnFirmware(s)!==(s.patternsVersion===4))throw new Error('走行プログラムのパターン形式が違います。');
   if(s.nonce<1||s.nonce>0xffffffff||s.seq<0||s.seq>0xffffffff||s.uptimeMs<0||Math.abs(s.left)>100||Math.abs(s.right)>100||typeof s.stopReason!=='string'||typeof s.resetReason!=='string'||!(s.bootCount===null||Number.isInteger(s.bootCount)))throw new Error('ステータスの値が不正です。');
   return s;
 }
-export function direction(name:string,l:number,r:number):[number,number] {
-  const map:Record<string,[number,number]>={lf:[l,0],lr:[-l,0],rf:[0,r],rr:[0,-r],forward:[l,r],backward:[-l,-r],left:[-l,r],right:[l,-r]};
+export function direction(name:string,l:number,r:number,correctedTurns=false):[number,number] {
+  const map:Record<string,[number,number]>={lf:[l,0],lr:[-l,0],rf:[0,r],rr:[0,-r],forward:[l,r],backward:[-l,-r],left:correctedTurns?[l,-r]:[-l,r],right:correctedTurns?[-l,r]:[l,-r]};
   if(!map[name])throw new Error('不明な操作です。');return map[name];
 }
 export function gpioConflict(pins:number[],reserved:number[]=[1,2,15,16,17,21,33,34,38,39,41]) {return pins.length!==4||new Set(pins).size!==4||pins.some(p=>!Number.isInteger(p)||p<5||p>8||reserved.includes(p));}

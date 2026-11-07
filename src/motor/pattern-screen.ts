@@ -1,4 +1,4 @@
-import {PATTERN_IDS,PROGRAM_IDS,patternIds,fixedProgram,patternLabel,readLocalPatterns,adaptPatterns,validPattern,type PatternVersion,type PatternTable,type PatternId,type PatternConfig} from './patterns.ts';
+import {PATTERN_IDS,PROGRAM_IDS,patternIds,fixedProgram,patternLabel,readLocalPatterns,adaptPatterns,swapTurnPatterns,patternStorageKey,validPattern,type PatternVersion,type PatternTable,type PatternId,type PatternConfig} from './patterns.ts';
 import {COLON_EVENTS,COLON_MOTOR_CHANNEL,validColonEvent,type ColonEvent} from './bridge.ts';
 import {OPS} from './protocol.ts';
 import type {MotorSession} from './session.ts';
@@ -10,12 +10,12 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   parent.prepend(section);
   const integrated=parent.id==='colon-motor-patterns';
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;
-  let table:PatternTable=readLocalPatterns(3),busy=false,enabled=false,activity='';
+  let table:PatternTable=readLocalPatterns(4),busy=false,enabled=false,activity='';
   let verifiedSession:MotorSession|null=null;
   const mappings:Partial<Record<ColonEvent,PatternId>>={};const seen=new Set<string>();
   const message=(s:string)=>{el('pattern-message').textContent=s;hooks.say(s);};
   const displayIds:readonly PatternId[]=[...PROGRAM_IDS,...PATTERN_IDS.slice(0,6)];
-  const activeVersion=()=>hooks.session()?.status?.patternsVersion??3;
+  const activeVersion=()=>hooks.session()?.status?.patternsVersion??4;
   const activeIds=()=>patternIds(activeVersion());
   const fields=new Map<PatternId,{row:HTMLDivElement;label:HTMLElement;speed:HTMLSelectElement;duration:HTMLInputElement;run:HTMLButtonElement}>();
   displayIds.forEach(id=>{
@@ -36,18 +36,19 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   function allValid(){return activeIds().every(id=>validPattern(id,table[id],activeVersion()));}
   let renderedVersion:PatternVersion|undefined;
   function update(){
-    const session=hooks.session(),version=session?.status?.patternsVersion,supported=version===1||version===2||version===3;
-    const shownVersion=version??3,ids=activeIds();
+    const session=hooks.session(),version=session?.status?.patternsVersion,supported=version===1||version===2||version===3||version===4;
+    const shownVersion=version??4,ids=activeIds();
     if(renderedVersion!==shownVersion){
+      if(renderedVersion!==undefined&&((renderedVersion===4)!==(shownVersion===4)))table=swapTurnPatterns(table);
       renderedVersion=shownVersion;
       table=adaptPatterns(table,shownVersion);
       verifiedSession=null;
       for(const [id,{speed}] of fields){
         speed.replaceChildren();
-        for(const value of fixedProgram(id)||shownVersion===3?[100]:[25,50,75])speed.append(new Option(`${value}%`,String(value)));
+        for(const value of fixedProgram(id)||shownVersion>=3?[100]:[25,50,75])speed.append(new Option(`${value}%`,String(value)));
       }
       renderValues();
-      el('pattern-badge').textContent=shownVersion===3?'No. 1〜8 · 出力100%固定':shownVersion===2?'No. 1〜8 · 前後100%・1秒':'旧版 · 12パターン';
+      el('pattern-badge').textContent=shownVersion>=3?'No. 1〜8 · 出力100%固定':shownVersion===2?'No. 1〜8 · 前後100%・1秒':'旧版 · 12パターン';
       for(const id of ids){
         const {row,label}=fields.get(id)!;
         label.textContent=(shownVersion!==1?`No. ${ids.indexOf(id)+1}　`:'')+patternLabel(id);
@@ -73,13 +74,13 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     for(const [id,{row,speed,duration,run}] of fields){
       row.classList.toggle('pattern-hidden',!ids.includes(id));
       duration.disabled=busy||fixedProgram(id);
-      speed.disabled=busy||shownVersion===3||id.startsWith('forward')||id.startsWith('backward');
+      speed.disabled=busy||shownVersion>=3||id.startsWith('forward')||id.startsWith('backward');
       const ready=hooks.directControl?!!session?.connected:!!session?.status?.armed&&verifiedSession===session;
       run.disabled=busy||!!session?.foregroundBusy||session?.status?.stopReason==='running'||!!session?.settings.singleTest||!!session?.status?.singleTest||!ready||!!hooks.blocked()||!supported||!validPattern(id,table[id],shownVersion)||table[id].durationMs===0;
     }
     el('pattern-link-status').textContent=integrated?(enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF'):'顔画面への移動時に、この画面のBLE接続を終了します。';
   }
-  el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('出力と動作時間を確認してください。旋回時間は0（未校正）または50〜500msです。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
+  el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('出力と動作時間を確認してください。旋回時間は0（未校正）または50〜500msです。');return;}try{localStorage.setItem(patternStorageKey(activeVersion()),JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
   el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s||s.status?.armed||busy)return;busy=true;activity='read';message('Atomのパターンを読み込んでいます。通信の完了を待っています…');update();try{const received=await s.readPatternTable();for(const id of patternIds(s.status?.patternsVersion))table[id]=received[id];verifiedSession=s;renderValues();message('Atomのパターンを読み込みました。角度は時間校正の目安です。');hooks.record('patterns-read');}catch(e){verifiedSession=null;message(String(e));}finally{busy=false;activity='';update();}});
   el('pattern-write').addEventListener('click',async()=>{
     const s=hooks.session();if(!s||s.status?.armed||busy||!allValid())return;busy=true;activity='write';update();

@@ -1,5 +1,5 @@
 import './screen.css';
-import {INITIAL_SETTINGS,OPS,direction,isDirectFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {INITIAL_SETTINGS,OPS,direction,isDirectFirmware,isCorrectedTurnFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,type DiagnosticRow} from './diagnostics.ts';
@@ -28,7 +28,7 @@ export function mountMotorTest(){
         </section>
         <section class="motor-card wiring"><h2>配線</h2>
           <p>G5 → AIN1　G6 → AIN2<br>G7 → BIN1　G8 → BIN2<br>3V3 → VCC　GND → MODE / GND<br>電池3V → VM</p>
-          <p class="subtle">A出力は左、B出力は右。電池のマイナスとGNDを共通にします。配線を変える際は電源を切ります。</p>
+          <p class="subtle">AOUT1/AOUT2とBOUT1/BOUT2に各モーターを接続します。電池のマイナスとGNDを共通にします。配線を変える際は電源を切ります。</p>
         </section>
       </aside>
       <div class="motor-content">
@@ -50,9 +50,9 @@ export function mountMotorTest(){
               <p class="fixed-output">出力 <strong>100%</strong></p>
               <label>キー操作の最大時間（ms）<input id="pulse" type="number" min="50" max="500" step="10" value="500"></label>
               <p class="subtle">押している間だけ動き、離すか上限時間に達すると停止します。続けるには一度離して、もう一度押してください。</p>
-              <details><summary>左右の方向設定</summary>
-                <label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label>
-                <label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label>
+              <details><summary>モーターの方向設定</summary>
+                <label class="check"><input id="invert-left" type="checkbox"> A出力（G5 / G6）を反転</label>
+                <label class="check"><input id="invert-right" type="checkbox"> B出力（G7 / G8）を反転</label>
               </details>
             </div>
           </div>
@@ -63,9 +63,9 @@ export function mountMotorTest(){
           <div class="section-top"><h2>接続・動作状態</h2><span id="arm-badge" class="badge">未接続</span></div>
           <dl id="telemetry"></dl>
           <div class="track-preview">
-            <div><span>左モーター</span><strong id="left-state">未確認</strong><meter id="left-meter" min="0" max="100" value="0"></meter><small id="left-gpio">G5 / G6</small></div>
+            <div><span>モーターA</span><strong id="left-state">未確認</strong><meter id="left-meter" min="0" max="100" value="0"></meter><small id="left-gpio">G5 / G6</small></div>
             <span class="track-divider">＋</span>
-            <div><span>右モーター</span><strong id="right-state">未確認</strong><meter id="right-meter" min="0" max="100" value="0"></meter><small id="right-gpio">G7 / G8</small></div>
+            <div><span>モーターB</span><strong id="right-state">未確認</strong><meter id="right-meter" min="0" max="100" value="0"></meter><small id="right-gpio">G7 / G8</small></div>
           </div>
           <p class="subtle">接続表示はBLE通信、出力表示は本体から返った指令値です。電池3Vは使用する電源の設定で、本体に電圧・回転の測定機能はありません。停止は空転停止です。</p>
         </section>
@@ -118,7 +118,7 @@ export function mountMotorTest(){
   function controlBlock(){
     const status=session?.status;
     if(!session?.connected||!status)return '左の「接続」から接続してください。';
-    if(!isDirectFirmware(status))return '直接操作に対応する走行プログラム1.6.0をUSB欄から書き込んでください。';
+    if(!isCorrectedTurnFirmware(status))return '左右旋回の修正版1.6.1をUSB欄から書き込んでください。';
     if(status.estop)return '緊急停止中です。「緊急停止を解除」を押してください。';
     if(!status.gpioReady)return '本体の初期化が完了していません。';
     if(!Number.isInteger(settings.pulseMs)||settings.pulseMs<50||settings.pulseMs>500)return '最大時間は50〜500msで指定してください。';
@@ -186,7 +186,7 @@ export function mountMotorTest(){
     try{
       await next.connect();
       next.settings=isDirectFirmware(next.status)?{...settings}:{...INITIAL_SETTINGS};
-      say(isDirectFirmware(next.status)?'接続しました。方向キーや動作ボタンで操作してください。':controlBlock());
+      say(isCorrectedTurnFirmware(next.status)?'接続しました。方向キーや動作ボタンで操作してください。':controlBlock());
     }catch(error){next.disconnect();say(String(error));}
     finally{connecting=false;update();}
   }
@@ -200,7 +200,7 @@ export function mountMotorTest(){
   async function startMotion(name:string){
     if(held||controlBlock()||!session||session.foregroundBusy)return;
     const current=session;held=true;activeMotion=name;update();
-    const [left,right]=direction(name,100,100);
+    const [left,right]=direction(name,100,100,isCorrectedTurnFirmware(current.status));
     try{
       await current.drive(left,right);
       if(session===current){

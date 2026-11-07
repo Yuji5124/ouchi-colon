@@ -1,4 +1,4 @@
-import {OPS,isDirectFirmware,parseStatus,type MotorStatus} from './protocol.ts';
+import {OPS,isDirectFirmware,isCorrectedTurnFirmware,parseStatus,type MotorStatus} from './protocol.ts';
 import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,type PatternConfig} from './patterns.ts';
 /** Reference simulation. No physical connection or GPIO access. Native C++ core is tested separately. */
 export class MockMotor {
@@ -8,7 +8,7 @@ export class MockMotor {
   constructor(singleTest=false,program=false){
     this.state.singleTest=singleTest;
     if(singleTest)this.state.firmware='colon-motor-1.2.0-single-mock';
-    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.6.0',patternsVersion:3});this.patterns=defaultPatterns(3);}
+    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.6.1',patternsVersion:4});this.patterns=defaultPatterns(4);}
   }
   private activePulseMs=0;
   private heartbeatAt=0;private startedAt=0;private stoppedAt=0;private rampAt=0;private target:[number,number]=[0,0];private invert=[false,false];
@@ -48,16 +48,16 @@ export class MockMotor {
     }
     let l=v.getInt8(10),r=v.getInt8(11);
     let duration=s.pulseMs,fullStraight=false;
-    if(op===OPS.PATTERN){if(s.singleTest){this.stop("single-pattern-disabled",now);return;}const id=patternIds(s.patternsVersion)[bytes[10]];if(!id){this.stop('unknown-pattern',now);return;}const config=this.patterns[id];if(!config.durationMs){this.stop('pattern-uncalibrated',now);return;}[l,r]=patternOutput(id,config.speed);duration=config.durationMs;fullStraight=fixedProgram(id);}
+    if(op===OPS.PATTERN){if(s.singleTest){this.stop("single-pattern-disabled",now);return;}const id=patternIds(s.patternsVersion)[bytes[10]];if(!id){this.stop('unknown-pattern',now);return;}const config=this.patterns[id];if(!config.durationMs){this.stop('pattern-uncalibrated',now);return;}[l,r]=patternOutput(id,config.speed,isCorrectedTurnFirmware(s));duration=config.durationMs;fullStraight=fixedProgram(id);}
     if(Math.abs(l)>100||Math.abs(r)>100){this.stop('invalid-pwm',now);return;}
-    if(s.patternsVersion===3&&[l,r].some(v=>v!==0&&Math.abs(v)!==100)){this.stop('program-duty-fixed',now);return;}
+    if((s.patternsVersion??0)>=3&&[l,r].some(v=>v!==0&&Math.abs(v)!==100)){this.stop('program-duty-fixed',now);return;}
     if(s.singleTest&&(!this.experimentalActive||(l!==0&&r!==0)||(l===0&&r===0)||Math.abs(l)>75||Math.abs(r)>75)){this.stop('single-motor-limit',now);return;}
     if(!s.armed){this.stop('disarmed',now);return;}
     if(now-this.heartbeatAt>=350){this.stop('heartbeat-timeout',now);return;}
     if(this.target.some(Boolean)||s.left||s.right){this.stop('stop-before-new-motion',now);return;}
     if(now-this.stoppedAt<100){this.stop('stop-dwell',now);return;}
     this.target=[l,r];this.activePulseMs=duration;this.startedAt=this.rampAt=now;s.stopReason='running';
-    if(fullStraight||s.patternsVersion===3)this.setOutput(l,r);
+    if(fullStraight||(s.patternsVersion??0)>=3)this.setOutput(l,r);
   }
   private setOutput(left:number,right:number){
     Object.assign(this.state,{left,right,physicalLeft:this.invert[0]?-left:left,physicalRight:this.invert[1]?-right:right});

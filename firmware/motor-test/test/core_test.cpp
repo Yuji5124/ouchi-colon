@@ -121,7 +121,7 @@ int main(){
       auto save=frame(c,SAVE_PATTERN,slot,100);save.data[17]=150;
       assert(c.command(save,200+slot));
       int left=0,right=0;patternOutputs(slot,c.patterns[slot].speed,left,right,true);
-      assert(left==(slot<5?100:-100)&&right==-left);
+      assert(left==(slot<5?-100:100)&&right==-left);
     }
     cases++;
   }
@@ -161,6 +161,15 @@ int main(){
       const auto s=displaySnapshot(c,301,true);
       assert(s.direct&&std::string(displayReason(s))=="時間上限・停止");
     }
+    cases++;
+  }
+  {
+    PatternConfig table[PROGRAM_COUNT];
+    for(uint8_t i=0;i<PROGRAM_COUNT;i++)table[i]=defaultPattern(i,true);
+    table[2].durationMs=150;table[5].durationMs=250;
+    swapProgramTurns(table);
+    assert(table[2].durationMs==250&&table[5].durationMs==150);
+    assert(table[0].durationMs==1000&&table[1].durationMs==1000);
     cases++;
   }
   std::cout<<"MotorCore/display: "<<cases<<" safety cases passed\n";
