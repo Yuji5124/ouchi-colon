@@ -7,12 +7,26 @@ export class MotorSession {
   onStatus:()=>void=()=>{};onEvent:(event:string,error?:string)=>void=()=>{};
   private generation=0;private sequence=0;private stopPending:Op|null=null;
   private foregroundReserved=false;private wireIsBackground=false;
+  private pendingHeartbeat:{nonce:number;seq:number}|null=null;
   private idleWaiters=new Set<()=>void>();
   /** User controls stay stable while periodic telemetry/heartbeat is in flight. */
   get foregroundBusy(){return this.foregroundReserved||(this.busy&&!this.wireIsBackground)||this.stopPending!==null;}
   readonly transport:Transport;
   constructor(transport:Transport){this.transport=transport;transport.onDisconnect=()=>{this.connected=false;this.status=null;this.generation++;this.signalIdle();this.onEvent('disconnect');this.onStatus();};}
-  private observe(next:MotorStatus){const previous=this.status;this.status=next;if(previous&&next.stopReason!==previous.stopReason&&!next.armed)this.onEvent(`stopped:${next.stopReason}`);}
+  private observe(next:MotorStatus){
+    const previous=this.status;this.status=next;
+    if(this.pendingHeartbeat){
+      if(next.nonce!==this.pendingHeartbeat.nonce)this.pendingHeartbeat=null;
+      else if(next.seq>=this.pendingHeartbeat.seq){
+        if(next.heartbeatAgeMs<350){
+          this.lastHeartbeatAt=new Date().toISOString();
+          this.onEvent('HEARTBEAT');
+        }
+        this.pendingHeartbeat=null;
+      }
+    }
+    if(previous&&next.stopReason!==previous.stopReason&&!next.armed)this.onEvent(`stopped:${next.stopReason}`);
+  }
   async connect(){await this.transport.connect();this.connected=true;this.status=await this.transport.read();this.sequence=this.status.seq;this.onEvent('connect');this.onStatus();}
   disconnect(){this.generation++;this.connected=false;this.transport.disconnect();this.status=null;this.signalIdle();this.onStatus();}
   private signalIdle(){for(const resolve of this.idleWaiters)resolve();this.idleWaiters.clear();}
@@ -59,7 +73,7 @@ export class MotorSession {
   async arm(){return this.foreground(async assertCurrent=>{await this.sendNow(OPS.CONFIG);assertCurrent();await this.sendNow(OPS.ARM);});}
   async bounded<T>(operation:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>;try{return await Promise.race([operation,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('通信応答なし。独立停止タイマーが停止させます。')),2000);})]);}finally{clearTimeout(timer!);}}
   async poll(){if(!this.connected||this.busy||this.foregroundReserved)return;this.busy=true;this.wireIsBackground=true;try{const previous=this.status;this.observe(await this.bounded(this.transport.read()));if(previous&&previous.bootId!==this.status!.bootId){this.generation++;this.onEvent('restart-detected');this.requestStop();}this.onStatus();}catch(e){this.onEvent('read-error',String(e));this.disconnect();}finally{this.releaseWire();}}
-  async heartbeat(){if(!this.connected||this.busy||this.foregroundReserved)return;await this.sendNow(OPS.HEARTBEAT);}
+  async heartbeat(){if(!this.connected||this.busy||this.foregroundReserved)return;await this.sendNow(OPS.HEARTBEAT,0,0,undefined,true);}
   async send(op:Op,left=0,right=0,patternDuration?:number){
     if(this.foregroundReserved)throw new Error('読み込み・書込み中です。動作要求は送信していません。');
     // A held press can wait for an in-flight heartbeat or poll. Stop, release,
@@ -72,12 +86,16 @@ export class MotorSession {
     }
     return this.sendNow(op,left,right,patternDuration);
   }
-  private async sendNow(op:Op,left=0,right=0,patternDuration?:number){
+  private async sendNow(op:Op,left=0,right=0,patternDuration?:number,backgroundHeartbeat=false){
     if(!this.connected||!this.status)throw new Error('先に接続してください。');
     if(this.busy)throw new Error('通信処理中です。もう一度操作してください。');
     this.busy=true;this.wireIsBackground=op===OPS.HEARTBEAT;const generation=this.generation;
     try{
-      const before=await this.bounded(this.transport.read());this.observe(before);
+      // The reserved wire keeps the cached nonce/sequence current for motion.
+      // A stale device session still rejects the command without driving.
+      const cached=backgroundHeartbeat||op===OPS.MOVE||op===OPS.PATTERN;
+      const before=cached?this.status:await this.bounded(this.transport.read());
+      if(!cached)this.observe(before);
       if(generation!==this.generation)throw new Error('操作は停止要求で取り消されました。');
       this.sequence=Math.max(this.sequence,before.seq)+1;
       const stop=op===OPS.STOP||op===OPS.ESTOP||op===OPS.DISARM;
@@ -88,6 +106,10 @@ export class MotorSession {
         new DataView(frame.buffer).setUint16(17,patternDuration!,true);
       }
       await this.bounded(this.transport.write(frame));
+      if(backgroundHeartbeat){
+        if(generation===this.generation)this.pendingHeartbeat={nonce:before.nonce,seq:this.sequence};
+        return;
+      }
       for(let i=0;i<12;i++){
         const status=await this.bounded(this.transport.read());this.observe(status);
         if(status.nonce!==before.nonce||status.seq>=this.sequence)break;

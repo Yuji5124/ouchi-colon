@@ -6,6 +6,55 @@ import {MockTransport} from '../src/motor/transport.ts';
 import {OPS} from '../src/motor/protocol.ts';
 import {defaultPatterns} from '../src/motor/patterns.ts';
 
+test('Session: BLE読出し120ms・書込み40msでもハートビートが許可を維持する',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport);
+  let now=0,reads=0;
+  transport.now=()=>now;
+  const read=transport.read.bind(transport),write=transport.write.bind(transport);
+  transport.read=async()=>{now+=120;reads++;return read();};
+  transport.write=async frame=>{now+=40;transport.core.tick(now);return write(frame);};
+  await session.connect();
+  try{
+    await session.arm();
+    assert.equal(session.status?.armed,true);
+    for(let i=0;i<8;i++){
+      const previousReads=reads;
+      await session.heartbeat();
+      assert.equal(reads,previousReads,'心拍の送信に読出しを挟まない');
+      await session.poll();
+      assert.equal(session.status?.armed,true);
+    }
+    const beforeMotionReads=reads;
+    await session.send(OPS.MOVE,100,100);
+    assert.equal(reads,beforeMotionReads+1,'移動は応答確認の読出し1回で送る');
+    assert.equal(session.status?.armed,true);
+    assert.equal(transport.core.state.left,100);
+    assert.ok(session.lastHeartbeatAt,'本体の応答をポーリングで確認する');
+    now+=350;
+    await session.poll();
+    assert.equal(session.status?.armed,false);
+    assert.equal(session.status?.stopReason,'heartbeat-timeout');
+  }finally{session.disconnect();}
+});
+
+test('Session: ハートビートを書いただけでは本体の応答時刻を更新しない',async()=>{
+  const transport=new MockTransport(),session=new MotorSession(transport);
+  await session.connect();
+  try{
+    const write=transport.write.bind(transport);
+    transport.write=async frame=>{if(frame[1]!==OPS.HEARTBEAT)await write(frame);};
+    await session.heartbeat();
+    assert.equal(session.lastHeartbeatAt,null);
+    await session.poll();
+    assert.equal(session.lastHeartbeatAt,null,'本体が処理していない心拍を応答済みにしない');
+    transport.write=write;
+    await session.heartbeat();
+    assert.equal(session.lastHeartbeatAt,null);
+    await session.poll();
+    assert.ok(session.lastHeartbeatAt);
+  }finally{session.disconnect();}
+});
+
 function holdNextRead(transport:MockTransport){
   const original=transport.read.bind(transport);
   let release!:()=>void,hold=true,calls=0;
