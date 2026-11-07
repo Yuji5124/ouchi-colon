@@ -36,7 +36,7 @@ export function makeFrame(status:MotorStatus,op:Op,seq:number,settings:MotorSett
   if(!validSettings(settings)||![left,right].every(v=>Number.isInteger(v)&&v>=-100&&v<=100)||!Number.isInteger(seq)||seq<=0||seq>0xffffffff)throw new Error('PWM・周波数・パルスの指定が不正です。');
   if(settings.rcTest&&op===OPS.MOVE&&(![left,right].some(Boolean)||(!isProgramFirmware(status)&&Math.max(Math.abs(left),Math.abs(right))>RC_MAX_DUTY)))throw new Error('ラジコン試験の出力指定が不正です。');
   if(isFullPowerFirmware(status)&&op===OPS.MOVE&&[left,right].some(v=>v!==0&&Math.abs(v)!==100))throw new Error('出力は100%固定です。');
-  if(settings.directControl&&!isDirectFirmware(status))throw new Error('直接操作には走行プログラム1.6.0を書き込んでください。');
+  if(settings.directControl&&!isDirectFirmware(status))throw new Error('直接操作には走行プログラム1.7.0を書き込んでください。');
   if(settings.actionStep&&!isActionFirmware(status))throw new Error('A01〜A17には走行プログラム1.7.0が必要です。');
   const out=new Uint8Array(20),v=new DataView(out.buffer);out[0]=1;out[1]=op;v.setUint32(2,status.nonce,true);v.setUint32(6,seq,true);v.setInt8(10,left);v.setInt8(11,right);v.setUint16(12,settings.frequency,true);out[14]=(settings.invertLeft?1:0)|(settings.invertRight?2:0);out[15]=settings.directControl?0:15;out[16]=settings.actionStep?5:settings.directControl?4:settings.rcTest?3:settings.singleTest?2:settings.signalOnly?1:0;v.setUint16(17,settings.pulseMs,true);return out;
 }

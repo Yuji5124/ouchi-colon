@@ -40,7 +40,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   try{const value=JSON.parse(localStorage.getItem('colon-actions-v1')??'null');if(validActionSettings(value))settings=value;}catch{}
   for(const key of Object.keys(settings) as Array<keyof ActionSettings>)root.querySelector<HTMLInputElement|HTMLSelectElement>(`[data-setting="${key}"]`)!.value=String(settings[key]);
   let enabled=false,follow=false,radio=false,lastAutomatic=0,candidate:ActionId|null=null,stable=0;
-  let previousConnected=false,previousBoot:number|undefined;
+  let previousConnected=false,previousBoot:number|undefined,commandGeneration=0,observedSession:MotorSession|null=null;
   const speech=new SpeechSynthesisEngine();
   const message=(text:string)=>{el('message').textContent=text;hooks.say(text);};
   const speaker=()=>getMotorSpeaker();
@@ -56,10 +56,10 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   });
   function block(){return hooks.blocked()||(!isActionFirmware(hooks.session()?.status)?'A01〜A17には走行プログラム1.7.0を書き込んでください。':'');}
   function occupied(){const session=hooks.session();return runner.running||!!session?.foregroundBusy||!!session?.status?.armed;}
-  function disableAutomatic(){enabled=follow=radio=false;candidate=null;stable=0;for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).checked=false;}
+  function disableAutomatic(){commandGeneration++;enabled=follow=radio=false;candidate=null;stable=0;for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).checked=false;}
   function stop(emergency=false){disableAutomatic();runner.stop(emergency);update();}
   async function run(id:ActionId){
-    if(id==='A17'){stop();message('A17 · 停止しました。続きの動作と連動も取り消しました。');hooks.record('action:A17');return true;}
+    if(id==='A17'){stop();message('A17 · 停止を要求しました。続きの動作と連動を取り消しました。');hooks.record('action:A17');return true;}
     const blocked=block();if(blocked){message(blocked);return false;}
     if(occupied()){message('動作または通信処理中です。停止後にもう一度実行してください。');return false;}
     try{
@@ -78,10 +78,11 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   }
   function update(){
     const session=hooks.session(),connected=!!session?.connected,boot=session?.status?.bootId;
-    if(previousConnected&&(!connected||boot!==previousBoot)){disableAutomatic();runner.stop();}
+    if(session!==observedSession){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();observedSession=session;}
+    if(previousConnected&&(!connected||boot!==previousBoot)){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();runner.stop();}
     previousConnected=connected;previousBoot=boot;
     const blocked=block(),moving=!!session?.status&&(!!session.status.left||!!session.status.right||session.status.armed);
-    el('state').textContent=runner.running?`${runner.active} · ${runner.step}/${runner.total}`:!connected?'未接続':blocked?'更新・停止状態を確認':'停止中';
+    el('state').textContent=!connected?'未接続':session?.status?.estop?'緊急停止':runner.running?`${runner.active} · ${runner.step}/${runner.total}`:moving?'別の操作で出力指令中':session?.foregroundBusy?'通信処理中':blocked?'更新・停止状態を確認':'停止指令を確認';
     for(const [id,button] of buttons){button.disabled=id!=='A17'&&(!!blocked||runner.running||!!session?.foregroundBusy||moving);button.classList.toggle('is-active',runner.active===id);}
     for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).disabled=!!blocked;
     root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('[data-setting]').forEach(input=>input.disabled=runner.running);
@@ -106,10 +107,16 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   const unregister=hooks.integrated?registerMotorActionHandler((id,completed)=>{
     if(id!=='A17'&&!enabled)return false;
     if(['A13','A14','A15','A16'].includes(id)&&!radio)return false;
-    if(id==='A17'&&!enabled&&!follow&&!runner.running)return false;
-    void Promise.resolve().then(()=>run(id)).then(success=>completed?.(success));return true;
+    if(id==='A17'&&!hooks.session()?.connected&&!runner.running)return false;
+    const generation=commandGeneration,session=hooks.session();
+    void Promise.resolve().then(()=>{
+      if(id!=='A17'&&(generation!==commandGeneration||session!==hooks.session()||!enabled||document.hidden))return false;
+      return run(id);
+    }).then(success=>completed?.(success));return true;
   }):()=>{};
   for(const role of ['enabled','follow','radio'])el(role).addEventListener('change',()=>{
+    commandGeneration++;
+    if(!el<HTMLInputElement>(role).checked)runner.stop();
     enabled=el<HTMLInputElement>('enabled').checked;follow=el<HTMLInputElement>('follow').checked;
     radio=el<HTMLInputElement>('radio').checked;
     if(role==='radio'&&radio){enabled=true;el<HTMLInputElement>('enabled').checked=true;}

@@ -29,6 +29,7 @@ test('Actions: 到着2秒、うれしい2種、分からない6パルスの順�
   assert.deepEqual(plan('A10').moves.map(m=>[m.left,m.durationMs,m.gapMs]),[-100,-100,-100,100,100,100].map(n=>[n,500,200]));
   assert.equal(validActionSettings({...settings,pauseMs:99}),false);
   assert.equal(validActionSettings({...settings,medium:0.9,large:0.8}),false);
+  assert.throws(()=>planAction('A13',table,settings,face,501,100),/50〜500ms/);
 });
 test('Actions: 顔の左右・ずれ・見かけの幅から6方向を選ぶ。古い入力は不可',()=>{
   for(const [x,id] of [[0.2,'A01'],[0.4,'A02'],[0.8,'A03'],[-0.2,'A04'],[-0.4,'A05'],[-0.8,'A06']] as const)assert.equal(faceAction({...face,x},settings,100),id);
@@ -67,11 +68,11 @@ async function fixture(){
   transport.write=async frame=>{if(frame[1]===OPS.MOVE){const v=new DataView(frame.buffer,frame.byteOffset,frame.byteLength);writes.push({left:v.getInt8(10),right:v.getInt8(11),duration:v.getUint16(17,true)});}await original(frame);};
   await session.connect();now=100;
   Object.assign(transport.core.patterns,structuredClone(table));
-  let onSleep:(ms:number)=>void=()=>{},detected=true,heartbeats=true;
+  let onSleep:(ms:number)=>void|Promise<void>=()=>{},detected=true,heartbeats=true;
   const runner=new ActionRunner({session:()=>session,face:()=>({...face,detected,at:now}),speechReady:()=>'',speak:async()=>{assert.equal(session.status?.left,0);assert.equal(session.status?.right,0);speeches++;},changed:()=>{},now:()=>now,
-    sleep:async(ms,signal)=>{onSleep(ms);if(signal.aborted)throw new Error('cancelled');delays.push(ms);now+=ms;if(heartbeats)await session.heartbeat();await session.poll();},
+    sleep:async(ms,signal)=>{await onSleep(ms);if(signal.aborted)throw new Error('cancelled');delays.push(ms);now+=ms;if(heartbeats)await session.heartbeat();await session.poll();},
   });
-  return {runner,session,transport,writes,delays,speeches:()=>speeches,onSleep:(callback:(ms:number)=>void)=>onSleep=callback,loseFace:()=>detected=false,noHeartbeat:()=>heartbeats=false};
+  return {runner,session,transport,writes,delays,speeches:()=>speeches,onSleep:(callback:(ms:number)=>void|Promise<void>)=>onSleep=callback,loseFace:()=>detected=false,noHeartbeat:()=>heartbeats=false};
 }
 test('Runner: 到着は連続2000msの1指令、実停止の応答後だけ発話',async()=>{
   const f=await fixture();try{await f.runner.run('A07',settings);assert.deepEqual(f.writes,[{left:100,right:100,duration:2000}]);assert.equal(f.speeches(),1);assert.equal(f.runner.running,false);}finally{f.session.disconnect();}
@@ -81,6 +82,12 @@ test('Runner: A10の6段階と5回の200ms停止を順に確認する',async()=>
 });
 test('Runner: 停止間隔中のA17で残り5指令を取り消す',async()=>{
   const f=await fixture();try{f.onSleep(ms=>{if(ms===200)f.runner.stop();});await assert.rejects(f.runner.run('A10',settings));assert.equal(f.writes.length,1);assert.equal(f.runner.running,false);assert.equal(f.speeches(),0);}finally{f.session.disconnect();}
+});
+test('Runner: 動作間に本体のSTOP応答を受けた場合も残りを再開しない',async()=>{
+  const f=await fixture();try{
+    f.onSleep(async ms=>{if(ms===200){f.session.requestStop();await new Promise(resolve=>setTimeout(resolve,0));}});
+    await assert.rejects(f.runner.run('A10',settings),/停止要求/);assert.equal(f.writes.length,1);
+  }finally{f.session.disconnect();}
 });
 test('Runner: 切断後に再接続しても続きを再開しない',async()=>{
   const f=await fixture();try{f.onSleep(()=>f.session.disconnect());await assert.rejects(f.runner.run('A08',settings));await f.session.connect();assert.equal(f.writes.length,1);assert.equal(f.session.status?.left,0);}finally{f.session.disconnect();}

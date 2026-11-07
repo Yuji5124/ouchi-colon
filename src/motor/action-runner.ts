@@ -50,6 +50,7 @@ export class ActionRunner {
       this.total=plan.moves.length;this.hooks.changed();
       for(const [index,move] of plan.moves.entries()){
         assertCurrent();
+        if(index>0&&session.status?.stopReason!=='pulse-limit')throw new Error('停止要求により、続きの動作を取り消しました。');
         if(plan.requiresFace&&!freshFace(this.hooks.face(),this.now()))throw new Error('顔を見失ったため停止しました。');
         this.step=index+1;this.hooks.changed();
         const deadline=this.now()+move.durationMs+3000;

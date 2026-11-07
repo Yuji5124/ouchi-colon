@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:motor": "node --experimental-strip-types --test tests/motor-test.test.ts tests/motor-patterns.test.ts tests/motor-session.test.ts tests/motor-single.test.ts",
+    "test:motor": "node --experimental-strip-types --test tests/motor-*.test.ts",
     "test:motor-native": "node scripts/test-motor-native.mjs",
     "test:motor-browser": "node scripts/test-motor-actions-browser.mjs"
   },

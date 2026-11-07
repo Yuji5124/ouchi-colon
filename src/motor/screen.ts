@@ -1,5 +1,5 @@
 import './screen.css';
-import {INITIAL_SETTINGS,OPS,direction,isDirectFirmware,isCorrectedTurnFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {INITIAL_SETTINGS,OPS,direction,isDirectFirmware,isCorrectedTurnFirmware,isActionFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,type DiagnosticRow} from './diagnostics.ts';
@@ -49,7 +49,7 @@ export function mountMotorTest(){
             </div>
             <div class="speed-settings">
               <p class="fixed-output">出力 <strong>100%</strong></p>
-              <label>キー操作の最大時間（ms）<input id="pulse" type="number" min="50" max="500" step="10" value="500"></label>
+              <label>前後進の最大時間（ms）<input id="pulse" type="number" min="50" max="500" step="10" value="500"></label>
               <p class="subtle">W・Sは押している間だけ、最大500ms。A・Dは1回で校正済みの90°旋回を実行します。途中で止めるには停止を押してください。</p>
               <details><summary>モーターの方向設定</summary>
                 <label class="check"><input id="invert-left" type="checkbox"> A出力（G5 / G6）を反転</label>
@@ -139,10 +139,10 @@ export function mountMotorTest(){
     const state=!connected?'未接続':s?.estop?'緊急停止':moving?'動作指令中':session?.foregroundBusy?'操作準備中':'接続済み・停止中';
     el('rc-badge').textContent=el('arm-badge').textContent=state;
     const blocked=controlBlock();
-    el('rc-help').textContent=blocked||(moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':'方向ボタンまたはW・S・A・Dで操作できます。');
+    el('rc-help').textContent=blocked||(moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isActionFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.7.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
     const canMove=!blocked&&!actionPanel?.running&&(!session?.foregroundBusy||held);
     for(const button of buttons){
-      button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion);
+      button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion)||(['left','right'].includes(button.dataset.motion!)&&!isActionFirmware(s));
       button.classList.toggle('is-held',held&&button.dataset.motion===activeMotion);
     }
     el('reset-estop').hidden=!s?.estop;
@@ -204,6 +204,7 @@ export function mountMotorTest(){
   async function startMotion(name:string){
     if(held||controlBlock()||!session||session.foregroundBusy||actionPanel?.running)return;
     if(name==='left'||name==='right'){
+      if(!isActionFirmware(session.status)){say('90°旋回には走行プログラム1.7.0へ更新してください。');return;}
       pointerId=null;heldKey=null;
       await actionPanel?.run(name==='left'?'A15':'A16');return;
     }

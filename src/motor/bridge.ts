@@ -4,7 +4,7 @@ export const COLON_EVENTS=['IDLE','HAPPY','TALK','THINK','SURPRISE','SAD','SLEEP
 export type ColonEvent=typeof COLON_EVENTS[number];
 export interface ColonMotorEvent {type:'colon-expression';expression:ColonEvent;at:number;id:string;}
 let channel:BroadcastChannel|null=null;
-/** Only symbolic expression events, never speech, child utterances or personal data. */
+/** Symbolic expressions and normalized gaze only; no raw video or utterance text. */
 export function publishMotorExpression(expression:string){
   if(!COLON_EVENTS.includes(expression as ColonEvent))return;
   // Optional motor integration must never interrupt the existing face/conversation.

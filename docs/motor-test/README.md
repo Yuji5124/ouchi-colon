@@ -15,7 +15,7 @@ npm ci
 npm run dev -- --configLoader runner --host 127.0.0.1 --port 18181
 ```
 
-[操作画面](http://127.0.0.1:18181/ouchi-colon/?motor=1) / [Colon連動](http://127.0.0.1:18181/ouchi-colon/?debug=1&motorLink=1) / [A01〜A17の仕様](actions.md)
+[操作画面](http://127.0.0.1:18181/ouchi-colon/?motor=1) / [Colon連動](http://127.0.0.1:18181/ouchi-colon/?debug=1&motorLink=1) / [A01〜A17の仕様](actions.md) / [データ整合性の再確認](consistency-audit.md)
 
 以下は旧版の調査・試験記録です。現在の操作は上記1.7.0と動作番号一覧を参照してください。
 

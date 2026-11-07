@@ -79,7 +79,7 @@ export class MotorSession {
   async arm(){return this.foreground(async assertCurrent=>{await this.sendNow(OPS.CONFIG);assertCurrent();await this.sendNow(OPS.ARM);});}
   private async prepareDirectMotion(assertCurrent:()=>void){
     const status=this.status;
-    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.6.0へ更新してください。');
+    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.7.0へ更新してください。');
     if(status.estop)throw new Error('緊急停止を解除してください。');
     if(status.armed||status.left||status.right)throw new Error('停止してから操作してください。');
     const remaining=100-(performance.now()-this.stoppedObservedAt);

@@ -1,3 +1,18 @@
+# USB書込み・パターン保存（現在の1.7.0）
+
+PC Chrome / EdgeでUSBから走行プログラム1.7.0を書き込み、通常起動後はBLEのColon-Motor-Testへ接続します。USBを選択しただけでは書き込みません。書込み中はモーター電源VMと外付け回路を外します。既存ファームの置換と復元方法はUSB欄で確認します。iPhone Safariは実機USB書込み・BLE操作に対応していません。
+
+- Atomへ保存する基本校正値は10個（形式5）。No.1=前進100%・1秒、No.2=後進100%・1秒、No.3〜8=左右15/30/45°、No.9=右90°、No.10=左90°です。
+- 15〜45°は50〜500ms、90°は50〜2000msで時間校正します。0msは未校正で実行できません。
+- 「このPCに保存」はブラウザのみ。「Atomへパターンを書き込む」はBLEでNVSへ保存し、読戻しを確認します。未転送の編集値はAtomへ反映されません。
+- A01〜A17は10個の基本校正値を用いるブラウザ側の複合動作です。17個すべてをAtom内で単独実行する仕様ではありません。
+- 接続するだけでは動かず、操作ごとの許可チェックは不要です。古いnotif / notifnano / v10のファームには専用BLEサービスがありません。
+
+[動作番号・実機で試す順番](actions.md) / [配線](hardware.md)
+
+<details>
+<summary>旧版1.1のUSB・12パターン手順（現在の操作には適用しません）</summary>
+
 # USB書込み・12パターン・OuchiColon連動
 
 この版はAtomS3 C123用 `colon-motor-1.1.0` の信号試験です。実機書込み・通電試験は開発時に実行していません。電源適合性未確認のため通電は禁止しています。VMを接続しないでください。
@@ -67,3 +82,5 @@ node scripts/package-motor-firmware.mjs
 同梱バイナリは `public/firmware/manifest.json` にハッシュと書込み先を記録しています。`MOTOR_ALLOW_POWERED_TESTS=0` のビルドだけを配布パッケージにできます。
 
 公式資料：[M5Stack AtomS3書込みモード](https://docs.m5stack.com/en/core/AtomS3) / [Espressif esptool-js](https://github.com/espressif/esptool-js)
+
+</details>
