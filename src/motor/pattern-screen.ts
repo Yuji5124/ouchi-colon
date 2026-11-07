@@ -1,4 +1,4 @@
-import {PATTERN_IDS,PROGRAM_IDS,patternIds,fixedProgram,patternLabel,readLocalPatterns,validPattern,type PatternTable,type PatternId,type PatternConfig} from './patterns.ts';
+import {PATTERN_IDS,PROGRAM_IDS,patternIds,fixedProgram,patternLabel,readLocalPatterns,adaptPatterns,validPattern,type PatternVersion,type PatternTable,type PatternId,type PatternConfig} from './patterns.ts';
 import {COLON_EVENTS,COLON_MOTOR_CHANNEL,validColonEvent,type ColonEvent} from './bridge.ts';
 import {OPS} from './protocol.ts';
 import type {MotorSession} from './session.ts';
@@ -10,17 +10,18 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   parent.prepend(section);
   const integrated=parent.id==='colon-motor-patterns';
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;
-  let table:PatternTable=readLocalPatterns(),busy=false,enabled=false,activity='';
+  let table:PatternTable=readLocalPatterns(3),busy=false,enabled=false,activity='';
   let verifiedSession:MotorSession|null=null;
   const mappings:Partial<Record<ColonEvent,PatternId>>={};const seen=new Set<string>();
   const message=(s:string)=>{el('pattern-message').textContent=s;hooks.say(s);};
   const displayIds:readonly PatternId[]=[...PROGRAM_IDS,...PATTERN_IDS.slice(0,6)];
-  const activeIds=()=>patternIds(hooks.session()?.status?.patternsVersion??2);
+  const activeVersion=()=>hooks.session()?.status?.patternsVersion??3;
+  const activeIds=()=>patternIds(activeVersion());
   const fields=new Map<PatternId,{row:HTMLDivElement;label:HTMLElement;speed:HTMLSelectElement;duration:HTMLInputElement;run:HTMLButtonElement}>();
   displayIds.forEach(id=>{
     const row=document.createElement('div');row.className='pattern-row';
     const label=document.createElement('strong');
-    const speed=document.createElement('select');speed.setAttribute('aria-label',`${patternLabel(id)}の出力`);for(const n of fixedProgram(id)?[100]:[25,50,75]){const o=new Option(`${n}%`,String(n));speed.append(o);}speed.value=String(table[id].speed);
+    const speed=document.createElement('select');speed.setAttribute('aria-label',`${patternLabel(id)}の出力`);
     const duration=document.createElement('input');duration.type='number';duration.min='0';duration.max=fixedProgram(id)?'1000':'500';duration.step='1';duration.value=String(table[id].durationMs);duration.setAttribute('aria-label',`${patternLabel(id)}の時間ms`);
     const run=document.createElement('button');run.className='motor-secondary pattern-run';run.textContent='1回実行';run.dataset.id=id;
     const change=()=>{hooks.stop();table[id]={speed:Number(speed.value),durationMs:Number(duration.value)} as PatternConfig;verifiedSession=null;message('編集内容は未転送です。PC保存とAtomへの書込みは別操作です。');update();};
@@ -32,17 +33,24 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
       speed.value=String(table[id].speed);duration.value=String(table[id].durationMs);
     }
   }
-  function allValid(){return activeIds().every(id=>validPattern(id,table[id]));}
-  let renderedVersion:1|2|undefined;
+  function allValid(){return activeIds().every(id=>validPattern(id,table[id],activeVersion()));}
+  let renderedVersion:PatternVersion|undefined;
   function update(){
-    const session=hooks.session(),version=session?.status?.patternsVersion,supported=version===1||version===2;
-    const shownVersion=version??2,ids=activeIds();
+    const session=hooks.session(),version=session?.status?.patternsVersion,supported=version===1||version===2||version===3;
+    const shownVersion=version??3,ids=activeIds();
     if(renderedVersion!==shownVersion){
       renderedVersion=shownVersion;
-      el('pattern-badge').textContent=shownVersion===2?'No. 1〜8 · 前後100%・1秒':'旧版 · 12パターン';
+      table=adaptPatterns(table,shownVersion);
+      verifiedSession=null;
+      for(const [id,{speed}] of fields){
+        speed.replaceChildren();
+        for(const value of fixedProgram(id)||shownVersion===3?[100]:[25,50,75])speed.append(new Option(`${value}%`,String(value)));
+      }
+      renderValues();
+      el('pattern-badge').textContent=shownVersion===3?'No. 1〜8 · 出力100%固定':shownVersion===2?'No. 1〜8 · 前後100%・1秒':'旧版 · 12パターン';
       for(const id of ids){
         const {row,label}=fields.get(id)!;
-        label.textContent=(shownVersion===2?`No. ${ids.indexOf(id)+1}　`:'')+patternLabel(id);
+        label.textContent=(shownVersion!==1?`No. ${ids.indexOf(id)+1}　`:'')+patternLabel(id);
         el('pattern-table').append(row);
       }
       for(const select of section.querySelectorAll<HTMLSelectElement>('#pattern-mappings select')){
@@ -50,7 +58,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
           if(!option.value)continue;
           const id=option.value as PatternId,index=ids.indexOf(id);
           option.disabled=option.hidden=index<0;
-          option.textContent=(shownVersion===2&&index>=0?`No. ${index+1}　`:'')+patternLabel(id);
+          option.textContent=(shownVersion!==1&&index>=0?`No. ${index+1}　`:'')+patternLabel(id);
         }
         if(select.selectedOptions[0]?.disabled){
           select.value='';
@@ -65,12 +73,12 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     for(const [id,{row,speed,duration,run}] of fields){
       row.classList.toggle('pattern-hidden',!ids.includes(id));
       duration.disabled=busy||fixedProgram(id);
-      speed.disabled=busy||id.startsWith('forward')||id.startsWith('backward');
-      run.disabled=busy||!!session?.foregroundBusy||session?.status?.stopReason==='running'||!!session?.settings.singleTest||!!session?.status?.singleTest||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id])||table[id].durationMs===0||verifiedSession!==session;
+      speed.disabled=busy||shownVersion===3||id.startsWith('forward')||id.startsWith('backward');
+      run.disabled=busy||!!session?.foregroundBusy||session?.status?.stopReason==='running'||!!session?.settings.singleTest||!!session?.status?.singleTest||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id],shownVersion)||table[id].durationMs===0||verifiedSession!==session;
     }
     el('pattern-link-status').textContent=integrated?(enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF'):'顔画面への移動時に、この画面のBLE接続を終了します。';
   }
-  el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('時間は0（未校正）または50〜500ms、出力は25 / 50 / 75%にしてください。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
+  el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('出力と動作時間を確認してください。旋回時間は0（未校正）または50〜500msです。');return;}try{localStorage.setItem('colon-motor-patterns-v1',JSON.stringify(table));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。保存設定を確認してください。');}});
   el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s||s.status?.armed||busy)return;busy=true;activity='read';message('Atomのパターンを読み込んでいます。通信の完了を待っています…');update();try{const received=await s.readPatternTable();for(const id of patternIds(s.status?.patternsVersion))table[id]=received[id];verifiedSession=s;renderValues();message('Atomのパターンを読み込みました。角度は時間校正の目安です。');hooks.record('patterns-read');}catch(e){verifiedSession=null;message(String(e));}finally{busy=false;activity='';update();}});
   el('pattern-write').addEventListener('click',async()=>{
     const s=hooks.session();if(!s||s.status?.armed||busy||!allValid())return;busy=true;activity='write';update();
@@ -79,7 +87,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     catch(e){verifiedSession=null;message(`書込みが完了していません。一部保存の可能性があります。${String(e)}`);hooks.record('patterns-save-error',String(e));}finally{busy=false;activity='';update();}
   });
   async function runPattern(id:PatternId){
-    const s=hooks.session();if(s?.settings.singleTest||s?.status?.singleTest){message('本体単独版ではパターンを実行できません。左右の単体ボタンを使用してください。');return;}if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id])||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
+    const s=hooks.session();if(s?.settings.singleTest||s?.status?.singleTest){message('本体単独版ではパターンを実行できません。左右の単体ボタンを使用してください。');return;}if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id],activeVersion())||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
     const slot=patternIds(s.status.patternsVersion).indexOf(id);if(slot<0||document.hidden)return;
     busy=true;update();try{const current=await s.readPatternTable();if(JSON.stringify(current[id])!==JSON.stringify(table[id]))throw new Error('Atomの設定と編集値が違います。読み込み直してください。');if(s!==hooks.session()||!s.status?.armed||hooks.blocked()||document.hidden)throw new Error('駆動許可が解除されました。');await s.send(OPS.PATTERN,slot);hooks.record(`pattern:${id}`,undefined,JSON.stringify(table[id]));message(`${patternLabel(id)}を${table[id].durationMs}msの上限で実行要求しました。角度・距離は実測値ではありません。`);}catch(e){hooks.stop();message(String(e));}finally{busy=false;update();}
   }

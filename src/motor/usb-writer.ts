@@ -4,7 +4,7 @@ export function validateManifest(value:unknown):FirmwareManifest {
   const m=value as FirmwareManifest;
   const versionMatches=(m?.poweredTests==='boot-trial'&&m.version==='1.4.0'&&m.maxPulseMs===100&&m.maxDuty===50)
     ||(m?.poweredTests==='boot-dual'&&m.version==='1.4.2'&&m.maxPulseMs===2000&&m.maxDuty===100)
-    ||(m?.poweredTests==='drive-program'&&m.version==='1.5.0'&&m.maxPulseMs===1000&&m.maxDuty===100);
+    ||(m?.poweredTests==='drive-program'&&m.version==='1.5.1'&&m.maxPulseMs===1000&&m.maxDuty===100);
   const limitedValid=versionMatches&&m.powerQualified===false&&m.lcdDisplay===true
     &&m.assumedV===undefined&&m.maxVmV===3;
   if(!m||m.schema!=='colon-firmware/1'||m.chip!=='ESP32-S3'||m.flashBytes!==8388608||!((m.poweredTests===false&&/^1\.1\.\d+$/.test(m.version))||(m.poweredTests==='experimental-single'&&/^1\.2\.\d+$/.test(m.version)&&m.powerQualified===false&&m.assumedV===1.5&&m.maxPulseMs===100&&m.maxDuty===75)||(m.poweredTests==='rc-trial'&&m.version==='1.3.0'&&m.powerQualified===false&&m.lcdDisplay===true&&m.assumedV===undefined&&m.maxPulseMs===500&&m.maxDuty===75)||limitedValid)||!Array.isArray(m.parts)||m.parts.length!==4)throw new Error('対応する試験ファームではありません。');

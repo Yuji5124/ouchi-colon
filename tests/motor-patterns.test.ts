@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {defaultPatterns,PATTERN_IDS,PROGRAM_IDS,validPattern,patternOutput,parsePatterns} from '../src/motor/patterns.ts';
+import {defaultPatterns,adaptPatterns,PATTERN_IDS,PROGRAM_IDS,validPattern,patternOutput,parsePatterns} from '../src/motor/patterns.ts';
 import {driveKey} from '../src/motor/keyboard.ts';
 import {validColonEvent,publishMotorExpression} from '../src/motor/bridge.ts';
 import {MockMotor} from '../src/motor/mock.ts';
@@ -22,6 +22,23 @@ test('Program: No. 1〜8の順序、固定の前後動作、時間未校正の�
   assert.throws(()=>parsePatterns({version:2,slots},1));
   assert.throws(()=>parsePatterns({version:2,slots:[[100,999],...slots.slice(1)]},2));
   assert.throws(()=>parsePatterns({version:2,slots:[...slots.slice(0,7),[75,501]]},2));
+});
+test('Program: 全方向100%と時間で制御し、低出力の校正時間を引き継がない',()=>{
+  const old=defaultPatterns();
+  old.right15={speed:75,durationMs:180};
+  old.left45={speed:100,durationMs:300};
+  const table=adaptPatterns(old,3);
+  assert.deepEqual(table.right15,{speed:100,durationMs:0});
+  assert.deepEqual(table.left45,{speed:100,durationMs:300});
+  const slots=PROGRAM_IDS.map(id=>[table[id].speed,table[id].durationMs]);
+  assert.deepEqual(parsePatterns({version:3,slots},3),table);
+  assert.throws(()=>parsePatterns({version:3,slots:[[100,1000],[100,1000],[75,100],...slots.slice(3)]},3));
+  assert.throws(()=>parsePatterns({version:3,slots},2));
+  const c=new MockMotor(false,true);c.connect(0);
+  send(c,OPS.SAVE_PATTERN,100,2,100,150);
+  send(c,OPS.ARM,101);send(c,OPS.PATTERN,102,2);
+  assert.deepEqual([c.state.left,c.state.right],[100,-100]);
+  assert.equal(c.status(252).stopReason,'pulse-limit');
 });
 test('Program: モックでも前後は全出力で1000ms、または通信断で停止',()=>{
   for(const [slot,duty] of [[0,100],[1,-100]]){
@@ -58,7 +75,7 @@ test('USB: 同梱バイナリのSHA-256を確認するヘルパー',async()=>{as
 test('USB: 走行プログラム実配布ファームの版・時間・ハッシュ',async()=>{
   const url=new URL('../public/firmware/program/manifest.json',import.meta.url);
   const data=JSON.parse(readFileSync(url,'utf8')),program=validateManifest(data);
-  assert.equal(program.version,'1.5.0');assert.equal(program.poweredTests,'drive-program');
+  assert.equal(program.version,'1.5.1');assert.equal(program.poweredTests,'drive-program');
   assert.equal(program.maxPulseMs,1000);assert.equal(program.maxDuty,100);
   assert.throws(()=>validateManifest({...data,maxPulseMs:2000}));
   assert.throws(()=>validateManifest({...data,powerQualified:true}));

@@ -58,7 +58,7 @@ export class MotorSession {
   async savePatternTable(table:PatternTable,progress:(count:number)=>void=()=>{}):Promise<PatternTable>{
     const snapshot=structuredClone(table);
     const ids=patternIds(this.status?.patternsVersion);
-    if(!ids.every(id=>validPattern(id,snapshot[id])))throw new Error('パターンの出力・時間が不正です。');
+    if(!ids.every(id=>validPattern(id,snapshot[id],this.status?.patternsVersion)))throw new Error('パターンの出力・時間が不正です。');
     return this.foreground(async assertCurrent=>{
       if(this.status?.armed)throw new Error('許可を解除してから書き込んでください。');
       for(let i=0;i<ids.length;i++){
@@ -102,7 +102,7 @@ export class MotorSession {
       const frame=makeFrame(before,op,this.sequence,stop?INITIAL_SETTINGS:this.settings,left,right);
       if(op===OPS.SAVE_PATTERN){
         const id=patternIds(before.patternsVersion)[left];
-        if(!id||!validPattern(id,{speed:right as 25|50|75|100,durationMs:patternDuration??NaN}))throw new Error(fixedProgram(id)?'前進・後進は100%・1000ms固定です。':'パターンの出力・時間が不正です。');
+        if(!id||!validPattern(id,{speed:right as 25|50|75|100,durationMs:patternDuration??NaN},before.patternsVersion))throw new Error(fixedProgram(id)?'前進・後進は100%・1000ms固定です。':'パターンの出力・時間が不正です。');
         new DataView(frame.buffer).setUint16(17,patternDuration!,true);
       }
       await this.bounded(this.transport.write(frame));

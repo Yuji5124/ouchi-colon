@@ -1,5 +1,5 @@
 import './screen.css';
-import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isBootFirmware,isProgramFirmware,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {OPS,INITIAL_SETTINGS,RC_MAX_DUTY,direction,isBootFirmware,isFullPowerFirmware,isProgramFirmware,isRcFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,validatePower,type DiagnosticRow,type PowerRecord} from './diagnostics.ts';
@@ -26,7 +26,7 @@ export function mountMotorTest(){
   <div class="rc-actions"><button id="rc-arm" class="motor-primary" disabled>1回の操作を許可</button><a href="#power-form">VMの実測値を確認</a><a href="#usb-writer">ファームを書き込む</a></div>
   <p id="rc-motion" class="subtle"></p><p id="rc-keyboard" tabindex="0" class="keyboard-help"><kbd>W</kbd> 前進　<kbd>S</kbd> 後進　<kbd>A</kbd> 左　<kbd>D</kbd> 右</p><p id="rc-key" class="subtle" role="status">キー入力待ち</p>
   <p id="rc-last" class="subtle" hidden></p>
-  <div class="drive-section"><div class="dpad"><button class="motion up" data-motion="forward">W ▲<span>前進</span></button><button class="motion left" data-motion="left">A ◀<span>左旋回</span></button><button id="dpad-stop" class="center">■<span>停止</span></button><button class="motion right" data-motion="right">D ▶<span>右旋回</span></button><button class="motion down" data-motion="backward">S ▼<span>後進</span></button></div><div class="speed-settings"><label>左の速度 <output id="left-percent">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20"></label><label>右の速度 <output id="right-percent">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20"></label><label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label><label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label></div></div><div class="timing-settings"><label>最大パルス（ms）<input id="pulse" type="number" value="200" min="50" max="500" step="10"></label><label>PWM周波数（Hz）<input id="frequency" type="number" value="1000" min="100" max="20000" step="100"></label></div><p class="subtle">方向ボタンとキー操作はソフトスタートです。正逆切替は停止・100ms待機・再許可が必要です。PWMは速度制御であり、過電圧を安全にするものではありません。</p></section>
+  <div class="drive-section"><div class="dpad"><button class="motion up" data-motion="forward">W ▲<span>前進</span></button><button class="motion left" data-motion="left">A ◀<span>左旋回</span></button><button id="dpad-stop" class="center">■<span>停止</span></button><button class="motion right" data-motion="right">D ▶<span>右旋回</span></button><button class="motion down" data-motion="backward">S ▼<span>後進</span></button></div><div class="speed-settings"><label>左の速度 <output id="left-percent">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20"></label><label>右の速度 <output id="right-percent">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20"></label><label class="check"><input id="invert-left" type="checkbox"> 左の方向を反転</label><label class="check"><input id="invert-right" type="checkbox"> 右の方向を反転</label></div></div><div class="timing-settings"><label>最大パルス（ms）<input id="pulse" type="number" value="200" min="50" max="500" step="10"></label><label>PWM周波数（Hz）<input id="frequency" type="number" value="1000" min="100" max="20000" step="100"></label></div><p class="subtle"><span id="drive-power-note">方向ボタンとキー操作はソフトスタートです。</span>正逆切替は停止・100ms待機・再許可が必要です。PWMは速度制御であり、過電圧を安全にするものではありません。</p></section>
   <section class="motor-card"><div class="section-top"><h2>診断ログ <small id="log-count">0件</small></h2><div><button id="export-json" class="motor-secondary compact">JSON</button><button id="export-csv" class="motor-secondary compact">CSV</button></div></div><div class="log-scroll"><table><thead><tr><th>時刻 / 情報源</th><th>操作・停止理由</th><th>結果</th></tr></thead><tbody id="log-body"></tbody></table></div><div class="mock-tools"><button id="mock-disconnect" class="motor-secondary">モック通信断</button><button id="mock-reboot" class="motor-secondary">モック再起動</button><label class="check"><input id="pause-heartbeat" type="checkbox"> モックのHBを停止して試験</label></div><p class="subtle">ログはこの画面のメモリ内に最大1000件。再読込み前に書き出してください。モックの値は実測値として出力しません。</p></section>
   <footer class="motor-footer"><a href="?debug=1">← Colonの画面に戻る</a><span>ラジコン走行試験はVM実測・配線確認後に実施</span></footer></div></div></main>`;
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -87,6 +87,14 @@ export function mountMotorTest(){
     const boot=isBootFirmware(s);
     const mock=session?.transport.kind==='mock';
     const program=isProgramFirmware(s);
+    const fullPower=isFullPowerFirmware(s);
+    el('drive-power-note').textContent=fullPower?'出力100%固定で、動作時間を調整します。':'方向ボタンとキー操作はソフトスタートです。';
+    for(const side of ['left','right']){
+      const speed=input(`${side}-speed`);
+      speed.disabled=fullPower;
+      if(fullPower)speed.value='100';
+      el(`${side}-percent`).textContent=speed.value+'%'+(fullPower?'固定':'');
+    }
     el('rc-mode-name').textContent=!connected?'接続してください':mock?'モックで操作':settings.signalOnly?'信号のみ試験・VMを外す':'モーター走行';
     el('rc-mode-help').textContent=!connected?'BLE接続のあと、試験方法と駆動許可を確認します。'
       :mock?'実機への信号送信はありません。'
@@ -122,8 +130,8 @@ export function mountMotorTest(){
     const motionActive=!!s&&(s.left!==0||s.right!==0);
     const drivingSupported=(mock&&!settings.singleTest)||isRcFirmware(s);
     const rcBlock=!connected?'左側の「接続と試験段階」からモック、または実機BLEへ接続してください。'
-      :boot?'接続中のファームは起動試験用です。W・S・A・Dで操作するには走行プログラム1.5.0を書き込んでください。'
-      :!drivingSupported?(settings.singleTest?'本体単独版は「モーター単体テスト」で操作します。ラジコン操作には走行プログラム1.5.0を書き込んでください。':'ラジコン操作には走行プログラム1.5.0を書き込んでください。')
+      :boot?'接続中のファームは起動試験用です。W・S・A・Dで操作するには走行プログラム1.5.1を書き込んでください。'
+      :!drivingSupported?(settings.singleTest?'本体単独版は「モーター単体テスト」で操作します。ラジコン操作には走行プログラム1.5.1を書き込んでください。':'ラジコン操作には走行プログラム1.5.1を書き込んでください。')
       :block;
     el('rc-help').textContent=rcBlock||(motionActive?'出力指令中。離すか、上限時間に達すると停止します。':s?.armed?'操作できます。W・S・A・Dまたは方向ボタンを押してください。':'「1回の操作を許可」を押してから、前進・後退・左右旋回を試してください。');
     el('rc-badge').textContent=!connected?'未接続':motionActive?(mock?'モック動作中':'出力指令中'):s?.armed?'許可済み':mock?'モック接続済み':'実機BLE接続済み';

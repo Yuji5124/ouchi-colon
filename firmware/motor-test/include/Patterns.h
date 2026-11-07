@@ -6,13 +6,13 @@ constexpr uint8_t PROGRAM_COUNT=8;
 constexpr uint16_t STRAIGHT_MS=1000;
 struct PatternConfig {uint8_t speed;uint16_t durationMs;};
 inline PatternConfig defaultPattern(uint8_t id,bool program=false){
-  if(program)return id<2?PatternConfig{100,STRAIGHT_MS}:PatternConfig{25,0};
+  if(program)return {100,uint16_t(id<2?STRAIGHT_MS:0)};
   return {uint8_t(id<6?25*(id%3+1):25),uint16_t(id<6?200:0)};
 }
 inline bool validPattern(uint8_t id,const PatternConfig& p,bool program=false){
   if(program){
     if(id<2)return p.speed==100&&p.durationMs==STRAIGHT_MS;
-    return id<PROGRAM_COUNT&&(p.speed==25||p.speed==50||p.speed==75)
+    return id<PROGRAM_COUNT&&p.speed==100
       &&(p.durationMs==0||(p.durationMs>=50&&p.durationMs<=500));
   }
   return id<PATTERN_COUNT&&(p.speed==25||p.speed==50||p.speed==75)&&(id>=6||p.speed==25*(id%3+1))&&(p.durationMs==0||(p.durationMs>=50&&p.durationMs<=500));

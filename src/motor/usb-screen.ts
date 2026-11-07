@@ -14,7 +14,7 @@ export function mountUsbWriter(hooks:Hooks){
   document.querySelector('.motor-content')!.prepend(section);
   const firmwareChoice=document.createElement('label');firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="rc">ラジコン試験 1.3.0（実測・配線確認後／最大500ms）</option><option value="signal">信号試験 1.1.1・本体LCD表示（VMなし）</option><option value="single">本体単独 1.2.1・本体LCD表示（1.5V想定・未測定／片側100ms）</option><option value="boot">起動試験 1.4.0（本体ボタン／左のみ100ms）</option></select>';section.querySelector('.check')!.before(firmwareChoice);
   firmwareChoice.querySelector('select')!.add(new Option('起動試験 1.4.2（本体ボタン／両側100%・2秒）','bootDual'));
-  const programOption=new Option('走行プログラム 1.5.0（W・S・A・D／動作 No. 1〜8）','program',true,true);
+  const programOption=new Option('走行プログラム 1.5.1（W・S・A・D／動作 No. 1〜8）','program',true,true);
   firmwareChoice.querySelector('select')!.add(programOption,0);
   firmwareChoice.querySelector('select')!.value='program';
   const bootCheck=document.createElement('div');

@@ -81,7 +81,6 @@ struct MotorCore {
     if(p[1]!=MOVE&&p[1]!=PATTERN)return reject("unknown-command",now);
     int l=int(int8_t(p[10])),r=int(int8_t(p[11]));
     uint16_t duration=pulseMs;
-    bool fullStraight=false;
     if(p[1]==PATTERN){
       if(singleTest)return reject("single-pattern-disabled",now);
       if(rcTest&&!program&&!signalOnly)return reject("rc-pattern-disabled",now);
@@ -89,9 +88,10 @@ struct MotorCore {
       const auto config=patterns[p[10]];
       if(!validPattern(p[10],config,program)||config.durationMs==0)return reject("pattern-uncalibrated",now);
       patternOutputs(p[10],config.speed,l,r,program);
-      duration=config.durationMs;fullStraight=program&&p[10]<2;
+      duration=config.durationMs;
     }
     if(l < -100||l>100||r < -100||r>100)return reject("invalid-pwm",now);
+    if(program&&((l!=0&&l!=100&&l!=-100)||(r!=0&&r!=100&&r!=-100)))return reject("program-duty-fixed",now);
     if(singleTest&&(!experimentalActive||(l!=0&&r!=0)||(l==0&&r==0)||l < -75||l>75||r < -75||r>75))return reject("single-motor-limit",now);
     if(rcTest&&!signalOnly&&((!program&&(l < -RC_MAX_DUTY||l > RC_MAX_DUTY||r < -RC_MAX_DUTY||r > RC_MAX_DUTY))||(!l&&!r)))return reject("rc-duty-limit",now);
     if(!armed)return reject("disarmed",now);
@@ -100,7 +100,7 @@ struct MotorCore {
     if(targetLeft||targetRight||left||right)return reject("stop-before-new-motion",now);
     if(elapsed(now,stoppedAt)<REVERSAL_DWELL_MS)return reject("stop-dwell",now);
     targetLeft=l;targetRight=r;activePulseMs=duration;startedAt=now;rampAt=now;reason="running";
-    if(fullStraight){left=l;right=r;}
+    if(program){left=l;right=r;}
     return true;
   }
   void tick(uint32_t now) {

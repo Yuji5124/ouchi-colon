@@ -8,7 +8,7 @@ const boot=process.argv.includes('--boot');
 const bootDual=process.argv.includes('--boot-dual');
 const bootTrial=boot||bootDual;
 if([single,rc,boot,bootDual,program].filter(Boolean).length>1)throw new Error('試験ファームの種類は1つだけ選べます。');
-const version=program?'1.5.0':bootDual?'1.4.2':boot?'1.4.0':rc?'1.3.0':single?'1.2.1':'1.1.1',core=process.env.PLATFORMIO_CORE_DIR;
+const version=program?'1.5.1':bootDual?'1.4.2':boot?'1.4.0':rc?'1.3.0':single?'1.2.1':'1.1.1',core=process.env.PLATFORMIO_CORE_DIR;
 if(!core)throw new Error('PLATFORMIO_CORE_DIRをビルドで使用したパスに設定してください。');
 const build=join(process.env.PLATFORMIO_BUILD_DIR||'firmware/motor-test/.pio/build',program?'atoms3-program':bootDual?'atoms3-boot-dual-test':boot?'atoms3-boot-test':rc?'atoms3-rc-test':single?'atoms3-single-test':'atoms3-signal-test');
 const parts=[['bootloader.bin',0,join(build,'bootloader.bin')],['partitions.bin',0x8000,join(build,'partitions.bin')],['boot_app0.bin',0xe000,join(core,'packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin')],['firmware.bin',0x10000,join(build,'firmware.bin')]];

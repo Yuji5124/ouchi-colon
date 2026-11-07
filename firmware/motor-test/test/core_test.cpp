@@ -118,11 +118,26 @@ int main(){
     assert(std::string(c.reason)=="pattern-uncalibrated");
     assert(!c.command(frame(c,SAVE_PATTERN,0,100),102));
     for(int slot=2;slot<8;slot++){
-      auto save=frame(c,SAVE_PATTERN,slot,50);save.data[17]=150;
+      auto save=frame(c,SAVE_PATTERN,slot,100);save.data[17]=150;
       assert(c.command(save,200+slot));
       int left=0,right=0;patternOutputs(slot,c.patterns[slot].speed,left,right,true);
-      assert(left==(slot<5?50:-50)&&right==-left);
+      assert(left==(slot<5?100:-100)&&right==-left);
     }
+    cases++;
+  }
+  {
+    MotorCore c(false,false,true,true);
+    c.ready=true;c.connect(1,0);
+    assert(!c.command(frame(c,SAVE_PATTERN,2,75),100));
+    assert(c.patterns[2].speed==100&&c.patterns[2].durationMs==0);
+    arm(c,200,true);
+    assert(!c.command(frame(c,MOVE,50,50),201));
+    arm(c,301,true);
+    assert(c.command(frame(c,MOVE,100,-100),302));
+    assert(c.left==100&&c.right==-100);
+    c.command(frame(c,HEARTBEAT),450);
+    c.tick(502);
+    assert(!c.armed&&c.left==0&&c.right==0);
     cases++;
   }
   {
