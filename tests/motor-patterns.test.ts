@@ -90,9 +90,9 @@ test('USB: 同梱バイナリのSHA-256を確認するヘルパー',async()=>{as
 test('USB: 走行プログラム実配布ファームの版・時間・ハッシュ',async()=>{
   const url=new URL('../public/firmware/program/manifest.json',import.meta.url);
   const data=JSON.parse(readFileSync(url,'utf8')),program=validateManifest(data);
-  assert.equal(program.version,'1.6.1');assert.equal(program.poweredTests,'drive-program');
-  assert.equal(program.maxPulseMs,1000);assert.equal(program.maxDuty,100);
-  assert.throws(()=>validateManifest({...data,maxPulseMs:2000}));
+  assert.equal(program.version,'1.7.0');assert.equal(program.poweredTests,'drive-program');
+  assert.equal(program.maxPulseMs,2000);assert.equal(program.maxDuty,100);
+  assert.throws(()=>validateManifest({...data,maxPulseMs:2001}));
   assert.throws(()=>validateManifest({...data,powerQualified:true}));
   for(const part of program.parts){
     const bytes=readFileSync(new URL(part.path,url));

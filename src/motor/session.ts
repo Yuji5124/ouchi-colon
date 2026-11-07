@@ -6,6 +6,7 @@ export class MotorSession {
   status:MotorStatus|null=null;busy=false;connected=false;lastHeartbeatAt:string|null=null;settings:MotorSettings={...INITIAL_SETTINGS};
   onStatus:()=>void=()=>{};onEvent:(event:string,error?:string)=>void=()=>{};
   private generation=0;private sequence=0;private stopPending:Op|null=null;
+  private stopInFlight:Op|null=null;
   private foregroundReserved=false;private wireIsBackground=false;
   private pendingHeartbeat:{nonce:number;seq:number}|null=null;
   private stoppedObservedAt=0;
@@ -91,6 +92,13 @@ export class MotorSession {
       await this.sendNow(OPS.MOVE,left,right);
     });
   }
+  async driveTimed(left:number,right:number,durationMs:number){
+    const settings={...this.settings,pulseMs:durationMs,actionStep:true};
+    return this.foreground(async assertCurrent=>{
+      await this.prepareDirectMotion(assertCurrent);
+      await this.sendNow(OPS.MOVE,left,right,undefined,false,settings);
+    });
+  }
   async runProgram(id:PatternId,expected:PatternConfig){
     const config=structuredClone(expected);
     return this.foreground(async assertCurrent=>{
@@ -118,7 +126,7 @@ export class MotorSession {
     }
     return this.sendNow(op,left,right,patternDuration);
   }
-  private async sendNow(op:Op,left=0,right=0,patternDuration?:number,backgroundHeartbeat=false){
+  private async sendNow(op:Op,left=0,right=0,patternDuration?:number,backgroundHeartbeat=false,overrideSettings?:MotorSettings){
     if(!this.connected||!this.status)throw new Error('先に接続してください。');
     if(this.busy)throw new Error('通信処理中です。もう一度操作してください。');
     this.busy=true;this.wireIsBackground=op===OPS.HEARTBEAT;const generation=this.generation;
@@ -131,7 +139,7 @@ export class MotorSession {
       if(generation!==this.generation)throw new Error('操作は停止要求で取り消されました。');
       this.sequence=Math.max(this.sequence,before.seq)+1;
       const stop=op===OPS.STOP||op===OPS.ESTOP||op===OPS.DISARM;
-      const frame=makeFrame(before,op,this.sequence,stop?INITIAL_SETTINGS:this.settings,left,right);
+      const frame=makeFrame(before,op,this.sequence,stop?INITIAL_SETTINGS:overrideSettings??this.settings,left,right);
       if(op===OPS.SAVE_PATTERN){
         const id=patternIds(before.patternsVersion)[left];
         if(!id||!validPattern(id,{speed:right as 25|50|75|100,durationMs:patternDuration??NaN},before.patternsVersion))throw new Error(fixedProgram(id)?'前進・後進は100%・1000ms固定です。':'パターンの出力・時間が不正です。');
@@ -154,6 +162,18 @@ export class MotorSession {
     }catch(e){this.onEvent('command-error',String(e));if(op!==OPS.STOP&&op!==OPS.ESTOP){this.generation++;if(this.stopPending!==OPS.ESTOP)this.stopPending=OPS.STOP;this.signalIdle();}throw e;}
     finally{this.releaseWire();}
   }
-  requestStop(emergency=false){this.generation++;this.stopPending=emergency?OPS.ESTOP:this.stopPending===OPS.ESTOP?OPS.ESTOP:OPS.STOP;this.signalIdle();this.flushStop();}
-  private flushStop(){if(this.busy||!this.stopPending||!this.connected)return;const op=this.stopPending;this.stopPending=null;void this.sendNow(op).catch(e=>{this.onEvent('stop-unconfirmed',String(e));this.disconnect();});}
+  requestStop(emergency=false){
+    const op=emergency?OPS.ESTOP:OPS.STOP;
+    if(this.stopPending===op||this.stopInFlight===op||this.stopPending===OPS.ESTOP||this.stopInFlight===OPS.ESTOP)return;
+    this.generation++;this.stopPending=op;this.signalIdle();this.flushStop();
+  }
+  private flushStop(){
+    if(this.busy||!this.stopPending||!this.connected)return;
+    const op=this.stopPending,generation=this.generation;this.stopPending=null;this.stopInFlight=op;
+    void this.sendNow(op).catch(e=>{
+      // A newer STOP/ESTOP replaces an older stop request; it is not a transport failure.
+      if(generation!==this.generation)return;
+      this.onEvent('stop-unconfirmed',String(e));this.disconnect();
+    }).finally(()=>{if(this.stopInFlight===op)this.stopInFlight=null;});
+  }
 }

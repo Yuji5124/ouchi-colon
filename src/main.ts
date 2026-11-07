@@ -33,12 +33,13 @@ import { canStartConversation, conversationLaunchSettings, fallbackReplyVoice, I
 import { TurnCompletionGate } from './speech/turn-completion';
 import { canRecoverFromEmptyRecognitionResult, MAX_EMPTY_RESULT_RESTARTS, recognitionErrorAction, recognitionResumeBlockReason, RESUME_BUSY_RETRY_DELAYS_MS, shouldResumeAfterReply } from './speech/recognition-resume';
 import './style.css';
-import { publishMotorExpression } from './motor/bridge';
+import { publishMotorExpression, publishMotorGaze, publishMotorUnknown, requestMotorCommand, requestMotorAction, registerMotorSpeaker } from './motor/bridge';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
 if (!canvas) throw new Error('Face canvas is missing');
 
 const renderer = new FaceRenderer(canvas);
+let motorConversationToken: number | null = null;
 const state: FaceState = { expression: 'IDLE', interactionState: 'IDLE', speaking: false, gazeX: 0, gazeY: 0, mouthOpen: 0, blink: 0, transition: 1 };
 let targetGazeX = 0;
 let targetGazeY = 0;
@@ -952,8 +953,9 @@ function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token
   }
 }
 
-function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>, harukaReply: HarukaNanaSelectedResponse | null = null): void {
+function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>, harukaReply: HarukaNanaSelectedResponse | null = null, motorDone?: (reason: SpeechEndReason | 'text-only') => void): void {
   const expressionGeneration = activeExpressionGeneration;
+  const finish = (reason: SpeechEndReason | 'text-only') => { finishReactionResponse(reason, token, expressionGeneration); motorDone?.(reason); };
   conversationExpressionController.setEmotion(expressionGeneration, emotion);
   syncConversationExpression();
   ttsStartMs = null;
@@ -965,7 +967,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
   setVisibleAppState('返答生成完了・音声出力準備中');
   if (!ttsEnabled.checked) {
     speechStatus.value = '読み上げOFF。返答は文字で表示しています。';
-    finishReactionResponse('text-only', token, expressionGeneration);
+    finish('text-only');
     return;
   }
 
@@ -978,7 +980,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
 
   if (!useHarukaAudio && replyVoiceMode !== 'tohoku' && !speechEngine.isSupported) {
     speechStatus.value = 'このSafariでは音声合成を利用できません。文字の返答は引き続き使えます。';
-    finishReactionResponse('error', token, expressionGeneration);
+    finish('error');
     return;
   }
 
@@ -1030,7 +1032,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
     onEnd: (reason) => {
       if (token !== conversationGeneration) return;
       recordSpeechStage('tts-end', reason === 'finished' ? 'onend' : reason === 'stopped' ? 'cancel' : 'onerror');
-      finishReactionResponse(reason, token, expressionGeneration);
+      finish(reason);
     },
   };
   if (useHarukaAudio && harukaReply) {
@@ -1040,13 +1042,13 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
       if (token !== conversationGeneration) return;
       if (reason === 'error') {
         lastErrorCode = 'HARUKA_AUDIO_REQUIRES_TAP';
-        finishReactionResponse('text-only', token, expressionGeneration);
+        finish('text-only');
         speechStatus.value = '自動再生できませんでした（' + (harukaNanaAudioPlayer.lastError ?? '原因不明') + '）。「返事をもう一度聞く」の▶で再生できます。';
         setVisibleAppState('返答音声の手動再生が必要');
         return;
       }
       recordSpeechStage('tts-end', reason === 'finished' ? '春歌ナナ音声 onended' : '春歌ナナ音声 cancel');
-      finishReactionResponse(reason, token, expressionGeneration);
+      finish(reason);
     });
     renderSpeechRuntime();
     renderMediaConcurrency();
@@ -1059,6 +1061,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
       recognitionEnabled = false;
       voiceResponseActive = false;
       updateRecognitionButtons();
+      motorDone?.('error');
       return;
     } else {
       speechStatus.value = 'TOHOKU Happyで返答音声を生成しています…';
@@ -1092,7 +1095,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
           return;
         }
         recordSpeechStage('tts-end', result.reason === 'finished' ? 'TOHOKU onended' : 'TOHOKU cancel');
-        finishReactionResponse(result.reason, token, expressionGeneration);
+        finish(result.reason);
       });
     }
   } else {
@@ -1117,6 +1120,30 @@ function speakWithNativeTts(
 async function respondToConversation(text: string, fromVoice = false): Promise<void> {
   if (!debug) return;
   if (!text.trim()) return;
+  const motorToken = conversationGeneration + 1;
+  if (requestMotorCommand(text, (success) => {
+    if (motorToken !== conversationGeneration) return;
+    finishReactionResponse(success ? 'text-only' : 'error', motorToken, activeExpressionGeneration);
+    if (motorConversationToken === motorToken) motorConversationToken = null;
+  })) {
+    conversationGeneration = motorToken;
+    motorConversationToken = motorToken;
+    activeExpressionGeneration = conversationExpressionController.beginThinking();
+    tohokuAudio?.pause();
+    speechEngine.stop();
+    tohokuConversationSpeech.stop();
+    harukaNanaAudioPlayer.stop();
+    if (fromVoice) {
+      recognitionEngine.abort();
+      voiceResponseActive = false;
+      scheduleRecognitionResume(motorToken, recognitionSessionGeneration, 0, 150);
+    }
+    return;
+  }
+  if (motorConversationToken !== null) {
+    requestMotorAction('A17');
+    motorConversationToken = null;
+  }
   const token = ++conversationGeneration;
   tohokuAudio?.pause();
   speechEngine.stop();
@@ -1172,6 +1199,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
     conversationFallbackReplyCount += 1;
     conversationContentFallbackCount += 1;
   }
+  if (quality?.fallback) publishMotorUnknown();
   lastConversationQuality = quality;
   lastConversationTopic = result.topic;
   replyGenerationMs = performance.now() - generationStart;
@@ -1693,6 +1721,7 @@ function onFaceTrackingInput(input: FaceTrackingInput): void {
   if (!stableInput.faceDetected) {
     targetGazeX = 0;
     targetGazeY = 0;
+    publishMotorGaze(false,0,null);
     if (!trackingFaceKnown || trackingSawFace) applyReaction('FACE_LOST');
     trackingFaceKnown = true;
     trackingSawFace = false;
@@ -1704,6 +1733,7 @@ function onFaceTrackingInput(input: FaceTrackingInput): void {
   const gaze = toFaceGazeTarget(stableInput, mirrorHorizontal.checked);
   targetGazeX = gaze.x;
   targetGazeY = gaze.y;
+  publishMotorGaze(true,gaze.x,stableInput.apparentWidth??null);
   trackingCoordinates.value = `顔座標: X ${stableInput.normalizedX.toFixed(2)} / Y ${stableInput.normalizedY.toFixed(2)} / 視線 ${state.gazeX.toFixed(2)}, ${state.gazeY.toFixed(2)}`;
   renderTrackingStatus(`顔を追跡中・信頼度 ${Math.round(stableInput.confidence * 100)}%`);
   if (!trackingSawFace) {
@@ -1921,6 +1951,38 @@ function speechMouthTarget(now: number, startedAt: number): number {
   const phrase = 0.55 + 0.45 * ((Math.sin(elapsed / 430 + 0.5) + 1) / 2);
   return onset * (0.08 + phrase * (0.14 + syllable * 0.34 + secondary * 0.12));
 }
+
+registerMotorSpeaker({
+  ready: () => {
+    if (!ttsEnabled.checked) return '到着の読み上げには、Colonの音声出力をONにしてください。';
+    if (isAnySpeechActive()) return '音声の再生が終わってから実行してください。';
+    if (replyVoiceMode === 'tohoku' && !tohokuConversationActivated) return '選択したTOHOKU音声を準備してください。';
+    if (replyVoiceMode !== 'tohoku' && !speechEngine.isSupported) return 'このブラウザは到着の読み上げに対応していません。';
+    return '';
+  },
+  speak: (text, signal) => new Promise<void>((resolve, reject) => {
+    const token = motorConversationToken === conversationGeneration ? conversationGeneration : ++conversationGeneration;
+    activeExpressionGeneration = conversationExpressionController.beginThinking();
+    let settled = false;
+    const complete = (success: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      if (success) resolve(); else reject(new Error('到着の音声を完了できませんでした。'));
+    };
+    const abort = () => {
+      speechEngine.stop(); tohokuConversationSpeech.stop(); harukaNanaAudioPlayer.stop();
+      complete(false);
+    };
+    const timer = setTimeout(abort, 20000);
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) { abort(); return; }
+    if (recognitionEngine.isActive) recognitionEngine.abort();
+    voiceResponseActive = recognitionEnabled;
+    speakReply(text, token, 'JOY', null, reason => complete(reason === 'finished'));
+  }),
+});
 
 buildDebugControls();
 setDebug(debug);

@@ -1,4 +1,4 @@
-import {OPS,isDirectFirmware,isCorrectedTurnFirmware,parseStatus,type MotorStatus} from './protocol.ts';
+import {OPS,isDirectFirmware,isActionFirmware,isCorrectedTurnFirmware,parseStatus,type MotorStatus} from './protocol.ts';
 import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,type PatternConfig} from './patterns.ts';
 /** Reference simulation. No physical connection or GPIO access. Native C++ core is tested separately. */
 export class MockMotor {
@@ -8,7 +8,7 @@ export class MockMotor {
   constructor(singleTest=false,program=false){
     this.state.singleTest=singleTest;
     if(singleTest)this.state.firmware='colon-motor-1.2.0-single-mock';
-    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.6.1',patternsVersion:4});this.patterns=defaultPatterns(4);}
+    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.7.0',patternsVersion:5});this.patterns=defaultPatterns(5);}
   }
   private activePulseMs=0;
   private heartbeatAt=0;private startedAt=0;private stoppedAt=0;private rampAt=0;private target:[number,number]=[0,0];private invert=[false,false];
@@ -39,10 +39,10 @@ export class MockMotor {
       s.armed=true;this.heartbeatAt=now;s.stopReason='armed';return;
     }
     if(op!==OPS.MOVE&&op!==OPS.PATTERN){this.stop('unknown-command',now);return;}
-    if(bytes[16]===4){
+    if(bytes[16]===4||bytes[16]===5){
       const hz=v.getUint16(12,true),pulse=v.getUint16(17,true);
-      if(!isDirectFirmware(s)||bytes[15]!==0){this.stop('direct-mode-unavailable',now);return;}
-      if(s.armed||hz!==1000||pulse<50||pulse>500||(bytes[14]&~3)){this.stop('invalid-direct-config',now);return;}
+      if(!isDirectFirmware(s)||(bytes[16]===5&&!isActionFirmware(s))||bytes[15]!==0){this.stop('direct-mode-unavailable',now);return;}
+      if(s.armed||hz!==1000||pulse<50||pulse>(bytes[16]===5?2000:500)||(bytes[14]&~3)){this.stop('invalid-direct-config',now);return;}
       s.frequency=hz;s.pulseMs=pulse;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];
       s.signalOnly=false;s.armed=true;this.heartbeatAt=now;
     }

@@ -10,6 +10,7 @@ test('normalizes a centered face to the gaze origin', () => {
     normalizedY: -0.4,
     confidence: 0.92,
     timestamp: 1234,
+    apparentWidth: 0.2,
   });
 });
 

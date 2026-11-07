@@ -18,7 +18,7 @@ interface Gatt {connected:boolean;connect():Promise<Gatt>;disconnect():void;getP
 interface Device {gatt?:Gatt;addEventListener(type:string,listener:()=>void):void;}
 export class BleTransport implements Transport {
   kind='ble' as const;onDisconnect=()=>{};private device:Device|null=null;private command:Characteristic|null=null;private status:Characteristic|null=null;private patterns:Characteristic|null=null;
-  private patternsVersion:1|2|3|4|undefined;
+  private patternsVersion:1|2|3|4|5|undefined;
   async connect(){
     const bluetooth=(navigator as unknown as {bluetooth?:{requestDevice(options:unknown):Promise<Device>}}).bluetooth;
     if(!isSecureContext||!bluetooth)throw new Error('実機BLEはPCのChrome / Edge、Android Chromeなどで使用してください。iPhone Safariは非対応です。');

@@ -1,3 +1,30 @@
+# Motor Control 1.7.0 検証記録（2026-11-08）
+
+対象はA01〜A17のブラウザ実行処理、AtomS3専用ファーム1.7.0、基本校正パターン形式5です。実機USB選択・実機書込み・BLE実機接続・モーター通電は行っていません。
+
+| 確認 | 結果 |
+|---|---|
+| 既存会話・顔処理を含む `npm test` | 298件成功、失敗0 |
+| 実ファームのC++17コア `npm run test:motor-native` | 52ケース成功、警告をエラー扱い |
+| TypeScript + Vite本番ビルド | 成功。従来からの大きなmainチャンクの警告あり |
+| PlatformIO `atoms3-program` | ビルド成功、RAM47,140bytes・Flash1,307,213bytes |
+| USB配布パッケージ | 1.7.0・ESP32-S3・4分割・NVS非重複・SHA-256/MD5検証 |
+| Chrome画面試験 `npm run test:motor-browser` | モック・疑似BLEとも成功、1280px/390px幅を確認 |
+
+[Webテスト](reports/actions-web-tests.txt) / [C++テスト](reports/actions-native-tests.txt) / [本番ビルド](reports/actions-web-build.txt) / [ファームビルド](reports/actions-firmware-build.txt) / [ブラウザ結果](reports/actions-browser-tests.txt)
+
+Web/C++合計350件に、別途Chromeの画面試験が成功しています。新規試験は番号17個の整合、100%固定、右左の極性、90°未校正の拒否、顔の左右・見かけの大きさと期限、A07の連続2秒と停止後発話、A10の6パルス/5回の200ms停止、途中取消・切断・再起動・心拍断・顔消失による後続中止、重複STOPとESTOP優先、旧ファームや上限超過の拒否です。
+
+ChromeではW/Sの押下・解放、A/Dの校正済み90°、キーリピートの抑制、No. 1/2、90°校正の保存、A08/A09/A10、A17で残りを取り消して接続保持、再接続後の連動OFF、Colon会話入力→A07→停止→到着音声、ラジコンの言葉「前」→A13、顔消失時の中断、緊急停止を確認しました。Bluetooth機器は選択せず、疑似GATTとローカルモックを使用。音声はOS出力ポートだけをモックにし、Colonの実際の音声エンジン・完了通知を通しました。カメラ画像やマイク音声の実機試験ではありません。
+
+再現には先に開発サーバーを18181で起動し、WindowsのChromeが必要です。別の場所のChromeは環境変数`CHROME_BIN`で指定できます。
+
+動作角・移動距離・電池電圧・電流・物理的な停止は未測定です。[未解決事項](risks.md) / [実機試験手順](actions.md#試す順番)
+
+---
+
+以下は旧版の記録です。
+
 # 検証記録（2026-11-05）
 
 対象：`feature/motor-test-v1`、AtomS3信号試験ファーム `colon-motor-1.1.0` と本体単独版 `colon-motor-1.2.0`。実機USB選択・実機書込み・BLE実機接続・モーター通電は実施していません。

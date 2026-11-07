@@ -172,5 +172,31 @@ int main(){
     assert(table[0].durationMs==1000&&table[1].durationMs==1000);
     cases++;
   }
+  for(uint16_t duration:{2000,2001}){
+    MotorCore c(false,false,true,true);c.ready=true;c.connect(1,0);
+    auto f=frame(c,MOVE,100,100);f.data[15]=0;f.data[16]=ACTION_MODE;
+    f.data[12]=0xe8;f.data[13]=3;f.data[17]=duration&255;f.data[18]=duration>>8;
+    assert(c.command(f,100)==(duration==2000));
+    if(duration==2000){
+      for(uint32_t now=300;now<2100;now+=200){assert(c.command(frame(c,HEARTBEAT),now));c.tick(now);assert(c.left==100&&c.right==100);}
+      c.tick(2100);assert(!c.armed&&c.left==0&&c.right==0&&std::string(c.reason)=="pulse-limit");
+    }else assert(!c.armed&&c.left==0&&c.right==0);
+    cases++;
+  }
+  {
+    MotorCore c(false,false,true,true);c.ready=true;c.connect(1,0);
+    auto f=frame(c,MOVE,100,100);f.data[15]=0;f.data[16]=ACTION_MODE;
+    f.data[12]=0xe8;f.data[13]=3;f.data[17]=0xd0;f.data[18]=7;
+    assert(c.command(f,100));c.tick(450);
+    assert(!c.armed&&c.left==0&&c.right==0&&std::string(c.reason)=="heartbeat-timeout");cases++;
+  }
+  for(int slot:{8,9}){
+    MotorCore c(false,false,true,true);c.ready=true;c.connect(1,0);
+    assert(c.patternCount()==10&&c.patterns[slot].durationMs==0);
+    auto save=frame(c,SAVE_PATTERN,slot,100);save.data[17]=0xb0;save.data[18]=4;
+    assert(c.command(save,100));arm(c,100,true);assert(c.command(frame(c,PATTERN,slot),101));
+    assert(c.left==(slot==8?-100:100)&&c.right==-c.left&&c.activePulseMs==1200);
+    c.command(frame(c,STOP),102);assert(!c.armed&&c.left==0&&c.right==0);cases++;
+  }
   std::cout<<"MotorCore/display: "<<cases<<" safety cases passed\n";
 }

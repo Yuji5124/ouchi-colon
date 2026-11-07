@@ -6,6 +6,7 @@ import {INITIAL_POWER,diagnosticRow,toCSV,type DiagnosticRow} from './diagnostic
 import {mountPatternPanel} from './pattern-screen.ts';
 import {mountUsbWriter} from './usb-screen.ts';
 import {driveKey} from './keyboard.ts';
+import {mountActionPanel} from './actions-screen.ts';
 
 export function mountMotorTest(){
   document.title='Colon · Motor Control';
@@ -41,15 +42,15 @@ export function mountMotorTest(){
           <div class="drive-section">
             <div class="dpad">
               <button class="motion up" data-motion="forward">W ▲<span>前進</span></button>
-              <button class="motion left" data-motion="left">A ◀<span>左旋回</span></button>
+              <button class="motion left" data-motion="left">A ◀<span>左90°</span></button>
               <button id="dpad-stop" class="center">■<span>停止</span></button>
-              <button class="motion right" data-motion="right">D ▶<span>右旋回</span></button>
+              <button class="motion right" data-motion="right">D ▶<span>右90°</span></button>
               <button class="motion down" data-motion="backward">S ▼<span>後進</span></button>
             </div>
             <div class="speed-settings">
               <p class="fixed-output">出力 <strong>100%</strong></p>
               <label>キー操作の最大時間（ms）<input id="pulse" type="number" min="50" max="500" step="10" value="500"></label>
-              <p class="subtle">押している間だけ動き、離すか上限時間に達すると停止します。続けるには一度離して、もう一度押してください。</p>
+              <p class="subtle">W・Sは押している間だけ、最大500ms。A・Dは1回で校正済みの90°旋回を実行します。途中で止めるには停止を押してください。</p>
               <details><summary>モーターの方向設定</summary>
                 <label class="check"><input id="invert-left" type="checkbox"> A出力（G5 / G6）を反転</label>
                 <label class="check"><input id="invert-right" type="checkbox"> B出力（G7 / G8）を反転</label>
@@ -91,6 +92,7 @@ export function mountMotorTest(){
   let connecting=false,held=false,activeMotion='',pointerId:number|null=null,heldKey:string|null=null;
   let heartbeatBusy=false,lastHeartbeatLog=0,lastMotion='';
   let patternPanel:{update():void}|null=null;
+  let actionPanel:ReturnType<typeof mountActionPanel>|null=null;
   const settings:MotorSettings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
   const power={...INITIAL_POWER,settingV:3};
   const logs:DiagnosticRow[]=[];
@@ -118,7 +120,7 @@ export function mountMotorTest(){
   function controlBlock(){
     const status=session?.status;
     if(!session?.connected||!status)return '左の「接続」から接続してください。';
-    if(!isCorrectedTurnFirmware(status))return '左右旋回の修正版1.6.1をUSB欄から書き込んでください。';
+    if(!isCorrectedTurnFirmware(status))return '走行プログラム1.7.0をUSB欄から書き込んでください。';
     if(status.estop)return '緊急停止中です。「緊急停止を解除」を押してください。';
     if(!status.gpioReady)return '本体の初期化が完了していません。';
     if(!Number.isInteger(settings.pulseMs)||settings.pulseMs<50||settings.pulseMs>500)return '最大時間は50〜500msで指定してください。';
@@ -138,15 +140,15 @@ export function mountMotorTest(){
     el('rc-badge').textContent=el('arm-badge').textContent=state;
     const blocked=controlBlock();
     el('rc-help').textContent=blocked||(moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':'方向ボタンまたはW・S・A・Dで操作できます。');
-    const canMove=!blocked&&(!session?.foregroundBusy||held);
+    const canMove=!blocked&&!actionPanel?.running&&(!session?.foregroundBusy||held);
     for(const button of buttons){
       button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion);
       button.classList.toggle('is-held',held&&button.dataset.motion===activeMotion);
     }
     el('reset-estop').hidden=!s?.estop;
     el<HTMLButtonElement>('reset-estop').disabled=!connected||!!session?.foregroundBusy;
-    input('pulse').disabled=held||!!session?.foregroundBusy||moving;
-    for(const id of ['invert-left','invert-right'])input(id).disabled=held||!!session?.foregroundBusy||moving;
+    input('pulse').disabled=held||!!session?.foregroundBusy||moving||!!actionPanel?.running;
+    for(const id of ['invert-left','invert-right'])input(id).disabled=held||!!session?.foregroundBusy||moving||!!actionPanel?.running;
     el('mock-tools').hidden=!mock;
     el('rc-last').hidden=!lastMotion;el('rc-last').textContent=lastMotion;
     const entries:Record<string,string>={
@@ -169,6 +171,7 @@ export function mountMotorTest(){
       el(`${side}-gpio`).textContent=physical===undefined?(side==='left'?'G5 / G6':'G7 / G8'):`IN1 ${physical>0?'HIGH':'LOW'} / IN2 ${physical<0?'HIGH':'LOW'}`;
     }
     patternPanel?.update();
+    actionPanel?.update();
   }
   async function connect(){
     if(connecting||session?.connected)return;
@@ -192,13 +195,18 @@ export function mountMotorTest(){
   }
   function stop(emergency=false){
     held=false;pointerId=null;heldKey=null;
+    actionPanel?.stop(emergency);
     if(!session?.connected){say('未接続です。');update();return;}
-    session.requestStop(emergency);
+    if(!actionPanel)session.requestStop(emergency);
     say(emergency?'緊急停止を要求しました。必要に応じて電池の電源も切ってください。':'停止を要求しました。');
     record(emergency?'emergency-request':'stop-request');update();
   }
   async function startMotion(name:string){
-    if(held||controlBlock()||!session||session.foregroundBusy)return;
+    if(held||controlBlock()||!session||session.foregroundBusy||actionPanel?.running)return;
+    if(name==='left'||name==='right'){
+      pointerId=null;heldKey=null;
+      await actionPanel?.run(name==='left'?'A15':'A16');return;
+    }
     const current=session;held=true;activeMotion=name;update();
     const [left,right]=direction(name,100,100,isCorrectedTurnFirmware(current.status));
     try{
@@ -230,7 +238,7 @@ export function mountMotorTest(){
     button.addEventListener('keydown',event=>{
       if((event.key===' '||event.key==='Enter')&&!event.repeat){event.preventDefault();void startMotion(button.dataset.motion!);}
     });
-    button.addEventListener('keyup',event=>{if(event.key===' '||event.key==='Enter'){event.preventDefault();stop();}});
+    button.addEventListener('keyup',event=>{if(event.key===' '||event.key==='Enter'){event.preventDefault();if(held)stop();}});
   }
   window.addEventListener('keydown',event=>{
     const key=driveKey(event.code,event.key);
@@ -238,7 +246,7 @@ export function mountMotorTest(){
     if(event.target instanceof Element&&event.target.closest('input,select,textarea,[contenteditable]'))return;
     event.preventDefault();const blocked=controlBlock();
     if(blocked){el('rc-key').textContent=`${key.label} を検知。${blocked}`;return;}
-    if(session?.foregroundBusy){el('rc-key').textContent='通信処理中です。完了後にもう一度押してください。';return;}
+    if(session?.foregroundBusy||actionPanel?.running){el('rc-key').textContent='動作または通信処理中です。停止後にもう一度押してください。';return;}
     if(held)return;
     heldKey=key.token;el('rc-key').textContent=`${key.label} を受け付けました。`;
     void startMotion(key.motion);
@@ -274,8 +282,9 @@ export function mountMotorTest(){
   }
   el('export-json').addEventListener('click',()=>download(JSON.stringify({schema:'colon-motor-diagnostics/1',logs},null,2),'application/json','json'));
   el('export-csv').addEventListener('click',()=>download(toCSV(logs),'text/csv;charset=utf-8','csv'));
-  patternPanel=mountPatternPanel({session:()=>session,blocked:controlBlock,stop,say,record,directControl:true});
+  actionPanel=mountActionPanel({session:()=>session,blocked:()=>held?'キー操作中です。離してから試してください。':controlBlock(),manualMs:()=>settings.pulseMs,say,record,changed:update},document.querySelector('.motor-content')!);
+  patternPanel=mountPatternPanel({session:()=>session,blocked:controlBlock,occupied:()=>!!actionPanel?.running,stop,say,record,directControl:true});
   mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
-  document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!,document.querySelector('.pattern-panel')!);
+  document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!,document.querySelector('.colon-actions')!,document.querySelector('.pattern-panel')!);
   update();
 }

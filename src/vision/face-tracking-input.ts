@@ -9,6 +9,8 @@ export interface FaceTrackingInput {
   confidence: number;
   /** Monotonic time in milliseconds from performance.now(). */
   timestamp: number;
+  /** Apparent face width / frame width. This is not a distance measurement. */
+  apparentWidth?: number;
 }
 
 export interface FaceDetectionBox {
@@ -115,5 +117,6 @@ export function toFaceTrackingInput(
     normalizedY: clampUnit((centerY / frameHeight) * 2 - 1),
     confidence: Math.max(0, Math.min(1, confidence)),
     timestamp,
+    apparentWidth: Math.min(1,box.width/frameWidth),
   };
 }

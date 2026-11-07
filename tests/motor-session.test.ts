@@ -63,6 +63,24 @@ function holdNextRead(transport:MockTransport){
   return {release,calls:()=>calls};
 }
 
+test('Session: 停止ボタンの連続押下で通信を切断しない',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport);
+  await session.connect();const gate=holdNextRead(transport);
+  session.requestStop();session.requestStop();session.requestStop();gate.release();
+  for(let i=0;i<20&&session.busy;i++)await nextTurn();
+  assert.equal(session.connected,true);assert.equal(session.status?.stopReason,'operator-stop');
+  session.disconnect();
+});
+
+test('Session: STOP待機中のESTOPを優先し、古いSTOPの取消で切断しない',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport);
+  await session.connect();const gate=holdNextRead(transport);
+  session.requestStop();session.requestStop(true);gate.release();
+  for(let i=0;i<20&&(session.busy||!session.status?.estop);i++)await nextTurn();
+  assert.equal(session.connected,true);assert.equal(session.status?.estop,true);assert.equal(session.status?.left,0);
+  session.disconnect();
+});
+
 test('Session: 3V直接操作はキー操作ごとに開始し、ハードウェア確認フラグを立てない',async()=>{
   const transport=new MockTransport(false,true),session=new MotorSession(transport),frames:Uint8Array[]=[];
   const write=transport.write.bind(transport);
