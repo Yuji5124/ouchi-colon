@@ -149,5 +149,19 @@ int main(){
     c.disconnect(552);assert(!c.armed&&c.left==0&&c.right==0);
     cases++;
   }
+  for(bool program:{false,true}){
+    MotorCore c(false,false,program,program);c.ready=true;c.connect(1,0);
+    auto direct=frame(c,MOVE,100,-100);direct.data[15]=0;direct.data[16]=DIRECT_MODE;
+    direct.data[12]=0xe8;direct.data[13]=3;direct.data[17]=200;
+    assert(c.command(direct,100)==program);
+    assert(!c.powerQualified);
+    if(program){
+      assert(c.left==100&&c.right==-100);
+      c.tick(300);assert(!c.armed&&c.left==0&&c.right==0);
+      const auto s=displaySnapshot(c,301,true);
+      assert(s.direct&&std::string(displayReason(s))=="時間上限・停止");
+    }
+    cases++;
+  }
   std::cout<<"MotorCore/display: "<<cases<<" safety cases passed\n";
 }

@@ -3,7 +3,7 @@ import {COLON_EVENTS,COLON_MOTOR_CHANNEL,validColonEvent,type ColonEvent} from '
 import {OPS} from './protocol.ts';
 import type {MotorSession} from './session.ts';
 import './pattern-screen.css';
-interface Hooks {session:()=>MotorSession|null;blocked:()=>string;stop:()=>void;say:(s:string)=>void;record:(event:string,error?:string,result?:string)=>void;}
+interface Hooks {session:()=>MotorSession|null;blocked:()=>string;stop:()=>void;say:(s:string)=>void;record:(event:string,error?:string,result?:string)=>void;directControl?:boolean;}
 export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.querySelector('.motor-content')!){
   const section=document.createElement('section');section.className='motor-card pattern-panel';
   section.innerHTML=`<div class="section-top"><h2>動作パターン · Atomへ保存</h2><span class="badge"><span id="pattern-badge">No. 1〜8</span></span></div><p class="subtle">旋回角は時間で校正します。床・出力・電池条件をそろえて、実測した角度に合わせて時間を調整してください。旋回は50〜500ms、0msは未校正で実行できません。</p><div class="pattern-table" id="pattern-table"></div><div class="pattern-actions"><button id="pattern-local" class="motor-secondary">このPCに保存</button><button id="pattern-read" class="motor-secondary">Atomから読み込む</button><button id="pattern-write" class="motor-primary">Atomへパターンを書き込む</button></div><p id="pattern-message" class="motor-feedback" role="status">まずAtomの設定を読み込むか、パターンを書き込んでください。</p><details class="pattern-link"><summary>OuchiColonの表情・動作と連動する</summary><p class="subtle">同じブラウザ・同じURLの別タブでOuchiColonを開きます。表情変化に割り当てた動作を、明示許可1回につき1回だけ実行します。初期状態は連動OFF。非表示・切断・停止で待機許可を解除し、自動再許可しません。</p><div id="pattern-mappings" class="power-grid"></div><label class="check"><input id="pattern-link-enabled" type="checkbox"> 割当済みのイベントを、許可1回につき1動作へ連動</label><a href="?debug=1" target="_blank" rel="noopener">OuchiColonを別タブで開く ↗</a><p id="pattern-link-status" class="subtle">連動OFF</p></details>`;
@@ -23,7 +23,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     const label=document.createElement('strong');
     const speed=document.createElement('select');speed.setAttribute('aria-label',`${patternLabel(id)}の出力`);
     const duration=document.createElement('input');duration.type='number';duration.min='0';duration.max=fixedProgram(id)?'1000':'500';duration.step='1';duration.value=String(table[id].durationMs);duration.setAttribute('aria-label',`${patternLabel(id)}の時間ms`);
-    const run=document.createElement('button');run.className='motor-secondary pattern-run';run.textContent='1回実行';run.dataset.id=id;
+    const run=document.createElement('button');run.className='motor-secondary pattern-run';run.textContent='実行';run.dataset.id=id;
     const change=()=>{hooks.stop();table[id]={speed:Number(speed.value),durationMs:Number(duration.value)} as PatternConfig;verifiedSession=null;message('編集内容は未転送です。PC保存とAtomへの書込みは別操作です。');update();};
     speed.addEventListener('change',change);duration.addEventListener('change',change);run.addEventListener('click',()=>void runPattern(id));
     row.append(label,speed,duration,run);el('pattern-table').append(row);fields.set(id,{row,label,speed,duration,run});
@@ -74,7 +74,8 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
       row.classList.toggle('pattern-hidden',!ids.includes(id));
       duration.disabled=busy||fixedProgram(id);
       speed.disabled=busy||shownVersion===3||id.startsWith('forward')||id.startsWith('backward');
-      run.disabled=busy||!!session?.foregroundBusy||session?.status?.stopReason==='running'||!!session?.settings.singleTest||!!session?.status?.singleTest||!session?.status?.armed||!!hooks.blocked()||!supported||!validPattern(id,table[id],shownVersion)||table[id].durationMs===0||verifiedSession!==session;
+      const ready=hooks.directControl?!!session?.connected:!!session?.status?.armed&&verifiedSession===session;
+      run.disabled=busy||!!session?.foregroundBusy||session?.status?.stopReason==='running'||!!session?.settings.singleTest||!!session?.status?.singleTest||!ready||!!hooks.blocked()||!supported||!validPattern(id,table[id],shownVersion)||table[id].durationMs===0;
     }
     el('pattern-link-status').textContent=integrated?(enabled?'連動ON · 明示許可を待機（1回で解除）':'連動OFF'):'顔画面への移動時に、この画面のBLE接続を終了します。';
   }
@@ -87,6 +88,18 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     catch(e){verifiedSession=null;message(`書込みが完了していません。一部保存の可能性があります。${String(e)}`);hooks.record('patterns-save-error',String(e));}finally{busy=false;activity='';update();}
   });
   async function runPattern(id:PatternId){
+    if(hooks.directControl){
+      const s=hooks.session();
+      if(!s||busy||hooks.blocked())return;
+      busy=true;update();
+      try{
+        await s.runProgram(id,table[id]);
+        hooks.record(`program:${id}`,undefined,JSON.stringify(table[id]));
+        message(`${patternLabel(id)}を${table[id].durationMs}msの設定で開始しました。`);
+      }catch(error){hooks.stop();message(String(error));}
+      finally{busy=false;update();}
+      return;
+    }
     const s=hooks.session();if(s?.settings.singleTest||s?.status?.singleTest){message('本体単独版ではパターンを実行できません。左右の単体ボタンを使用してください。');return;}if(!s||busy||!s.status?.armed||hooks.blocked()||verifiedSession!==s||!validPattern(id,table[id],activeVersion())||!table[id].durationMs){message('パターンの読込み / 書込み確認と、安全確認・1回の許可が必要です。旋回は校正時間も入力してください。');return;}
     const slot=patternIds(s.status.patternsVersion).indexOf(id);if(slot<0||document.hidden)return;
     busy=true;update();try{const current=await s.readPatternTable();if(JSON.stringify(current[id])!==JSON.stringify(table[id]))throw new Error('Atomの設定と編集値が違います。読み込み直してください。');if(s!==hooks.session()||!s.status?.armed||hooks.blocked()||document.hidden)throw new Error('駆動許可が解除されました。');await s.send(OPS.PATTERN,slot);hooks.record(`pattern:${id}`,undefined,JSON.stringify(table[id]));message(`${patternLabel(id)}を${table[id].durationMs}msの上限で実行要求しました。角度・距離は実測値ではありません。`);}catch(e){hooks.stop();message(String(e));}finally{busy=false;update();}
@@ -102,5 +115,9 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   if(channel)channel.onmessage=event=>onEvent(event.data);
   window.addEventListener('colon-motor-expression',event=>onEvent((event as CustomEvent).detail));
   window.addEventListener('pagehide',()=>{channel?.close();enabled=false;});
+  if(hooks.directControl){
+    section.querySelector<HTMLElement>('.pattern-link')!.hidden=true;
+    el('pattern-message').textContent='No. 1は前進、No. 2は後進で各1000ms。旋回は時間を校正してAtomへ保存してください。';
+  }
   update();return {update};
 }

@@ -1,3 +1,10 @@
+# 現在の液晶表示（ファーム1.6.0）
+
+通常起動では停止して「接続待ち」、BLE接続後は「接続済み」と表示します。操作時は左右の指令値を表示し、待機中は停止状態を示します。電源・制御方式の表示は「3V設定・出力100%」「時間で制御」です。3Vはユーザー指定の設定値で、液晶に実測した電圧は表示しません。
+
+<details>
+<summary>旧版1.1〜1.5の液晶実装と試験記録</summary>
+
 # AtomS3本体の接続・停止表示
 
 標準信号版1.1.1／本体単独版1.2.1から、C123の128×128液晶に状態を日本語で表示します。給電とBLE接続は区別します。USBを挿しただけではブラウザとの通信は開始しません。
@@ -42,3 +49,5 @@ M5GFX 0.2.36（MIT）と日本語efontを同梱ビルドに使用しています
 Windowsでビルドパスが長い場合は、PlatformIOの `PLATFORMIO_BUILD_DIR` と `PLATFORMIO_LIBDEPS_DIR` に短い絶対パスを指定します。配布生成は同じ `PLATFORMIO_BUILD_DIR` と `PLATFORMIO_CORE_DIR` を設定し、`node scripts/package-motor-firmware.mjs`（標準）、`node scripts/package-motor-firmware.mjs --single`（単独）を実行します。
 
 2026-11-05検証：Web全269件／C++制御・表示33件成功、TypeScript＋Viteビルド成功。標準1.1.1／単独1.2.1ともビルド成功（静的RAM47,132B、Flash1,304,981B）。診断JSONは最大桁の504Bが512Bバッファに収まり、JSONとして復元できることを確認。Web画面で両方の版の準備・SHA-256検証完了と、未接続時の液晶状態「未取得」を確認しました。実機選択・書込みは行っていません。[Web結果](reports/lcd-web-tests.txt) / [C++結果](reports/lcd-native-tests.txt) / [画面](reports/lcd-web-status.jpg)
+
+</details>

@@ -75,7 +75,7 @@ test('USB: 同梱バイナリのSHA-256を確認するヘルパー',async()=>{as
 test('USB: 走行プログラム実配布ファームの版・時間・ハッシュ',async()=>{
   const url=new URL('../public/firmware/program/manifest.json',import.meta.url);
   const data=JSON.parse(readFileSync(url,'utf8')),program=validateManifest(data);
-  assert.equal(program.version,'1.5.1');assert.equal(program.poweredTests,'drive-program');
+  assert.equal(program.version,'1.6.0');assert.equal(program.poweredTests,'drive-program');
   assert.equal(program.maxPulseMs,1000);assert.equal(program.maxDuty,100);
   assert.throws(()=>validateManifest({...data,maxPulseMs:2000}));
   assert.throws(()=>validateManifest({...data,powerQualified:true}));
@@ -84,6 +84,7 @@ test('USB: 走行プログラム実配布ファームの版・時間・ハッシ
     assert.equal(bytes.length,part.size);assert.equal(await sha256(bytes),part.sha256);
     if(part.address===0x10000){
       assert.ok(bytes.includes(Buffer.from('COLON_PROGRAM=1')));
+      assert.ok(bytes.includes(Buffer.from('COLON_DIRECT=1')));
       assert.ok(bytes.includes(Buffer.from('COLON_POWER_LOCK=0')));
       assert.ok(!bytes.includes(Buffer.from('COLON_BOOT_TEST=1')));
     }

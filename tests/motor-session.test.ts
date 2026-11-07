@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {MotorSession} from '../src/motor/session.ts';
 import {MockTransport} from '../src/motor/transport.ts';
-import {OPS} from '../src/motor/protocol.ts';
+import {INITIAL_SETTINGS,OPS} from '../src/motor/protocol.ts';
 import {defaultPatterns} from '../src/motor/patterns.ts';
 
 test('Session: BLE読出し120ms・書込み40msでもハートビートが許可を維持する',async()=>{
@@ -62,6 +62,61 @@ function holdNextRead(transport:MockTransport){
   transport.read=async()=>{calls++;if(hold){hold=false;await gate;}return original();};
   return {release,calls:()=>calls};
 }
+
+test('Session: 3V直接操作はキー操作ごとに開始し、ハードウェア確認フラグを立てない',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport),frames:Uint8Array[]=[];
+  const write=transport.write.bind(transport);
+  transport.write=async frame=>{frames.push(frame.slice());await write(frame);};
+  await session.connect();
+  session.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
+  try{
+    assert.equal(transport.core.state.armed,false);
+    await session.drive(100,100);
+    assert.deepEqual([transport.core.state.left,transport.core.state.right],[100,100]);
+    assert.deepEqual(frames.map(frame=>frame[1]),[OPS.MOVE]);
+    assert.equal(frames[0][15],0);assert.equal(frames[0][16],4);
+    assert.equal(transport.core.state.powerQualified,false);
+    session.requestStop();
+    await nextTurn();
+    assert.equal(transport.core.state.armed,false);
+    await session.drive(-100,-100);
+    assert.deepEqual([transport.core.state.left,transport.core.state.right],[-100,-100]);
+  }finally{session.disconnect();}
+});
+
+test('Session: 直接操作の準備中に離すと移動を送らず、緊急停止を保持する',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport),ops:number[]=[];
+  await session.connect();
+  session.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true};
+  const write=transport.write.bind(transport);
+  transport.write=async frame=>{ops.push(frame[1]);await write(frame);};
+  try{
+    const held=holdNextRead(transport),polling=session.poll(),motion=session.drive(100,100);
+    session.requestStop(true);
+    await assert.rejects(motion,/取り消/);
+    held.release();await polling;
+    await nextTurn();
+    assert.deepEqual(ops,[OPS.ESTOP]);
+    assert.equal(transport.core.state.estop,true);assert.equal(transport.core.state.left,0);
+  }finally{session.disconnect();}
+});
+
+test('Session: 直接操作の前後パターンは保存値を確認して1秒で停止する',async()=>{
+  const transport=new MockTransport(false,true),session=new MotorSession(transport);
+  let now=0;transport.now=()=>now;
+  await session.connect();
+  now=1000;
+  session.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true};
+  try{
+    await session.runProgram('forward100',{speed:100,durationMs:1000});
+    assert.equal(transport.core.state.left,100);
+    for(const time of [1200,1450,1700,1950]){now=time;await session.heartbeat();}
+    now=2000;await session.poll();
+    assert.equal(session.status?.stopReason,'pulse-limit');assert.equal(session.status?.left,0);
+    session.disconnect();await session.connect();
+    assert.equal(transport.core.state.armed,false);
+  }finally{session.disconnect();}
+});
 
 test('Session: 遅い定期読取り中も操作ボタンを無効にせず、次の通信枠でパターンを読める',async()=>{
   const transport=new MockTransport(),s=new MotorSession(transport);await s.connect();

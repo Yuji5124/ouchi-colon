@@ -1,4 +1,4 @@
-import {OPS,parseStatus,type MotorStatus} from './protocol.ts';
+import {OPS,isDirectFirmware,parseStatus,type MotorStatus} from './protocol.ts';
 import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,type PatternConfig} from './patterns.ts';
 /** Reference simulation. No physical connection or GPIO access. Native C++ core is tested separately. */
 export class MockMotor {
@@ -8,7 +8,7 @@ export class MockMotor {
   constructor(singleTest=false,program=false){
     this.state.singleTest=singleTest;
     if(singleTest)this.state.firmware='colon-motor-1.2.0-single-mock';
-    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.5.1',patternsVersion:3});this.patterns=defaultPatterns(3);}
+    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.6.0',patternsVersion:3});this.patterns=defaultPatterns(3);}
   }
   private activePulseMs=0;
   private heartbeatAt=0;private startedAt=0;private stoppedAt=0;private rampAt=0;private target:[number,number]=[0,0];private invert=[false,false];
@@ -29,8 +29,23 @@ export class MockMotor {
     if(s.estop){this.stop('emergency-latched',now);return;}
     if(op===OPS.SAVE_PATTERN){const id=patternIds(s.patternsVersion)[bytes[10]],config={speed:bytes[11],durationMs:v.getUint16(17,true)} as PatternConfig;if(s.armed){this.stop('save-while-armed',now);return;}if(!id||!validPattern(id,config,s.patternsVersion)){this.stop('invalid-pattern-config',now);return;}this.patterns[id]=config;return;}
     if(op===OPS.CONFIG){const f=v.getUint16(12,true),p=v.getUint16(17,true);if(s.armed||f<100||f>20000||p<50||p>500||(bytes[14]&~3)){this.stop('invalid-config',now);return;}if(s.singleTest&&(f!==1000||p>100)){this.stop("single-config-limit",now);return;}s.frequency=f;s.pulseMs=p;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];return;}
-    if(op===OPS.ARM){if(bytes[15]!==15||bytes[16]>2){this.stop('safety-unconfirmed',now);return;}if(s.singleTest&&bytes[16]!==2){this.stop("single-mode-required",now);return;}if(bytes[16]===2&&(!s.singleTest||s.pulseMs>100||s.frequency!==1000)){this.stop("single-mode-unavailable",now);return;}s.signalOnly=bytes[16]===1;this.experimentalActive=bytes[16]===2;if(!s.powerQualified&&!s.signalOnly&&!this.experimentalActive){this.stop('power-unqualified',now);return;}if(now-this.stoppedAt<100){this.stop('stop-dwell',now);return;}s.armed=true;this.heartbeatAt=now;s.stopReason='armed';return;}
+    if(op===OPS.ARM){
+      if(bytes[15]!==15||bytes[16]>2){this.stop('safety-unconfirmed',now);return;}
+      if(s.singleTest&&bytes[16]!==2){this.stop('single-mode-required',now);return;}
+      if(bytes[16]===2&&(!s.singleTest||s.pulseMs>100||s.frequency!==1000)){this.stop('single-mode-unavailable',now);return;}
+      s.signalOnly=bytes[16]===1;this.experimentalActive=bytes[16]===2;
+      if(!s.powerQualified&&!s.signalOnly&&!this.experimentalActive){this.stop('power-unqualified',now);return;}
+      if(now-this.stoppedAt<100){this.stop('stop-dwell',now);return;}
+      s.armed=true;this.heartbeatAt=now;s.stopReason='armed';return;
+    }
     if(op!==OPS.MOVE&&op!==OPS.PATTERN){this.stop('unknown-command',now);return;}
+    if(bytes[16]===4){
+      const hz=v.getUint16(12,true),pulse=v.getUint16(17,true);
+      if(!isDirectFirmware(s)||bytes[15]!==0){this.stop('direct-mode-unavailable',now);return;}
+      if(s.armed||hz!==1000||pulse<50||pulse>500||(bytes[14]&~3)){this.stop('invalid-direct-config',now);return;}
+      s.frequency=hz;s.pulseMs=pulse;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];
+      s.signalOnly=false;s.armed=true;this.heartbeatAt=now;
+    }
     let l=v.getInt8(10),r=v.getInt8(11);
     let duration=s.pulseMs,fullStraight=false;
     if(op===OPS.PATTERN){if(s.singleTest){this.stop("single-pattern-disabled",now);return;}const id=patternIds(s.patternsVersion)[bytes[10]];if(!id){this.stop('unknown-pattern',now);return;}const config=this.patterns[id];if(!config.durationMs){this.stop('pattern-uncalibrated',now);return;}[l,r]=patternOutput(id,config.speed);duration=config.durationMs;fullStraight=fixedProgram(id);}

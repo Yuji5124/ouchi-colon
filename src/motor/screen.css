@@ -17,3 +17,6 @@
 .keyboard-help:focus-visible { outline: 3px solid #78bfa2; outline-offset: 2px; }
 .keyboard-help kbd { font: inherit; font-weight: 700; }
 .dpad .motion.is-held { background: #d0ebdb; border-color: #328968; }
+.usb-panel>summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #386b52; }
+.usb-panel .usb-writer { margin-top: 18px; }
+.fixed-output { color: #386b52; font-size: 14px; }

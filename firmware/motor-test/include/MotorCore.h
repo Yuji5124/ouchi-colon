@@ -9,6 +9,7 @@ constexpr uint32_t MAX_PULSE_MS = 500;
 constexpr uint32_t REVERSAL_DWELL_MS = 100;
 constexpr uint8_t PROTOCOL = 1;
 constexpr uint8_t RC_ARM = 3;
+constexpr uint8_t DIRECT_MODE = 4;
 constexpr int RC_MAX_DUTY = 75;
 enum Op : uint8_t { ARM=1, DISARM=2, MOVE=3, STOP=4, HEARTBEAT=5, CONFIG=6, ESTOP=7, RESET_ESTOP=8, PATTERN=9, SAVE_PATTERN=10 };
 struct Frame { uint8_t data[20]; };
@@ -39,6 +40,14 @@ struct MotorCore {
   void connect(uint32_t seed,uint32_t now) {nonce=seed?seed:1;connected=true;stop("connected-disarmed",now);}
   void disconnect(uint32_t now) {connected=false;stop("disconnect",now);}
   bool reject(const char* why,uint32_t now) {stop(why,now);return false;}
+  bool configure(const uint8_t* p,uint32_t now){
+    if(armed||left||right)return reject("config-while-armed",now);
+    const uint16_t hz=u16(p+12),pulse=u16(p+17);
+    if(hz<100||hz>20000||pulse<50||pulse>MAX_PULSE_MS||(p[14]&~3))return reject("invalid-config",now);
+    if(singleTest&&(hz!=1000||pulse>100))return reject("single-config-limit",now);
+    if(rcTest&&hz!=1000)return reject("rc-frequency",now);
+    frequency=hz;pulseMs=pulse;invertLeft=(p[14]&1)!=0;invertRight=(p[14]&2)!=0;return true;
+  }
   bool command(const Frame& frame,uint32_t now) {
     const uint8_t* p=frame.data;
     // Stop requests are fail-safe even when the client's nonce is obsolete.
@@ -57,16 +66,8 @@ struct MotorCore {
       if(!validPattern(p[10],config,program))return reject("invalid-pattern-config",now);
       patterns[p[10]]=config;return true;
     }
-    if(p[1]==CONFIG){
-      if(armed||left||right)return reject("config-while-armed",now);
-      const uint16_t hz=u16(p+12),pulse=u16(p+17);
-      if(hz<100||hz>20000||pulse<50||pulse>MAX_PULSE_MS||(p[14]&~3))return reject("invalid-config",now);
-      if(singleTest&&(hz!=1000||pulse>100))return reject("single-config-limit",now);
-      if(rcTest&&hz!=1000)return reject("rc-frequency",now);
-      frequency=hz;pulseMs=pulse;invertLeft=(p[14]&1)!=0;invertRight=(p[14]&2)!=0;return true;
-    }
+    if(p[1]==CONFIG)return configure(p,now);
     if(p[1]==ARM){
-      // All four safety acknowledgements; VM physically removed for signal-only tests.
       if(p[15]!=15||p[16]>RC_ARM)return reject("safety-unconfirmed",now);
       if(armed)return reject("already-armed",now);
       if(singleTest&&p[16]!=2)return reject("single-mode-required",now);
@@ -79,6 +80,12 @@ struct MotorCore {
       armed=true;heartbeatAt=now;reason="armed";return true;
     }
     if(p[1]!=MOVE&&p[1]!=PATTERN)return reject("unknown-command",now);
+    // One explicit motion carries its configuration. No hardware-check flags are asserted.
+    if(p[16]==DIRECT_MODE){
+      if(!program||p[15]!=0)return reject("direct-mode-unavailable",now);
+      if(!configure(p,now))return false;
+      signalOnly=false;armed=true;heartbeatAt=now;
+    }
     int l=int(int8_t(p[10])),r=int(int8_t(p[11]));
     uint16_t duration=pulseMs;
     if(p[1]==PATTERN){
