@@ -1,0 +1,5 @@
+
+> ouchi-colon@0.1.0 test:motor-native
+> node scripts/test-motor-native.mjs
+
+MotorCore/display: 33 safety cases passed

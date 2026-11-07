@@ -1,0 +1,2 @@
+Chrome UI verification, mock and fake BLE only. No hardware flashing or motor actuation.
+Direct UI: copy audit, mock and fake BLE, WASD, timed stop, held-key suppression, presets, calibration, A08/A09/A10, A17 cancellation, Colon typed command to A07/speech, face loss, emergency reset, reconnection, and responsive layout passed

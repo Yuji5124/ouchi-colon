@@ -1,0 +1,5 @@
+RAM:   [=         ]  14.4% (used 47132 bytes from 327680 bytes)
+Flash: [====      ]  39.0% (used 1304981 bytes from 3342336 bytes)
+======================== [SUCCESS] Took 309.89 seconds ========================
+atoms3-single-test  SUCCESS   00:05:09.886
+========================= 1 succeeded in 00:05:09.886 =========================
