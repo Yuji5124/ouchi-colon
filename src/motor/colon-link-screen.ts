@@ -1,7 +1,7 @@
 import './colon-link.css';
 import {MotorSession} from './session.ts';
 import {MockTransport,BleTransport} from './transport.ts';
-import {OPS,INITIAL_SETTINGS,isActionFirmware} from './protocol.ts';
+import {OPS,INITIAL_SETTINGS,isCommonTimingFirmware} from './protocol.ts';
 import {mountPatternPanel} from './pattern-screen.ts';
 import {mountActionPanel} from './actions-screen.ts';
 /** Face, conversation and motor actions share one foreground connection. */
@@ -23,7 +23,7 @@ export function mountColonMotorLink(){
   let session:MotorSession|null=null,connecting=false,heartbeatBusy=false;
   let actions:ReturnType<typeof mountActionPanel>|null=null,patterns:ReturnType<typeof mountPatternPanel>|null=null;
   const say=(text:string)=>{el('colon-motor-status').textContent=text;};
-  const block=()=>!session?.connected?'AtomS3へ接続してください。':!isActionFirmware(session.status)?'走行プログラム1.7.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
+  const block=()=>!session?.connected?'AtomS3へ接続してください。':!isCommonTimingFirmware(session.status)?'走行プログラム1.8.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
   function stop(emergency=false){if(actions)actions.stop(emergency);else session?.requestStop(emergency);}
   function update(){
     const connected=!!session?.connected;floatingStop.hidden=!connected;floatingStop.textContent=`■ モーター緊急停止（${session?.transport.kind==='mock'?'モック':'実機BLE'}）`;

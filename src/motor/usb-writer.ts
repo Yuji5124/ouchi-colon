@@ -1,10 +1,10 @@
 export interface FirmwarePart {path:string;address:number;size:number;sha256:string;md5:string;}
-export interface FirmwareManifest {schema:'colon-firmware/1';version:string;chip:'ESP32-S3';flashBytes:8388608;poweredTests:false|'experimental-single'|'rc-trial'|'boot-trial'|'boot-dual'|'drive-program';lcdDisplay?:boolean;powerQualified?:false;assumedV?:1.5;maxPulseMs?:100|500|1000|2000;maxDuty?:50|75|100;maxVmV?:3;parts:FirmwarePart[];}
+export interface FirmwareManifest {schema:'colon-firmware/1';version:string;chip:'ESP32-S3';flashBytes:8388608;poweredTests:false|'experimental-single'|'rc-trial'|'boot-trial'|'boot-dual'|'drive-program';lcdDisplay?:boolean;powerQualified?:false;assumedV?:1.5;maxPulseMs?:100|500|1000|2000|12000;maxDuty?:50|75|100;maxVmV?:3;parts:FirmwarePart[];}
 export function validateManifest(value:unknown):FirmwareManifest {
   const m=value as FirmwareManifest;
   const versionMatches=(m?.poweredTests==='boot-trial'&&m.version==='1.4.0'&&m.maxPulseMs===100&&m.maxDuty===50)
     ||(m?.poweredTests==='boot-dual'&&m.version==='1.4.2'&&m.maxPulseMs===2000&&m.maxDuty===100)
-    ||(m?.poweredTests==='drive-program'&&m.version==='1.7.0'&&m.maxPulseMs===2000&&m.maxDuty===100);
+    ||(m?.poweredTests==='drive-program'&&((m.version==='1.7.0'&&m.maxPulseMs===2000)||(m.version==='1.8.0'&&m.maxPulseMs===12000))&&m.maxDuty===100);
   const limitedValid=versionMatches&&m.powerQualified===false&&m.lcdDisplay===true
     &&m.assumedV===undefined&&m.maxVmV===3;
   if(!m||m.schema!=='colon-firmware/1'||m.chip!=='ESP32-S3'||m.flashBytes!==8388608||!((m.poweredTests===false&&/^1\.1\.\d+$/.test(m.version))||(m.poweredTests==='experimental-single'&&/^1\.2\.\d+$/.test(m.version)&&m.powerQualified===false&&m.assumedV===1.5&&m.maxPulseMs===100&&m.maxDuty===75)||(m.poweredTests==='rc-trial'&&m.version==='1.3.0'&&m.powerQualified===false&&m.lcdDisplay===true&&m.assumedV===undefined&&m.maxPulseMs===500&&m.maxDuty===75)||limitedValid)||!Array.isArray(m.parts)||m.parts.length!==4)throw new Error('対応する試験ファームではありません。');

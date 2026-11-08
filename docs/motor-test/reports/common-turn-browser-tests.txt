@@ -1,0 +1,3 @@
+Chrome mock and fake BLE only. No hardware flashing or motor actuation.
+Verified initial left/right 15/30/45/90 degree durations: 2000/4000/6000/12000ms; paired edits and NVS readback.
+Direct UI: copy audit, mock and fake BLE, WASD, timed stop, held-key suppression, presets, calibration, A08/A09/A10, A17 cancellation, Colon typed command to A07/speech, face loss, queued command cancellation, spoken stop while link OFF, mock gaze isolation, state consistency, emergency reset, reconnection, and responsive layout passed

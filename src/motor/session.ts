@@ -1,7 +1,7 @@
 import {INITIAL_SETTINGS,isDirectFirmware,makeFrame,OPS,type MotorSettings,type MotorStatus,type Op} from './protocol.ts';
 import type {Transport} from './transport.ts';
 import type {PatternTable,PatternId,PatternConfig} from './patterns.ts';
-import {fixedProgram,patternIds,validPattern} from './patterns.ts';
+import {fixedProgram,patternIds,validPattern,sharedTurnsMatch} from './patterns.ts';
 export class MotorSession {
   status:MotorStatus|null=null;busy=false;connected=false;lastHeartbeatAt:string|null=null;settings:MotorSettings={...INITIAL_SETTINGS};
   onStatus:()=>void=()=>{};onEvent:(event:string,error?:string)=>void=()=>{};
@@ -64,6 +64,7 @@ export class MotorSession {
   async savePatternTable(table:PatternTable,progress:(count:number)=>void=()=>{}):Promise<PatternTable>{
     const snapshot=structuredClone(table);
     const ids=patternIds(this.status?.patternsVersion);
+    if(this.status?.patternsVersion===6&&!sharedTurnsMatch(snapshot))throw new Error('左右の共通旋回時間が一致しません。');
     if(!ids.every(id=>validPattern(id,snapshot[id],this.status?.patternsVersion)))throw new Error('パターンの出力・時間が不正です。');
     return this.foreground(async assertCurrent=>{
       if(this.status?.armed)throw new Error('停止してから書き込んでください。');
@@ -79,7 +80,7 @@ export class MotorSession {
   async arm(){return this.foreground(async assertCurrent=>{await this.sendNow(OPS.CONFIG);assertCurrent();await this.sendNow(OPS.ARM);});}
   private async prepareDirectMotion(assertCurrent:()=>void){
     const status=this.status;
-    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.7.0へ更新してください。');
+    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.8.0へ更新してください。');
     if(status.estop)throw new Error('緊急停止を解除してください。');
     if(status.armed||status.left||status.right)throw new Error('停止してから操作してください。');
     const remaining=100-(performance.now()-this.stoppedObservedAt);

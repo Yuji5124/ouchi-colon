@@ -97,12 +97,12 @@ test('Runner: 心拍断・顔消失・再起動は後続動作と到着発話を
     const f=await fixture();try{if(reason==='heartbeat')f.noHeartbeat();else f.onSleep(()=>{if(reason==='face')f.loseFace();else f.transport.reboot();});await assert.rejects(f.runner.run('A07',settings));assert.equal(f.writes.length,1);assert.equal(f.speeches(),0);}finally{f.session.disconnect();}
   }
 });
-test('Runner: 旧ファーム・重複実行・2000ms超・通常操作500ms超を拒否',async()=>{
+test('Runner: 旧ファーム・重複実行・12000ms超・通常操作500ms超を拒否',async()=>{
   const f=await fixture();try{
-    assert.throws(()=>makeFrame(f.session.status!,OPS.MOVE,1,{...f.session.settings,pulseMs:2001,actionStep:true},100,100));
+    assert.throws(()=>makeFrame(f.session.status!,OPS.MOVE,1,{...f.session.settings,pulseMs:12001,actionStep:true},100,100));
     assert.throws(()=>makeFrame(f.session.status!,OPS.MOVE,1,{...f.session.settings,pulseMs:501},100,100));
     const operation=f.runner.run('A08',settings);await assert.rejects(f.runner.run('A09',settings),/動作中/);await operation;
     f.transport.core.state.firmware='colon-motor-1.6.1';f.transport.core.state.patternsVersion=4;await f.session.poll();
-    await assert.rejects(f.runner.run('A08',settings),/1.7.0/);
+    await assert.rejects(f.runner.run('A08',settings),/1.8.0/);
   }finally{f.session.disconnect();}
 });

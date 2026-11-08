@@ -27,18 +27,18 @@ test('Consistency: 配布版・Web識別・GPIO・BLE UUID・パターン数が�
   assert.equal(ACTION_PATTERN_IDS.length,count);assert.equal(count,10);
   assert.equal(manifest.maxVmV,3);assert.equal(manifest.maxDuty,100);assert.equal(manifest.powerQualified,false);
 });
-test('Consistency: MOVEのmode4は500ms・mode5は2000ms、心拍350ms・停止間隔100ms',()=>{
+test('Consistency: MOVEのmode4は500ms・mode5は12000ms、心拍350ms・停止間隔100ms',()=>{
   const core=read('firmware/motor-test/include/MotorCore.h');
-  for(const [key,expected] of [['MAX_PULSE_MS',500],['MAX_ACTION_MS',2000],['HEARTBEAT_TIMEOUT_MS',350],['REVERSAL_DWELL_MS',100]] as const){
+  for(const [key,expected] of [['MAX_PULSE_MS',500],['MAX_ACTION_MS',12000],['HEARTBEAT_TIMEOUT_MS',350],['REVERSAL_DWELL_MS',100]] as const){
     assert.equal(Number(core.match(new RegExp(key+' = (\\d+)'))![1]),expected);
   }
   const c=new MockMotor(false,true),settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true};
   const regular=makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:500},100,100);
-  const action=makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:2000,actionStep:true},100,100);
+  const action=makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:12000,actionStep:true},100,100);
   assert.equal(regular[16],4);assert.equal(action[16],5);assert.equal(action[15],0);
-  assert.equal(new DataView(action.buffer).getUint16(17,true),2000);
+  assert.equal(new DataView(action.buffer).getUint16(17,true),12000);
   assert.throws(()=>makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:501},100,100));
-  assert.throws(()=>makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:2001,actionStep:true},100,100));
+  assert.throws(()=>makeFrame(c.state,OPS.MOVE,1,{...settings,pulseMs:12001,actionStep:true},100,100));
 });
 test('Consistency: ログは前後進設定500msと実行指令2000ms、電池想定3Vと実測なしを区別',()=>{
   const c=new MockMotor(false,true),pwm={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};

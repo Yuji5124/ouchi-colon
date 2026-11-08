@@ -1,14 +1,14 @@
-import {OPS,isDirectFirmware,isActionFirmware,isCorrectedTurnFirmware,isRcFirmware,parseStatus,type MotorStatus} from './protocol.ts';
-import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,type PatternConfig} from './patterns.ts';
+import {OPS,isDirectFirmware,isActionFirmware,isCorrectedTurnFirmware,isRcFirmware,isCommonTimingFirmware,parseStatus,type MotorStatus} from './protocol.ts';
+import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,setSharedTurn,type PatternConfig} from './patterns.ts';
 /** Reference simulation. No physical connection or GPIO access. Native C++ core is tested separately. */
 export class MockMotor {
   state:MotorStatus={protocol:1,firmware:'colon-motor-1.1.0-mock',patternsVersion:1,bootId:1,bootCount:1,uptimeMs:0,resetReason:'mock-start',nonce:100,seq:0,connected:false,gpioReady:true,armed:false,estop:false,powerQualified:false,signalOnly:false,left:0,right:0,physicalLeft:0,physicalRight:0,stopReason:'boot',heartbeatAgeMs:0,pulseMs:200,frequency:1000};
   patterns=defaultPatterns();
   private experimentalActive=false;
-  constructor(singleTest=false,program=false){
+  constructor(singleTest=false,program=false,commonTiming=true){
     this.state.singleTest=singleTest;
     if(singleTest)this.state.firmware='colon-motor-1.2.0-single-mock';
-    else if(program){Object.assign(this.state,{firmware:'colon-motor-1.7.0',patternsVersion:5});this.patterns=defaultPatterns(5);}
+    else if(program){Object.assign(this.state,{firmware:commonTiming?'colon-motor-1.8.0':'colon-motor-1.7.0',patternsVersion:commonTiming?6:5});this.patterns=defaultPatterns(commonTiming?6:5);}
   }
   private activePulseMs=0;private uptimeOrigin=0;
   private heartbeatAt=0;private startedAt=0;private stoppedAt=0;private rampAt=0;private target:[number,number]=[0,0];private invert=[false,false];
@@ -27,7 +27,7 @@ export class MockMotor {
     if(op===OPS.RESET_ESTOP){s.estop=false;this.stop('emergency-reset-disarmed',now);return;}
     if(op===OPS.HEARTBEAT){this.heartbeatAt=now;return;}
     if(s.estop){this.stop('emergency-latched',now);return;}
-    if(op===OPS.SAVE_PATTERN){const id=patternIds(s.patternsVersion)[bytes[10]],config={speed:bytes[11],durationMs:v.getUint16(17,true)} as PatternConfig;if(s.armed||s.left||s.right){this.stop('save-while-armed',now);return;}if(!id||!validPattern(id,config,s.patternsVersion)){this.stop('invalid-pattern-config',now);return;}this.patterns[id]=config;return;}
+    if(op===OPS.SAVE_PATTERN){const id=patternIds(s.patternsVersion)[bytes[10]],config={speed:bytes[11],durationMs:v.getUint16(17,true)} as PatternConfig;if(s.armed||s.left||s.right){this.stop('save-while-armed',now);return;}if(!id||!validPattern(id,config,s.patternsVersion)){this.stop('invalid-pattern-config',now);return;}if(s.patternsVersion===6)setSharedTurn(this.patterns,id,config);else this.patterns[id]=config;return;}
     if(op===OPS.CONFIG){const f=v.getUint16(12,true),p=v.getUint16(17,true);if(s.armed||s.left||s.right){this.stop('config-while-armed',now);return;}if(f<100||f>20000||p<50||p>500||(bytes[14]&~3)){this.stop('invalid-config',now);return;}if(s.singleTest&&(f!==1000||p>100)){this.stop("single-config-limit",now);return;}if(isRcFirmware(s)&&f!==1000){this.stop('rc-frequency',now);return;}s.frequency=f;s.pulseMs=p;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];return;}
     if(op===OPS.ARM){
       if(bytes[15]!==15||bytes[16]>3){this.stop('safety-unconfirmed',now);return;}
@@ -45,7 +45,7 @@ export class MockMotor {
       const hz=v.getUint16(12,true),pulse=v.getUint16(17,true);
       if(!isDirectFirmware(s)||(bytes[16]===5&&!isActionFirmware(s))||bytes[15]!==0){this.stop('direct-mode-unavailable',now);return;}
       if(s.armed||s.left||s.right){this.stop('config-while-armed',now);return;}
-      if(hz<100||hz>20000||pulse<50||pulse>(bytes[16]===5?2000:500)||(bytes[14]&~3)){this.stop('invalid-config',now);return;}
+      if(hz<100||hz>20000||pulse<50||pulse>(bytes[16]===5?(isCommonTimingFirmware(s)?12000:2000):500)||(bytes[14]&~3)){this.stop('invalid-config',now);return;}
       if(isRcFirmware(s)&&hz!==1000){this.stop('rc-frequency',now);return;}
       s.frequency=hz;s.pulseMs=pulse;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];
       s.signalOnly=false;s.armed=true;this.heartbeatAt=now;

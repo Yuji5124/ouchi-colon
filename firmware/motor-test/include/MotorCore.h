@@ -11,7 +11,7 @@ constexpr uint8_t PROTOCOL = 1;
 constexpr uint8_t RC_ARM = 3;
 constexpr uint8_t DIRECT_MODE = 4;
 constexpr uint8_t ACTION_MODE = 5;
-constexpr uint32_t MAX_ACTION_MS = 2000;
+constexpr uint32_t MAX_ACTION_MS = 12000;
 constexpr int RC_MAX_DUTY = 75;
 enum Op : uint8_t { ARM=1, DISARM=2, MOVE=3, STOP=4, HEARTBEAT=5, CONFIG=6, ESTOP=7, RESET_ESTOP=8, PATTERN=9, SAVE_PATTERN=10 };
 struct Frame { uint8_t data[20]; };
@@ -66,7 +66,7 @@ struct MotorCore {
       PatternConfig config{p[11],u16(p+17)};
       if(armed||left||right)return reject("save-while-armed",now);
       if(!validPattern(p[10],config,program))return reject("invalid-pattern-config",now);
-      patterns[p[10]]=config;return true;
+      patterns[p[10]]=config;if(program&&p[10]>=2)patterns[pairedTurn(p[10])]=config;return true;
     }
     if(p[1]==CONFIG)return configure(p,now);
     if(p[1]==ARM){

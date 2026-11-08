@@ -44,6 +44,7 @@ try{
   assert.match(await text('#left-state'),/0%/);
   assert.equal(await evalPage("document.querySelectorAll('[data-action]').length"),17);
   assert.equal(await evalPage("document.querySelector('[data-setting=pauseMs]').value"),'200');
+  for(const [angle,ms] of [[15,2000],[30,4000],[45,6000],[90,12000]])for(const side of ['right','left'])assert.equal(await evalPage('document.querySelector('+JSON.stringify('button[data-id="'+side+angle+'"]')+').closest(".pattern-row").querySelector("input").value'),String(ms),'common initial duration '+side+angle);
   for(const id of ['right90','left90']){
     await evalPage('{const input=document.querySelector('+JSON.stringify('button[data-id="'+id+'"]')+').closest(".pattern-row").querySelector("input");input.value="1200";input.dispatchEvent(new Event("change"));}');
   }
@@ -75,8 +76,9 @@ try{
     await waitFor(async()=> (await text('#left-state')).includes('0%'),'program timed stop',2200);
   }
   const turn='button[data-id="right15"]';
-  assert.equal(await enabled(turn),false);
+  await waitFor(()=>enabled(turn),'default shared turn ready');
   await evalPage('{const input='+$(turn)+'.closest(".pattern-row").querySelector("input");input.value="300";input.dispatchEvent(new Event("change"));}');
+  assert.equal(await evalPage('document.querySelector("button[data-id=left15]").closest(".pattern-row").querySelector("input").value'),'300','editing a right turn must update the shared left duration');
   await waitFor(()=>enabled('#pattern-write'),'calibration writable');
   await click('#pattern-write');
   await waitFor(async()=> (await text('#pattern-message')).includes('10パターンを保存'),'saved calibration');
@@ -117,7 +119,7 @@ try{
   assert.match(await text('[data-role=face]'),/モック入力/);
   // Fake BLE characteristics exercise the real BLE transport without requesting a device.
   await click('#disconnect');
-  await evalPage('(async()=>{const {MockMotor}=await import("/ouchi-colon/src/motor/mock.ts");const {ACTION_PATTERN_IDS}=await import("/ouchi-colon/src/motor/patterns.ts");const core=new MockMotor(false,true);const start=performance.now();const now=()=>Math.floor(performance.now()-start);let disconnected=()=>{};const encode=x=>new DataView(new TextEncoder().encode(JSON.stringify(x)).buffer);setInterval(()=>core.tick(now()),5);const command={writeValueWithResponse:async data=>core.write(new Uint8Array(data),now())};const status={readValue:async()=>encode(core.status(now()))};const patterns={readValue:async()=>encode({version:5,slots:ACTION_PATTERN_IDS.map(id=>[core.patterns[id].speed,core.patterns[id].durationMs])})};const gatt={connected:false,connect:async()=>{gatt.connected=true;core.connect(now());return gatt;},disconnect:()=>{gatt.connected=false;core.disconnect(now());disconnected();},getPrimaryService:async()=>({getCharacteristic:async uuid=>uuid.includes("0002-")?command:uuid.includes("0003-")?status:patterns})};const device={gatt,addEventListener:(_name,fn)=>{disconnected=fn;}};Object.defineProperty(navigator,"bluetooth",{configurable:true,value:{requestDevice:async()=>device}});})()');
+  await evalPage('(async()=>{const {MockMotor}=await import("/ouchi-colon/src/motor/mock.ts");const {ACTION_PATTERN_IDS}=await import("/ouchi-colon/src/motor/patterns.ts");const core=new MockMotor(false,true);const start=performance.now();const now=()=>Math.floor(performance.now()-start);let disconnected=()=>{};const encode=x=>new DataView(new TextEncoder().encode(JSON.stringify(x)).buffer);setInterval(()=>core.tick(now()),5);const command={writeValueWithResponse:async data=>core.write(new Uint8Array(data),now())};const status={readValue:async()=>encode(core.status(now()))};const patterns={readValue:async()=>encode({version:6,slots:ACTION_PATTERN_IDS.map(id=>[core.patterns[id].speed,core.patterns[id].durationMs])})};const gatt={connected:false,connect:async()=>{gatt.connected=true;core.connect(now());return gatt;},disconnect:()=>{gatt.connected=false;core.disconnect(now());disconnected();},getPrimaryService:async()=>({getCharacteristic:async uuid=>uuid.includes("0002-")?command:uuid.includes("0003-")?status:patterns})};const device={gatt,addEventListener:(_name,fn)=>{disconnected=fn;}};Object.defineProperty(navigator,"bluetooth",{configurable:true,value:{requestDevice:async()=>device}});})()');
   await evalPage($ ('#mode')+'.value="ble";'+$ ('#mode')+'.dispatchEvent(new Event("change"));');
   await click('#connect');await waitFor(()=>enabled('[data-motion="forward"]'),'fake BLE direct ready');
   await audit();

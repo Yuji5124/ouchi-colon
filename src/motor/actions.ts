@@ -65,7 +65,7 @@ export function planAction(id:ActionId,table:PatternTable,settings:ActionSetting
   const move=(left:number,right:number,durationMs:number,gapMs=100)=>moves.push({left,right,durationMs,gapMs});
   const turn=(pattern:PatternId)=>{
     const config=table[pattern];
-    if(!validPattern(pattern,config,5)||!config.durationMs)throw new Error(pattern+'の旋回時間を校正してAtomへ保存してください。');
+    if(!validPattern(pattern,config,6)||!config.durationMs)throw new Error(pattern+'の旋回時間を校正してAtomへ保存してください。');
     const [left,right]=patternOutput(pattern,100,true);move(left,right,config.durationMs);
   };
   const turns:Partial<Record<ActionId,PatternId>>={A01:'right15',A02:'right30',A03:'right45',A04:'left15',A05:'left30',A06:'left45',A11:'right90',A12:'left90',A15:'left90',A16:'right90'};
