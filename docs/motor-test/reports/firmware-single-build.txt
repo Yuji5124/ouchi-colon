@@ -1,0 +1,125 @@
+Processing atoms3-single-test (platform: espressif32@6.12.0; board: esp32-s3-devkitc-1; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-s3-devkitc-1.html
+PLATFORM: Espressif 32 (6.12.0) > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+HARDWARE: ESP32S3 240MHz, 320KB RAM, 8MB Flash
+DEBUG: Current (esp-builtin) On-board (esp-builtin) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-arduinoespressif32 @ 3.20017.241212+sha.dcc1105b 
+ - tool-esptoolpy @ 2.40900.250804 (4.9.0) 
+ - toolchain-riscv32-esp @ 8.4.0+2021r2-patch5 
+ - toolchain-xtensa-esp32s3 @ 8.4.0+2021r2-patch5
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 33 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- ESP32 BLE Arduino @ 2.0.0
+|-- Preferences @ 2.0.0
+Building in release mode
+Compiling .pio\build\atoms3-single-test\src\main.cpp.o
+Building .pio\build\atoms3-single-test\bootloader.bin
+esptool.py v4.9.0
+Creating esp32s3 image...
+Merged 1 ELF section
+Successfully created esp32s3 image.
+Generating partitions .pio\build\atoms3-single-test\partitions.bin
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLE2902.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLE2904.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEAddress.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEAdvertisedDevice.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEAdvertising.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEBeacon.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLECharacteristic.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLECharacteristicMap.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEClient.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEDescriptor.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEDescriptorMap.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEDevice.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEEddystoneTLM.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEEddystoneURL.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEExceptions.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEHIDDevice.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLERemoteCharacteristic.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLERemoteDescriptor.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLERemoteService.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEScan.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLESecurity.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEServer.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEService.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEServiceMap.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEUUID.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEUtils.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\BLEValue.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\FreeRTOS.cpp.o
+Compiling .pio\build\atoms3-single-test\lib179\BLE\GeneralUtils.cpp.o
+Compiling .pio\build\atoms3-single-test\lib458\Preferences\Preferences.cpp.o
+Archiving .pio\build\atoms3-single-test\lib179\libBLE.a
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\Esp.cpp.o
+Archiving .pio\build\atoms3-single-test\lib458\libPreferences.a
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\FirmwareMSC.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\FunctionalInterrupt.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\HWCDC.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\HardwareSerial.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\IPAddress.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\IPv6Address.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\MD5Builder.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\Print.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\Stream.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\StreamString.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\Tone.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\USB.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\USBCDC.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\USBMSC.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\WMath.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\WString.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\base64.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\cbuf.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-adc.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-bt.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-cpu.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-dac.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-gpio.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-i2c-slave.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-i2c.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-ledc.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-matrix.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-misc.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-psram.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-rgb-led.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-rmt.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-sigmadelta.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-spi.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-time.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-timer.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-tinyusb.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-touch.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\esp32-hal-uart.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\firmware_msc_fat.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\libb64\cdecode.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\libb64\cencode.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\main.cpp.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\stdlib_noniso.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\wiring_pulse.c.o
+Compiling .pio\build\atoms3-single-test\FrameworkArduino\wiring_shift.c.o
+Archiving .pio\build\atoms3-single-test\libFrameworkArduino.a
+Linking .pio\build\atoms3-single-test\firmware.elf
+Retrieving maximum program size .pio\build\atoms3-single-test\firmware.elf
+Checking size .pio\build\atoms3-single-test\firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [=         ]  13.8% (used 45140 bytes from 327680 bytes)
+Flash: [===       ]  27.2% (used 910277 bytes from 3342336 bytes)
+Building .pio\build\atoms3-single-test\firmware.bin with action:
+  "$PYTHONEXE" "$OBJCOPY" --chip esp32s3 elf2image --flash_mode ${__get_board_flash_mode(__env__)} --flash_freq ${__get_board_f_image(__env__)} --flash_size 8MB --elf-sha256-offset 0xb0 -o $TARGET $SOURCES
+Building .pio\build\atoms3-single-test\firmware.bin
+esptool.py v4.9.0
+Creating esp32s3 image...
+Merged 2 ELF sections
+Successfully created esp32s3 image.
+======================== [SUCCESS] Took 120.69 seconds ========================
+
+Environment         Status    Duration
+------------------  --------  ------------
+atoms3-single-test  SUCCESS   00:02:00.693
+========================= 1 succeeded in 00:02:00.693 =========================
