@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ACTIONS,ACTION_IDS,DEFAULT_ACTION_SETTINGS,planAction,faceAction,actionForCommand,validActionSettings,type ActionId} from '../src/motor/actions.ts';
+import {ACTIONS,ACTION_IDS,DEFAULT_ACTION_SETTINGS,ACTION_SETTINGS_KEY,readActionSettings,planAction,faceAction,actionForCommand,validActionSettings,type ActionId} from '../src/motor/actions.ts';
 import {ActionRunner} from '../src/motor/action-runner.ts';
 import {defaultPatterns,ACTION_PATTERN_IDS,parsePatterns,validPattern} from '../src/motor/patterns.ts';
 import {INITIAL_SETTINGS,OPS,makeFrame} from '../src/motor/protocol.ts';
@@ -22,14 +22,24 @@ test('Actions: A01〜A17の一意な番号と、左右90°の共通定義',()=>{
   assert.deepEqual(plan('A17').moves,[]);
   for(const id of ACTION_IDS)for(const m of plan(id).moves){assert.equal(Math.abs(m.left),100);assert.equal(Math.abs(m.right),100);}
 });
-test('Actions: 到着2秒、うれしい2種、分からない6パルスの順と0.2秒停止',()=>{
+test('Actions: 到着2秒、うれしい2種、分からないは後進500ms・停止1000ms・前進500ms',()=>{
   assert.deepEqual(plan('A07'),{moves:[{left:100,right:100,durationMs:2000,gapMs:100}],speech:'来たよ〜',requiresFace:true});
   assert.deepEqual(plan('A08').moves.map(m=>[m.left,m.right,m.durationMs]),[[100,-100,1000],[-100,100,1000]]);
   assert.deepEqual(plan('A09').moves.map(m=>m.left),[-100,100]);
-  assert.deepEqual(plan('A10').moves.map(m=>[m.left,m.durationMs,m.gapMs]),[-100,-100,-100,100,100,100].map(n=>[n,500,200]));
+  assert.deepEqual(plan('A10').moves,[{left:-100,right:-100,durationMs:500,gapMs:1000},{left:100,right:100,durationMs:500,gapMs:100}]);
   assert.equal(validActionSettings({...settings,pauseMs:99}),false);
   assert.equal(validActionSettings({...settings,medium:0.9,large:0.8}),false);
   assert.throws(()=>planAction('A13',table,settings,face,501,100),/50〜500ms/);
+});
+test('Actions: 旧0.2秒設定は1秒へ移行し、顔・喜び設定は保持する',()=>{
+  const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
+  const values=new Map([['colon-actions-v1',JSON.stringify({...DEFAULT_ACTION_SETTINGS,pauseMs:200,deadZone:0.2,happy:'A09'})]]);
+  try{
+    Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:(key:string)=>values.get(key)??null}});
+    assert.deepEqual(readActionSettings(),{...DEFAULT_ACTION_SETTINGS,pauseMs:1000,deadZone:0.2,happy:'A09'});
+    values.set(ACTION_SETTINGS_KEY,JSON.stringify({...DEFAULT_ACTION_SETTINGS,pauseMs:1500}));
+    assert.equal(readActionSettings().pauseMs,1500);
+  }finally{if(descriptor)Object.defineProperty(globalThis,'localStorage',descriptor);else Reflect.deleteProperty(globalThis,'localStorage');}
 });
 test('Actions: 顔の左右・ずれ・見かけの幅から6方向を選ぶ。古い入力は不可',()=>{
   for(const [x,id] of [[0.2,'A01'],[0.4,'A02'],[0.8,'A03'],[-0.2,'A04'],[-0.4,'A05'],[-0.8,'A06']] as const)assert.equal(faceAction({...face,x},settings,100),id);
@@ -77,15 +87,15 @@ async function fixture(){
 test('Runner: 到着は連続2000msの1指令、実停止の応答後だけ発話',async()=>{
   const f=await fixture();try{await f.runner.run('A07',settings);assert.deepEqual(f.writes,[{left:100,right:100,duration:2000}]);assert.equal(f.speeches(),1);assert.equal(f.runner.running,false);}finally{f.session.disconnect();}
 });
-test('Runner: A10の6段階と5回の200ms停止を順に確認する',async()=>{
-  const f=await fixture();try{await f.runner.run('A10',settings);assert.deepEqual(f.writes.map(m=>m.left),[-100,-100,-100,100,100,100]);assert.equal(f.delays.filter(ms=>ms===200).length,5);assert.equal(f.session.status?.left,0);}finally{f.session.disconnect();}
+test('Runner: A10の後進500ms・1回の1000ms停止・前進500msを確認する',async()=>{
+  const f=await fixture();try{await f.runner.run('A10',settings);assert.deepEqual(f.writes.map(m=>m.left),[-100,100]);assert.equal(f.delays.filter(ms=>ms===1000).length,1);assert.equal(f.session.status?.left,0);}finally{f.session.disconnect();}
 });
-test('Runner: 停止間隔中のA17で残り5指令を取り消す',async()=>{
-  const f=await fixture();try{f.onSleep(ms=>{if(ms===200)f.runner.stop();});await assert.rejects(f.runner.run('A10',settings));assert.equal(f.writes.length,1);assert.equal(f.runner.running,false);assert.equal(f.speeches(),0);}finally{f.session.disconnect();}
+test('Runner: 停止間隔中のA17で残りの前進指令を取り消す',async()=>{
+  const f=await fixture();try{f.onSleep(ms=>{if(ms===1000){assert.equal(f.runner.restMs,1000);f.runner.stop();}});await assert.rejects(f.runner.run('A10',settings));assert.equal(f.writes.length,1);assert.equal(f.runner.running,false);assert.equal(f.speeches(),0);}finally{f.session.disconnect();}
 });
 test('Runner: 動作間に本体のSTOP応答を受けた場合も残りを再開しない',async()=>{
   const f=await fixture();try{
-    f.onSleep(async ms=>{if(ms===200){f.session.requestStop();await new Promise(resolve=>setTimeout(resolve,0));}});
+    f.onSleep(async ms=>{if(ms===1000){f.session.requestStop();await new Promise(resolve=>setTimeout(resolve,0));}});
     await assert.rejects(f.runner.run('A10',settings),/停止要求/);assert.equal(f.writes.length,1);
   }finally{f.session.disconnect();}
 });

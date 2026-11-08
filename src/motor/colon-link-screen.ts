@@ -1,4 +1,5 @@
 import './colon-link.css';
+import {MotorCommunications} from './communications.ts';
 import {MotorSession} from './session.ts';
 import {MockTransport,BleTransport} from './transport.ts';
 import {OPS,INITIAL_SETTINGS,isCommonTimingFirmware} from './protocol.ts';
@@ -20,7 +21,7 @@ export function mountColonMotorLink(){
   debug.append(root);
   const floatingStop=document.createElement('button');floatingStop.id='colon-motor-floating-stop';floatingStop.type='button';floatingStop.hidden=true;floatingStop.textContent='■ モーター緊急停止';document.body.append(floatingStop);
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>root.querySelector<T>(`#${id}`)!;
-  let session:MotorSession|null=null,connecting=false,heartbeatBusy=false;
+  let session:MotorSession|null=null,connecting=false;
   let actions:ReturnType<typeof mountActionPanel>|null=null,patterns:ReturnType<typeof mountPatternPanel>|null=null;
   const say=(text:string)=>{el('colon-motor-status').textContent=text;};
   const block=()=>!session?.connected?'AtomS3へ接続してください。':!isCommonTimingFirmware(session.status)?'走行プログラム1.8.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
@@ -51,8 +52,8 @@ export function mountColonMotorLink(){
   el('colon-motor-disconnect').addEventListener('click',()=>{stop();session?.disconnect();say('切断しました。');update();});
   root.querySelector<HTMLAnchorElement>('a')!.addEventListener('click',()=>{stop();session?.disconnect();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('blur',()=>stop());window.addEventListener('pagehide',()=>{stop();session?.disconnect();});
-  setInterval(()=>void session?.poll(),150);
-  setInterval(async()=>{if(heartbeatBusy||!session?.connected||session.busy||document.hidden)return;heartbeatBusy=true;try{await session.heartbeat();}catch(error){say(String(error));}finally{heartbeatBusy=false;}},120);
+  const communications=new MotorCommunications({session:()=>session,enabled:()=>!document.hidden,error:error=>say(String(error))});
+  setInterval(()=>void communications.tick(),40);
   update();
   if(new URLSearchParams(location.search).get('motorLink')==='1'){root.querySelector('details')!.open=true;root.scrollIntoView({block:'start'});}
 }

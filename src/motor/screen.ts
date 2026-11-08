@@ -1,10 +1,11 @@
 import './screen.css';
-import {INITIAL_SETTINGS,OPS,direction,isDirectFirmware,isCorrectedTurnFirmware,isCommonTimingFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {INITIAL_SETTINGS,OPS,direction,describeStopReason,isDirectFirmware,isCorrectedTurnFirmware,isCommonTimingFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,type DiagnosticRow} from './diagnostics.ts';
 import {mountPatternPanel} from './pattern-screen.ts';
 import {mountUsbWriter} from './usb-screen.ts';
+import {MotorCommunications} from './communications.ts';
 import {driveKey} from './keyboard.ts';
 import {mountActionPanel} from './actions-screen.ts';
 
@@ -90,7 +91,7 @@ export function mountMotorTest(){
   const input=(id:string)=>el<HTMLInputElement>(id);
   let session:MotorSession|null=null;
   let connecting=false,held=false,activeMotion='',pointerId:number|null=null,heldKey:string|null=null;
-  let heartbeatBusy=false,lastHeartbeatLog=0,lastMotion='';
+  let lastHeartbeatLog=0,lastMotion='';
   let patternPanel:{update():void}|null=null;
   let actionPanel:ReturnType<typeof mountActionPanel>|null=null;
   const settings:MotorSettings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
@@ -139,7 +140,7 @@ export function mountMotorTest(){
     const state=!connected?'未接続':s?.estop?'緊急停止':moving?'動作指令中':session?.foregroundBusy?'操作準備中':'接続済み・停止中';
     el('rc-badge').textContent=el('arm-badge').textContent=state;
     const blocked=controlBlock();
-    el('rc-help').textContent=blocked||(moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.8.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
+    el('rc-help').textContent=blocked||(actionPanel?.running?'番号付き動作を実行中です。停止ボタンで中断できます。':moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.8.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
     const canMove=!blocked&&!actionPanel?.running&&(!session?.foregroundBusy||held);
     for(const button of buttons){
       button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion)||(['left','right'].includes(button.dataset.motion!)&&!isCommonTimingFirmware(s));
@@ -156,7 +157,8 @@ export function mountMotorTest(){
       'ファーム':s?.firmware??'未取得','電源設定':'電池3V','出力設定':'100%固定',
       '稼働時間':s?`${(s.uptimeMs/1000).toFixed(1)}秒`:'未取得',
       '起動回数':s?.bootCount==null?'未取得':String(s.bootCount),
-      '再起動理由':s?.resetReason??'未取得','停止理由':s?.stopReason??'未取得',
+      '再起動理由':s?.resetReason??'未取得','停止理由':describeStopReason(s?.stopReason),
+      '直近の心拍切れ':session?.lastHeartbeatTimeoutAt?new Date(session.lastHeartbeatTimeoutAt).toLocaleTimeString('ja-JP'):'記録なし',
       '最終心拍応答':session?.lastHeartbeatAt?new Date(session.lastHeartbeatAt).toLocaleTimeString('ja-JP')+(connected?'':'（切断前）'):'未取得',
     };
     el('telemetry').replaceChildren();
@@ -271,12 +273,9 @@ export function mountMotorTest(){
   el('mock-reboot').addEventListener('click',()=>{
     if(session?.transport instanceof MockTransport){stop();session.transport.reboot();void session.poll();}
   });
-  setInterval(()=>{void session?.poll();},150);
-  setInterval(async()=>{
-    if(heartbeatBusy||document.hidden||!session?.connected||session.busy||(session.transport.kind==='mock'&&input('pause-heartbeat').checked))return;
-    heartbeatBusy=true;
-    try{await session.heartbeat();}catch(error){say(String(error));}finally{heartbeatBusy=false;}
-  },120);
+  const communications=new MotorCommunications({session:()=>session,enabled:()=>!document.hidden,
+    heartbeatEnabled:()=>!(session?.transport.kind==='mock'&&input('pause-heartbeat').checked),error:error=>say(String(error))});
+  setInterval(()=>void communications.tick(),40);
   function download(data:string,type:string,extension:string){
     const url=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');
     a.href=url;a.download=`colon-motor-${Date.now()}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

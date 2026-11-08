@@ -14,6 +14,11 @@ export interface MotorStatus {
 }
 export interface MotorSettings {frequency:number;pulseMs:number;invertLeft:boolean;invertRight:boolean;signalOnly:boolean;singleTest?:boolean;rcTest?:boolean;directControl?:boolean;actionStep?:boolean;}
 export const RC_MAX_DUTY=75;
+export function describeStopReason(reason:string|undefined){
+  if(!reason)return '未取得';
+  const labels:Record<string,string>={'pulse-limit':'設定時間に到達・正常停止','heartbeat-timeout':'心拍通信切れで停止（350ms）','operator-stop':'停止操作','emergency':'緊急停止','disconnect':'通信切断','connected-disarmed':'接続済み・操作待ち','boot':'起動・停止中'};
+  return labels[reason]?`${labels[reason]}（${reason}）`:reason;
+}
 export function isBootFirmware(status:MotorStatus|null|undefined){
   return status?.firmware==='colon-motor-1.4.0'||status?.firmware==='colon-motor-1.4.1'
     ||status?.firmware==='colon-motor-1.4.2';

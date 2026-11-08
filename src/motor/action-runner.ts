@@ -1,6 +1,6 @@
 import {freshFace,planAction,type ActionId,type ActionSettings,type FacePose} from './actions.ts';
 import type {MotorSession} from './session.ts';
-import {isCommonTimingFirmware} from './protocol.ts';
+import {isCommonTimingFirmware,describeStopReason} from './protocol.ts';
 
 export interface ActionRunnerHooks {
   session:()=>MotorSession|null;
@@ -20,7 +20,7 @@ export function abortDelay(ms:number,signal:AbortSignal):Promise<void>{
   });
 }
 export class ActionRunner {
-  active:ActionId|null=null;step=0;total=0;
+  active:ActionId|null=null;step=0;total=0;restMs=0;
   private aborter:AbortController|null=null;
   private readonly sleep:(ms:number,signal:AbortSignal)=>Promise<void>;
   private readonly now:()=>number;
@@ -52,7 +52,7 @@ export class ActionRunner {
         assertCurrent();
         if(index>0&&session.status?.stopReason!=='pulse-limit')throw new Error('停止要求により、続きの動作を取り消しました。');
         if(plan.requiresFace&&!freshFace(this.hooks.face(),this.now()))throw new Error('顔を見失ったため停止しました。');
-        this.step=index+1;this.hooks.changed();
+        this.step=index+1;this.restMs=0;this.hooks.changed();
         const deadline=this.now()+move.durationMs+3000;
         await session.driveTimed(move.left,move.right,move.durationMs);
         for(;;){
@@ -60,13 +60,13 @@ export class ActionRunner {
           if(plan.requiresFace&&!freshFace(this.hooks.face(),this.now()))throw new Error('顔を見失ったため停止しました。');
           const status=session.status!;
           if(!status.armed&&status.left===0&&status.right===0){
-            if(status.stopReason!=='pulse-limit')throw new Error('本体が停止しました。'+status.stopReason);
+            if(status.stopReason!=='pulse-limit')throw new Error('本体が停止しました。'+describeStopReason(status.stopReason));
             break;
           }
           if(this.now()>deadline)throw new Error('停止応答を確認できないため中断しました。');
           await this.sleep(40,signal);
         }
-        if(index<plan.moves.length-1)await this.sleep(move.gapMs,signal);
+        if(index<plan.moves.length-1){this.restMs=move.gapMs;this.hooks.changed();await this.sleep(move.gapMs,signal);}
       }
       assertCurrent();
       if(plan.speech){const blocked=this.hooks.speechReady();if(blocked)throw new Error(blocked);await this.hooks.speak(plan.speech,signal);}
@@ -76,7 +76,7 @@ export class ActionRunner {
       if(needsStop&&session.connected)session.requestStop();
       throw error;
     }finally{
-      this.aborter=null;this.active=null;this.step=0;this.total=0;this.hooks.changed();
+      this.aborter=null;this.active=null;this.step=0;this.total=0;this.restMs=0;this.hooks.changed();
     }
   }
 }

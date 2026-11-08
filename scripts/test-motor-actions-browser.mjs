@@ -43,7 +43,7 @@ try{
   await waitFor(()=>enabled('[data-motion="forward"]'),'direct mock ready');
   assert.match(await text('#left-state'),/0%/);
   assert.equal(await evalPage("document.querySelectorAll('[data-action]').length"),17);
-  assert.equal(await evalPage("document.querySelector('[data-setting=pauseMs]').value"),'200');
+  assert.equal(await evalPage("document.querySelector('[data-setting=pauseMs]').value"),'1000');
   for(const [angle,ms] of [[15,2000],[30,4000],[45,6000],[90,12000]])for(const side of ['right','left'])assert.equal(await evalPage('document.querySelector('+JSON.stringify('button[data-id="'+side+angle+'"]')+').closest(".pattern-row").querySelector("input").value'),String(ms),'common initial duration '+side+angle);
   for(const id of ['right90','left90']){
     await evalPage('{const input=document.querySelector('+JSON.stringify('button[data-id="'+id+'"]')+').closest(".pattern-row").querySelector("input");input.value="1200";input.dispatchEvent(new Event("change"));}');
@@ -119,7 +119,7 @@ try{
   assert.match(await text('[data-role=face]'),/モック入力/);
   // Fake BLE characteristics exercise the real BLE transport without requesting a device.
   await click('#disconnect');
-  await evalPage('(async()=>{const {MockMotor}=await import("/ouchi-colon/src/motor/mock.ts");const {ACTION_PATTERN_IDS}=await import("/ouchi-colon/src/motor/patterns.ts");const core=new MockMotor(false,true);const start=performance.now();const now=()=>Math.floor(performance.now()-start);let disconnected=()=>{};const encode=x=>new DataView(new TextEncoder().encode(JSON.stringify(x)).buffer);setInterval(()=>core.tick(now()),5);const command={writeValueWithResponse:async data=>core.write(new Uint8Array(data),now())};const status={readValue:async()=>encode(core.status(now()))};const patterns={readValue:async()=>encode({version:6,slots:ACTION_PATTERN_IDS.map(id=>[core.patterns[id].speed,core.patterns[id].durationMs])})};const gatt={connected:false,connect:async()=>{gatt.connected=true;core.connect(now());return gatt;},disconnect:()=>{gatt.connected=false;core.disconnect(now());disconnected();},getPrimaryService:async()=>({getCharacteristic:async uuid=>uuid.includes("0002-")?command:uuid.includes("0003-")?status:patterns})};const device={gatt,addEventListener:(_name,fn)=>{disconnected=fn;}};Object.defineProperty(navigator,"bluetooth",{configurable:true,value:{requestDevice:async()=>device}});})()');
+  await evalPage("(async()=>{const {MockMotor}=await import('/ouchi-colon/src/motor/mock.ts');const {ACTION_PATTERN_IDS}=await import('/ouchi-colon/src/motor/patterns.ts');const core=new MockMotor(false,true);const origin=performance.now(),now=()=>Math.floor(performance.now()-origin),delay=ms=>new Promise(r=>setTimeout(r,ms));let disconnected=()=>{},started=null;window.__bleStops=[];const encode=x=>new DataView(new TextEncoder().encode(JSON.stringify(x)).buffer);const observe=()=>{if(started&&!core.state.armed){window.__bleStops.push({...started,elapsedMs:now()-started.at,reason:core.state.stopReason});started=null;}};setInterval(()=>{core.tick(now());observe();},5);const command={writeValueWithResponse:async data=>{await delay(40);const bytes=new Uint8Array(data);core.write(bytes,now());if(bytes[1]===3&&core.state.armed)started={at:now(),durationMs:new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint16(17,true)};observe();}};const status={readValue:async()=>{await delay(120);const value=core.status(now());observe();return encode(value);}};const patterns={readValue:async()=>encode({version:6,slots:ACTION_PATTERN_IDS.map(id=>[core.patterns[id].speed,core.patterns[id].durationMs])})};const gatt={connected:false,connect:async()=>{gatt.connected=true;core.connect(now());return gatt;},disconnect:()=>{gatt.connected=false;core.disconnect(now());observe();disconnected();},getPrimaryService:async()=>({getCharacteristic:async uuid=>uuid.includes('0002-')?command:uuid.includes('0003-')?status:patterns})};const device={gatt,addEventListener:(_name,fn)=>{disconnected=fn;}};Object.defineProperty(navigator,'bluetooth',{configurable:true,value:{requestDevice:async()=>device}});})()");
   await evalPage($ ('#mode')+'.value="ble";'+$ ('#mode')+'.dispatchEvent(new Event("change"));');
   await click('#connect');await waitFor(()=>enabled('[data-motion="forward"]'),'fake BLE direct ready');
   await audit();
@@ -132,6 +132,13 @@ try{
   await waitFor(async()=> (await text('#left-state')).includes('0%'),'fake BLE stop');
   await waitFor(()=>enabled('[data-action="A09"]'),'fake BLE action ready');await click('[data-action="A09"]');
   await waitFor(async()=> (await text('.colon-actions [data-role=message]')).includes('A09 · 完了'),'fake BLE action sequence');
+  for(let repeat=0;repeat<3;repeat++){
+    await waitFor(()=>enabled('[data-action="A01"]'),'delayed BLE A01 ready');await click('[data-action="A01"]');
+    await waitFor(async()=> (await text('.colon-actions [data-role=message]')).includes('A01 · 完了'),'delayed BLE A01 completed',5000);
+  }
+  const a01Stops=await evalPage('window.__bleStops.filter(s=>s.durationMs===2000)');
+  assert.equal(a01Stops.length,3);assert.ok(a01Stops.every(s=>s.reason==='pulse-limit'&&s.elapsedMs>=2000));
+  console.log('Delayed BLE A01 repeats:',JSON.stringify(a01Stops.map(s=>({elapsedMs:s.elapsedMs,reason:s.reason}))));
   await sleep(150);
   const {writeFile}=await import('node:fs/promises');
   await send('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
@@ -181,6 +188,6 @@ try{
   assert.equal(await evalPage('document.querySelector("[data-role=radio]").checked'),false);
   assert.equal(await evalPage('document.querySelectorAll("#colon-motor-link .pattern-row:not(.pattern-hidden)").length'),10);
   await writeFile('work/colon-actions-face.png',Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));
-  console.log('Direct UI: copy audit, mock and fake BLE, WASD, timed stop, held-key suppression, presets, calibration, A08/A09/A10, A17 cancellation, Colon typed command to A07/speech, face loss, queued command cancellation, spoken stop while link OFF, mock gaze isolation, state consistency, emergency reset, reconnection, and responsive layout passed');
+  console.log('Direct UI: copy audit, mock and fake BLE, WASD, timed stop, held-key suppression, presets, calibration, A08/A09/A10, A17 cancellation, Colon typed command to A07/speech, face loss, queued command cancellation, spoken stop while link OFF, mock gaze isolation, state consistency, delayed BLE A01 three-repeat consistency, emergency reset, reconnection, and responsive layout passed');
 
 }finally{socket?.close();chrome.kill();}

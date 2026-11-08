@@ -12,7 +12,7 @@ export const ACTIONS:ReadonlyArray<{id:ActionId;label:string;description:string}
   {id:'A07',label:'こっちきて',description:'視線へ旋回 → 前進2秒 →「来たよ〜」'},
   {id:'A08',label:'うれしい1',description:'左旋回1秒 → 右旋回1秒'},
   {id:'A09',label:'うれしい2',description:'後進1秒 → 前進1秒'},
-  {id:'A10',label:'よくわからない',description:'後進0.5秒×3 → 前進0.5秒×3（間に停止）'},
+  {id:'A10',label:'よくわからない',description:'後進0.5秒 → 停止（初期1秒） → 前進0.5秒'},
   {id:'A11',label:'右向いて',description:'右90°の校正時間で旋回'},
   {id:'A12',label:'左向いて',description:'左90°の校正時間で旋回'},
   {id:'A13',label:'ラジコン・前',description:'前進（ラジコンの最大時間）'},
@@ -23,7 +23,8 @@ export const ACTIONS:ReadonlyArray<{id:ActionId;label:string;description:string}
 ];
 export interface FacePose {detected:boolean;x:number;size:number|null;at:number;}
 export interface ActionSettings {pauseMs:number;deadZone:number;medium:number;large:number;happy:'A08'|'A09';}
-export const DEFAULT_ACTION_SETTINGS:ActionSettings={pauseMs:200,deadZone:0.12,medium:0.35,large:0.65,happy:'A08'};
+export const DEFAULT_ACTION_SETTINGS:ActionSettings={pauseMs:1000,deadZone:0.12,medium:0.35,large:0.65,happy:'A08'};
+export const ACTION_SETTINGS_KEY='colon-actions-v2';
 export interface ActionMove {left:number;right:number;durationMs:number;gapMs:number;}
 export interface ActionPlan {moves:ActionMove[];speech?:string;requiresFace:boolean;}
 export function validActionId(value:unknown):value is ActionId {return typeof value==='string'&&(ACTION_IDS as readonly string[]).includes(value);}
@@ -32,6 +33,15 @@ export function validActionSettings(s:ActionSettings){
     &&[s.deadZone,s.medium,s.large].every(Number.isFinite)
     &&s.deadZone>=0.02&&s.deadZone<s.medium&&s.medium<s.large&&s.large<=1
     &&(s.happy==='A08'||s.happy==='A09');
+}
+export function readActionSettings():ActionSettings{
+  try{
+    const saved=JSON.parse(localStorage.getItem(ACTION_SETTINGS_KEY)??'null');
+    if(validActionSettings(saved))return saved;
+    const old=JSON.parse(localStorage.getItem('colon-actions-v1')??'null');
+    if(validActionSettings(old))return {...old,pauseMs:1000};
+  }catch{/* Use current defaults if storage is unavailable or invalid. */}
+  return {...DEFAULT_ACTION_SETTINGS};
 }
 export function freshFace(face:FacePose|null,now=Date.now()):face is FacePose {
   return !!face&&face.detected&&Number.isFinite(face.x)&&Math.abs(face.x)<=1
@@ -77,7 +87,7 @@ export function planAction(id:ActionId,table:PatternTable,settings:ActionSetting
   }else if(id==='A08'){move(100,-100,1000);move(-100,100,1000);}
   else if(id==='A09'){move(-100,-100,1000);move(100,100,1000);}
   else if(id==='A10'){
-    for(const sign of [-1,1])for(let n=0;n<3;n++)move(sign*100,sign*100,500,settings.pauseMs);
+    move(-100,-100,500,settings.pauseMs);move(100,100,500);
   }else if(id==='A13'||id==='A14'){
     if(!Number.isInteger(manualMs)||manualMs<50||manualMs>500)throw new Error('ラジコンの最大時間は50〜500msです。');
     const speed=id==='A13'?100:-100;move(speed,speed,manualMs);

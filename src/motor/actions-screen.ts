@@ -1,5 +1,5 @@
 import './actions-screen.css';
-import {ACTIONS,DEFAULT_ACTION_SETTINGS,actionForCommand,faceAction,freshFace,validActionSettings,type ActionId,type ActionSettings,type FacePose} from './actions.ts';
+import {ACTIONS,ACTION_SETTINGS_KEY,readActionSettings,actionForCommand,faceAction,freshFace,validActionSettings,type ActionId,type ActionSettings,type FacePose} from './actions.ts';
 import {ActionRunner} from './action-runner.ts';
 import {getMotorSpeaker,registerMotorActionHandler,subscribeMotorSignals} from './bridge.ts';
 import {isCommonTimingFirmware} from './protocol.ts';
@@ -36,8 +36,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
     <details data-role="mock-face"><summary>モック専用 · 顔の位置を試す</summary><label>左右の位置（左−1 / 右+1）<input data-role="mock-x" type="range" min="-1" max="1" step="0.01" value="0"></label><label>見かけの顔幅<input data-role="mock-size" type="number" min="0.01" max="1" step="0.01" value="0.2"></label><label class="check"><input data-role="mock-detected" type="checkbox"> 仮の顔を検出中にする</label><p class="subtle">実機接続では利用できません。カメラの測定値ではありません。</p></details>`;
   parent.append(root);
   const el=<T extends HTMLElement=HTMLElement>(role:string)=>root.querySelector<T>(`[data-role="${role}"]`)!;
-  let settings={...DEFAULT_ACTION_SETTINGS},pose:FacePose|null=null;
-  try{const value=JSON.parse(localStorage.getItem('colon-actions-v1')??'null');if(validActionSettings(value))settings=value;}catch{}
+  let settings=readActionSettings(),pose:FacePose|null=null;
   for(const key of Object.keys(settings) as Array<keyof ActionSettings>)root.querySelector<HTMLInputElement|HTMLSelectElement>(`[data-setting="${key}"]`)!.value=String(settings[key]);
   let enabled=false,follow=false,radio=false,lastAutomatic=0,candidate:ActionId|null=null,stable=0;
   let previousConnected=false,previousBoot:number|undefined,commandGeneration=0,observedSession:MotorSession|null=null;
@@ -82,7 +81,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
     if(previousConnected&&(!connected||boot!==previousBoot)){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();runner.stop();}
     previousConnected=connected;previousBoot=boot;
     const blocked=block(),moving=!!session?.status&&(!!session.status.left||!!session.status.right||session.status.armed);
-    el('state').textContent=!connected?'未接続':session?.status?.estop?'緊急停止':runner.running?`${runner.active} · ${runner.step}/${runner.total}`:moving?'別の操作で出力指令中':session?.foregroundBusy?'通信処理中':blocked?'更新・停止状態を確認':'停止指令を確認';
+    el('state').textContent=!connected?'未接続':session?.status?.estop?'緊急停止':runner.running?(runner.restMs?`${runner.active} · 次の動作まで停止 ${(runner.restMs/1000).toFixed(1)}秒`:`${runner.active} · ${runner.step}/${runner.total}`):moving?'別の操作で出力指令中':session?.foregroundBusy?'通信処理中':blocked?'更新・停止状態を確認':'停止指令を確認';
     for(const [id,button] of buttons){button.disabled=id!=='A17'&&(!!blocked||runner.running||!!session?.foregroundBusy||moving);button.classList.toggle('is-active',runner.active===id);}
     for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).disabled=!!blocked;
     root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('[data-setting]').forEach(input=>input.disabled=runner.running);
@@ -129,7 +128,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
     stop();const value={...settings};
     root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('[data-setting]').forEach(field=>{const key=field.dataset.setting as keyof ActionSettings;if(key==='happy')value.happy=field.value as 'A08'|'A09';else value[key]=Number(field.value);});
     if(!validActionSettings(value)){message('停止間隔100〜2000ms、正面 < 30° < 45°の順で設定してください。');return;}
-    settings=value;try{localStorage.setItem('colon-actions-v1',JSON.stringify(settings));message('動作設定をこのブラウザに保存しました。');}catch{message('このブラウザでは設定を保存できません。');}
+    settings=value;try{localStorage.setItem(ACTION_SETTINGS_KEY,JSON.stringify(settings));message('動作設定をこのブラウザに保存しました。');}catch{message('このブラウザでは設定を保存できません。');}
   }));
   el('export').addEventListener('click',()=>{
     const url=URL.createObjectURL(new Blob([JSON.stringify({schema:'colon-actions/1',firmware:'1.8.0',settings,actions:ACTIONS},null,2)],{type:'application/json'}));

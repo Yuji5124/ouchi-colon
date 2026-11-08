@@ -3,7 +3,7 @@ import type {Transport} from './transport.ts';
 import type {PatternTable,PatternId,PatternConfig} from './patterns.ts';
 import {fixedProgram,patternIds,validPattern,sharedTurnsMatch} from './patterns.ts';
 export class MotorSession {
-  status:MotorStatus|null=null;busy=false;connected=false;lastHeartbeatAt:string|null=null;settings:MotorSettings={...INITIAL_SETTINGS};
+  status:MotorStatus|null=null;busy=false;connected=false;lastHeartbeatAt:string|null=null;lastHeartbeatTimeoutAt:string|null=null;settings:MotorSettings={...INITIAL_SETTINGS};
   onStatus:()=>void=()=>{};onEvent:(event:string,error?:string)=>void=()=>{};
   private generation=0;private sequence=0;private stopPending:Op|null=null;
   private stopInFlight:Op|null=null;
@@ -17,6 +17,7 @@ export class MotorSession {
   constructor(transport:Transport){this.transport=transport;transport.onDisconnect=()=>{this.connected=false;this.status=null;this.generation++;this.signalIdle();this.onEvent('disconnect');this.onStatus();};}
   private observe(next:MotorStatus){
     const previous=this.status;this.status=next;
+    if(!next.armed&&next.stopReason==='heartbeat-timeout'&&previous?.stopReason!==next.stopReason)this.lastHeartbeatTimeoutAt=new Date().toISOString();
     if(!next.armed&&next.left===0&&next.right===0&&
       (!previous||previous.armed||previous.nonce!==next.nonce||previous.bootId!==next.bootId)){
       this.stoppedObservedAt=performance.now();
@@ -33,7 +34,7 @@ export class MotorSession {
     }
     if(previous&&next.stopReason!==previous.stopReason&&!next.armed)this.onEvent(`stopped:${next.stopReason}`);
   }
-  async connect(){await this.transport.connect();this.connected=true;this.status=await this.transport.read();this.stoppedObservedAt=performance.now();this.sequence=this.status.seq;this.onEvent('connect');this.onStatus();}
+  async connect(){await this.transport.connect();this.connected=true;this.lastHeartbeatTimeoutAt=null;this.status=await this.transport.read();this.stoppedObservedAt=performance.now();this.sequence=this.status.seq;this.onEvent('connect');this.onStatus();}
   disconnect(){this.generation++;this.connected=false;this.transport.disconnect();this.status=null;this.signalIdle();this.onStatus();}
   private signalIdle(){for(const resolve of this.idleWaiters)resolve();this.idleWaiters.clear();}
   private releaseWire(){this.busy=false;this.flushStop();this.signalIdle();this.onStatus();}
