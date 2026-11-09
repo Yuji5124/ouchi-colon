@@ -66,5 +66,3 @@ npm run preview
 ## iPhone 11 実機確認
 
 Safari でページを開き、横向きにして表示とタップ操作を確認してください。Web manifest の `orientation: landscape` は設定していますが、iOS Safari が画面回転をロックする保証はありません。iPhone 11実機では、6表情の見え方と切り替え、縦横回転後の顔レイアウト、読み上げ中の表情維持、読み上げ停止・Safariのバックグラウンド復帰後に通常表情へ戻ることも確認してください。音声認識、実際に聞こえる音声、20ターンの会話継続、カメラとの同時利用、30fps、オフライン再読み込みも実機確認が必要です。
-
-USBゲームパッド用の別ページ [ファーム1.8.0 USBcon](usbcon.html) を追加しました。PCのUSBコントローラーをGamepad APIで読み取り、既存1.8.0のAtomS3へBLEで送ります。[操作と対応範囲](docs/motor-test/usbcon.md)。

@@ -11,8 +11,7 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:motor": "node --experimental-strip-types --test tests/motor-*.test.ts",
     "test:motor-native": "node scripts/test-motor-native.mjs",
-    "test:motor-browser": "node scripts/test-motor-actions-browser.mjs",
-    "test:usbcon-browser": "node scripts/test-motor-usbcon-browser.mjs"
+    "test:motor-browser": "node scripts/test-motor-actions-browser.mjs"
   },
   "devDependencies": {
     "typescript": "~5.8.3",

@@ -26,7 +26,7 @@ export function mountMotorTest(){
           <button id="connect" class="motor-primary">モックを接続</button>
           <button id="disconnect" class="motor-secondary" disabled>切断</button>
           <p class="subtle">実機はPCのChrome / Edge、AndroidのChromeに対応。iPhone Safariではモックを利用できます。</p>
-          <a href="#usb-writer">AtomS3へ書き込む</a><br><a href="./usbcon.html">ファーム1.8.0 USBcon</a>
+          <a href="#usb-writer">AtomS3へ書き込む</a>
         </section>
         <section class="motor-card wiring"><h2>配線</h2>
           <p>G5 → AIN1　G6 → AIN2<br>G7 → BIN1　G8 → BIN2<br>3V3 → VCC　GND → MODE / GND<br>電池3V → VM</p>
@@ -197,16 +197,15 @@ export function mountMotorTest(){
   }
   function stop(emergency=false){
     held=false;pointerId=null;heldKey=null;
-    window.dispatchEvent(new Event('motor-control-stop'));
     actionPanel?.stop(emergency);
     if(!session?.connected){say('未接続です。');update();return;}
     if(!actionPanel)session.requestStop(emergency);
     say(emergency?'緊急停止を要求しました。必要に応じて電池の電源も切ってください。':'停止を要求しました。');
     record(emergency?'emergency-request':'stop-request');update();
   }
-  async function startMotion(name:string,momentaryTurn=false){
+  async function startMotion(name:string){
     if(held||controlBlock()||!session||session.foregroundBusy||actionPanel?.running)return;
-    if(!momentaryTurn&&(name==='left'||name==='right')){
+    if(name==='left'||name==='right'){
       if(!isCommonTimingFirmware(session.status)){say('90°旋回には走行プログラム1.8.0へ更新してください。');return;}
       pointerId=null;heldKey=null;
       await actionPanel?.run(name==='left'?'A15':'A16');return;
@@ -288,5 +287,4 @@ export function mountMotorTest(){
   mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
   document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!,document.querySelector('.colon-actions')!,document.querySelector('.pattern-panel')!);
   update();
-  return {start:(motion:string)=>startMotion(motion,true),stop,ready:()=>!controlBlock()&&!actionPanel?.running,session:()=>session};
 }
