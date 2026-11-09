@@ -1,6 +1,6 @@
-const CACHE = 'ouchicolon-shell-v31';
+const CACHE = 'ouchicolon-shell-ble-v34';
 const ROOT = '/ouchi-colon/';
-const SHELL = [ROOT, `${ROOT}manifest.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
+const SHELL = [ROOT, `${ROOT}phone.html`, `${ROOT}motor-test.html`, `${ROOT}manifest.webmanifest`, `${ROOT}manifest-phone.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);
 const CACHE_PREFIX = 'ouchicolon-shell-';
 const VOICE_CACHE = 'ouchicolon-haruka-voice-v1';
@@ -8,9 +8,12 @@ const MAX_CACHED_VOICE_CLIPS = 50;
 
 function isReplaceableShellEntry(request) {
   const url = new URL(request.url);
-  return url.pathname === ROOT
+  return url.pathname === `${ROOT}motor-test.html`
+    || url.pathname === `${ROOT}phone.html`
+    || url.pathname === ROOT
     || url.pathname === `${ROOT}manifest.webmanifest`
-    || new RegExp(`^${ROOT}assets/index-[^/]+\\.(js|css)$`).test(url.pathname);
+    || url.pathname === `${ROOT}manifest-phone.webmanifest`
+    || new RegExp(`^${ROOT}assets/(?:index|phone|main|app|motor|modulepreload-polyfill)-[^/]+\\.(js|css)$`).test(url.pathname);
 }
 
 self.addEventListener('install', (event) => {
@@ -92,4 +95,3 @@ self.addEventListener('fetch', (event) => {
     }).catch(() => request.mode === 'navigate' ? caches.match(ROOT) : Response.error())),
   );
 });
-

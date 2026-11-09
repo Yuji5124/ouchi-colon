@@ -174,6 +174,10 @@ test('service worker upgrades the shell while preserving cached face and model r
   const old = await open('ouchicolon-shell-v10');
   await old.put(`${origin}/ouchi-colon/`, new Response('old shell'));
   await old.put(`${origin}/ouchi-colon/assets/index-old123.js`, new Response('old app js'));
+  await old.put(`${origin}/ouchi-colon/motor-test.html`, new Response('old motor page'));
+  for (const file of ['app-old123.js', 'motor-old123.js', 'modulepreload-polyfill-old123.js']) {
+    await old.put(`${origin}/ouchi-colon/assets/${file}`, new Response('old multipage asset'));
+  }
   await old.put(`${origin}/ouchi-colon/assets/face/eyes/open.png`, new Response('preserved face'));
   await old.put('https://storage.googleapis.com/mediapipe-models/face_detector/model.tflite', new Response('preserved model'));
   await open('unrelated-cache');
@@ -199,14 +203,18 @@ test('service worker upgrades the shell while preserving cached face and model r
   };
   runInNewContext(source, { self, caches, URL, Request, Response });
 
-  const current = await open('ouchicolon-shell-v31');
-  await current.addAll(['/ouchi-colon/', '/ouchi-colon/manifest.webmanifest', '/ouchi-colon/icons/ouchicolon-192.png', '/ouchi-colon/icons/ouchicolon-512.png']);
+  const current = await open('ouchicolon-shell-ble-v34');
+  await current.addAll(['/ouchi-colon/', '/ouchi-colon/motor-test.html', '/ouchi-colon/manifest.webmanifest', '/ouchi-colon/icons/ouchicolon-192.png', '/ouchi-colon/icons/ouchicolon-512.png']);
   let activation!: Promise<void>;
   listeners.get('activate')!({ waitUntil(promise: Promise<void>) { activation = promise; } });
   await activation;
 
   const shell = await caches.match(`${origin}/ouchi-colon/`);
   assert.equal(await shell?.text(), 'new:/ouchi-colon/');
+  assert.equal(await (await caches.match(`${origin}/ouchi-colon/motor-test.html`))?.text(), 'new:/ouchi-colon/motor-test.html');
+  for (const file of ['app-old123.js', 'motor-old123.js', 'modulepreload-polyfill-old123.js']) {
+    assert.equal(await caches.match(`${origin}/ouchi-colon/assets/${file}`), undefined);
+  }
   assert.equal(await caches.match(`${origin}/ouchi-colon/assets/index-old123.js`), undefined, 'old entry bundle is removed');
   assert.equal(await (await caches.match(`${origin}/ouchi-colon/assets/face/eyes/open.png`))?.text(), 'preserved face');
   assert.equal(await (await caches.match('https://storage.googleapis.com/mediapipe-models/face_detector/model.tflite'))?.text(), 'preserved model');
@@ -217,12 +225,12 @@ test('service worker upgrades the shell while preserving cached face and model r
     data: { type: 'GET_CACHE_VERSION' },
     ports: [{ postMessage(value: unknown) { workerVersion = value; } }],
   });
-  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-v31');
+  assert.equal((workerVersion as { cache?: string } | undefined)?.cache, 'ouchicolon-shell-ble-v34');
 });
 
-test('service worker v31 replaces the app shell while retaining lazy TOHOKU assets', async () => {
+test('service worker v32 replaces the app shell while retaining lazy TOHOKU assets', async () => {
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
-  assert.match(source, /ouchicolon-shell-v31/);
+  assert.match(source, /ouchicolon-shell-ble-v34/);
   assert.match(source, /cache\.addAll\(SHELL\)/);
   assert.match(source, /if \(await destination\.match\(request\)\) continue/);
   assert.match(source, /cache\.put\(request, copy\)/);

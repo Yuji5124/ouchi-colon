@@ -1,0 +1,3 @@
+[submodule "integrations/colon-atom-app"]
+	path = integrations/colon-atom-app
+	url = https://github.com/Yuji5124/colon-atom-app.git

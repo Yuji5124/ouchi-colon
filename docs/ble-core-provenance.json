@@ -1,0 +1,31 @@
+{
+  "commit": "ee2474bea4ab66ea45590c4140e9e1a7f678cb2c",
+  "copiedTo": "src/robot/ble-core/",
+  "changes": "transport.ts: unsupported-browser message includes Bluefy",
+  "files": [
+    {
+      "source": "src/motor/protocol.ts",
+      "sha256": "4862896255B1BF0D7CE97494410FBEE4B4F05DADE473DEEC09AAADA3A26779C4"
+    },
+    {
+      "source": "src/motor/patterns.ts",
+      "sha256": "789BDC46DB7FAAD9828C2B9A260EEE74E32862A83757E557309C70475A3C894C"
+    },
+    {
+      "source": "src/motor/session.ts",
+      "sha256": "E23BC29917E830AEEE4A96262C87B51027328AB32EFD1F600C45170210BCFF7E"
+    },
+    {
+      "source": "src/motor/transport.ts",
+      "sha256": "968407CD8478CE5612ED80CF962DF6D71B80EFBD21D3E7881DC63C18B0753700"
+    },
+    {
+      "source": "src/motor/mock.ts",
+      "sha256": "92D0BF28AC0C7AC829F76717A6A30802D09AF91A3EF359A7EC1C7FE9371BC643"
+    },
+    {
+      "source": "src/motor/communications.ts",
+      "sha256": "58433F19074B93C51F830C0ECA99E863793D22495CADF6DA091973307A494C94"
+    }
+  ]
+}

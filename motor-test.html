@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#fff4e1" />
+  <title>Colon AtomS3 Motor Test v1.0</title>
+</head>
+<body>
+  <main id="motor-app">
+    <header><a href="./">← Colon</a><p>ATOM S3 / AE-DRV8835-S</p><h1>Motor Test <small>v1.0</small></h1><p>まずモックで確認。実機の電源と配線は、測定してから。</p></header>
+    <section class="notice"><strong id="mode-banner">モック専用・実機は動きません</strong><p>1.5VはDC-DCの設定値です。実測・低電圧適合・モーター電流は未確認。PWMは過電圧対策になりません。</p></section>
+    <section><h2>1. 接続と試験段階</h2><div class="fields">
+      <label>接続先<select id="mode"><option value="mock">モック（実機なし）</option><option value="device">AtomS3（本体から開いた画面）</option></select></label>
+      <label>段階<select id="phase"><option value="2">Phase 2：モック</option><option value="3">Phase 3：AtomS3単体・VM電源OFF</option><option value="4">Phase 4：信号確認・VM電源OFF</option><option value="5">Phase 5：モーター単体</option><option value="6">Phase 6：走行</option><option value="7">Phase 7：電源診断</option></select></label>
+    </div><div class="buttons"><button id="connect">接続する</button><button id="disconnect" class="secondary">接続解除</button></div>
+    <p id="device-guide">実機ではAtomS3のWi-Fiに接続し、<a href="http://192.168.4.1/" rel="noreferrer">本体のテスト画面</a>を開いてください。Wi-Fi接続情報はUSBシリアルで確認します。</p>
+    <dl id="telemetry"></dl><output id="error" role="status" aria-live="polite"></output></section>
+    <section><h2>2. 駆動を許可する前に</h2><p>接続するだけでは動きません。停止・タイムアウト・再接続後は、再び許可が必要です。</p>
+    <div class="checks">
+      <label><input type="checkbox" id="check-wiring" /> 配線・MODE=GND・共通GNDを確認した</label>
+      <label><input type="checkbox" id="check-switch" /> モーター電源を物理的に切れる</label>
+      <label><input type="checkbox" id="check-raised" /> キャタピラを浮かせ、周囲を空けた</label>
+      <label><input type="checkbox" id="check-off" /> 信号試験ではVM電源OFF・モーター未接続</label>
+      <label><input type="checkbox" id="check-voltage" /> 駆動試験ではVM実測値とドライバー適合を確認した</label>
+      <label><input type="checkbox" id="check-current" /> 駆動試験ではモーター定格・電流容量を確認した</label>
+    </div><p>初期ファームウェアは診断専用です。実機の許可条件を満たしていない間は、チェックを付けても出力できません。</p>
+    <div class="buttons"><button id="arm">確認して制御を許可</button><button id="reset" class="secondary">緊急停止の解除（駆動は許可しない）</button></div></section>
+    <section><h2>3. 速度と短時間パルス</h2><p>設定は許可を解除してから変更します。押したままでも最大パルス時間で停止します。</p>
+    <div class="fields">
+      <label>左PWM <output id="left-label">20%</output><input id="left-speed" type="range" min="0" max="100" step="1" value="20" /></label>
+      <label>右PWM <output id="right-label">20%</output><input id="right-speed" type="range" min="0" max="100" step="1" value="20" /></label>
+      <label>左右共通PWM<input id="both-speed" type="range" min="0" max="100" step="1" value="20" /></label>
+      <label>PWM周波数（Hz）<input id="pwm" type="number" min="500" max="20000" step="1" value="1000" /></label>
+      <label>ソフトスタート（ms）<input id="ramp" type="number" min="50" max="1000" step="1" value="100" /></label>
+      <label>最大パルス（ms）<input id="pulse" type="number" min="50" max="500" step="1" value="100" /></label>
+      <label><input id="invert-left" type="checkbox" /> 左の方向を反転</label><label><input id="invert-right" type="checkbox" /> 右の方向を反転</label>
+    </div><button id="apply-settings">設定を適用</button><p>正転は電気的な向きです。前進との対応は、左右反転設定と実機で確認してください。</p></section>
+    <section><h2>4. モーターを個別に確認</h2><p>押している間だけ要求します。指を離す・画面を隠す・通信が途絶えると停止します。</p><div class="motor-grid">
+      <button data-drive="1,0">左モーター正転</button><button data-drive="-1,0">左モーター逆転</button>
+      <button data-drive="0,1">右モーター正転</button><button data-drive="0,-1">右モーター逆転</button>
+    </div><button id="stop" class="secondary full">左右停止・許可解除</button></section>
+    <section><h2>5. 走行テスト</h2><div class="dpad"><button data-drive="1,1" class="forward">↑ 前進</button><button data-drive="-1,1" class="left">← 左旋回</button><button id="dpad-stop" class="center secondary">停止</button><button data-drive="1,-1" class="right">右旋回 →</button><button data-drive="-1,-1" class="backward">↓ 後退</button></div></section>
+    <section><h2>6. 電源診断（手動記録）</h2><p>表示の消灯とUSB出力停止は別々に記録します。下の数値は入力記録で、自動測定値ではありません。</p>
+      <dl class="unmeasured"><dt>SMARTCOBY内部電圧</dt><dd>未測定</dd><dt>DC-DC入力・出力電圧</dt><dd>未測定</dd><dt>モーター実電流</dt><dd>未測定</dd><dt>低負荷停止の原因判定</dt><dd>未確認</dd></dl>
+      <div class="fields"><label>DC-DC設定（V・手入力）<input id="setting-v" type="number" step="0.01" min="0" max="20" value="1.5" /></label>
+      <label>DC-DC実測（V・手入力）<input id="measured-v" type="number" step="0.001" min="0" max="20" placeholder="未測定" /></label>
+      <label>表示消灯まで（秒）<input id="display-seconds" type="number" step="0.1" min="0" placeholder="未確認" /></label>
+      <label>消灯後の出力<select id="output-state"><option value="unknown">未確認</option><option value="maintained">実測で維持を確認</option><option value="stopped">実測で停止を確認</option></select></label>
+      <label>駆動時の電源状態<input id="driving-power" maxlength="160" placeholder="未確認" /></label>
+      <label>発熱<select id="heat"><option value="unknown">未確認</option><option value="none">確認した範囲ではなし</option><option value="present">あり（試験中止）</option></select></label>
+      <label>測定日時<input id="measured-at" type="datetime-local" /></label></div><button id="save-power">診断記録を追加</button></section>
+    <section><h2>7. 診断ログ</h2><p>この画面のメモリに最大500件保持します。必要な記録はダウンロードしてください。</p><div class="buttons"><button id="export-json">JSONを保存</button><button id="export-csv">CSVを保存</button></div><pre id="log" aria-label="直近の診断記録"></pre></section>
+    <footer>モックの成功は実機の安全確認を代替しません。接続変更は必ず全電源を切って行ってください。</footer>
+  </main>
+  <aside class="emergency"><button id="emergency-stop">緊急停止・制御許可を解除</button><small id="stop-status">実機には未接続</small></aside>
+  <script type="module" src="/src/motor/main.ts"></script>
+</body>
+</html>

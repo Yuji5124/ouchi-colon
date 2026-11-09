@@ -1,3 +1,17 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+.motor-build/
+firmware/ColonAtomS3MotorTest/generated/
+
+work/
+*.local
+*.pem
+*.key
+
+*.log
+.git-initial-empty-backup/
+.phone-private/
+.phone-build/
+phone.html

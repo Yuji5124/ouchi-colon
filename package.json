@@ -1,14 +1,22 @@
 {
-  "name": "ouchi-colon",
+  "name": "colon-integrated",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/create-phone-entry.mjs && vite --host 0.0.0.0",
+    "build": "node scripts/create-phone-entry.mjs && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs",
+    "motor:package": "node scripts/package-motor-web.mjs",
+    "motor:firmware:build": "node scripts/build-motor-firmware.mjs",
+    "test:motor-native": "node scripts/test-motor-native.mjs",
+    "integrated": "node server/integrated.mjs",
+    "phone:prepare": "node scripts/phone-provision.mjs",
+    "phone:firmware:build": "node scripts/build-phone-firmware.mjs",
+    "phone:firmware:check": "node scripts/phone-provision.mjs --test && node scripts/build-phone-firmware.mjs --test",
+    "ble:offline:check": "node --experimental-strip-types scripts/verify-ble-offline.mjs"
   },
   "devDependencies": {
     "typescript": "~5.8.3",

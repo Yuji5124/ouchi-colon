@@ -1,0 +1,20 @@
+import {existsSync,mkdirSync,copyFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
+const root=fileURLToPath(new URL('../',import.meta.url)), test=process.argv.includes('--test');
+// Revalidate and regenerate every time; never compile an obsolete private configuration.
+const prepared=spawnSync(process.execPath,[resolve(root,'scripts/phone-provision.mjs'),...(test?['--test']:[])],{stdio:'inherit'});
+if(prepared.status!==0)process.exit(prepared.status??1);
+const config=resolve(root,test?'.phone-build/test-generated/PhoneConfig.h':'.phone-build/generated/PhoneConfig.h');
+if(!existsSync(config))throw new Error('Run npm run phone:prepare and complete the local Wi-Fi settings first.');
+const staging=resolve(root,'.phone-build/ColonAtomS3MotorTest');mkdirSync(resolve(staging,'generated'),{recursive:true});
+for(const file of ['ColonAtomS3MotorTest.ino','MotorSafety.h','PhoneServer.h','PhonePolicy.h'])copyFileSync(resolve(root,'firmware/ColonAtomS3MotorTest',file),resolve(staging,file));
+copyFileSync(config,resolve(staging,'generated/PhoneConfig.h'));
+const cli=[process.env.ARDUINO_CLI,resolve(process.env.LOCALAPPDATA||'.','Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe')].find(p=>p&&existsSync(p))||'arduino-cli';
+const output=resolve(root,test?'.phone-build/test-firmware':'.phone-build/firmware');mkdirSync(output,{recursive:true});
+const result=spawnSync(cli,['compile','--jobs','4','--fqbn','esp32:esp32:m5stack_atoms3:PartitionScheme=default_8MB','--build-property','build.extra_flags=-DCOLON_PHONE_MODE=1','--build-path',output,'--warnings','all',staging],{encoding:'utf8',maxBuffer:20*1024*1024});
+const log=(result.stdout||'')+(result.stderr||'')+(result.error?String(result.error):'');writeFileSync(resolve(root,'.phone-build/compile.log'),log);
+console.log(log);
+if(result.status!==0)process.exit(result.status??1);
+console.log(test?'Compiled phone HTTPS firmware with dummy credentials in .phone-build/test-firmware. TEST ONLY: do not flash this image.':'Compiled phone HTTPS firmware with outputs DISABLED. No upload or motor operation. Firmware contains private configuration: do not publish binaries.');

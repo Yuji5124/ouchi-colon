@@ -51,3 +51,18 @@ npm run preview
 
 Safari でページを開き、横向きにして表示とタップ操作を確認してください。Web manifest の `orientation: landscape` は設定していますが、iOS Safari が画面回転をロックする保証はありません。iPhone 11実機では、6表情の見え方と切り替え、縦横回転後の顔レイアウト、読み上げ中の表情維持、読み上げ停止・Safariのバックグラウンド復帰後に通常表情へ戻ることも確認してください。音声認識、実際に聞こえる音声、20ターンの会話継続、カメラとの同時利用、30fps、オフライン再読み込みも実機確認が必要です。
 
+## AtomS3 Motor Test v1.0
+
+会話とは独立したモック／実機診断画面を追加しました。`/ouchi-colon/motor-test.html` を開きます。初期ファームウェアは駆動禁止で、実機への書き込み・モーター通電は未実施です。詳しくは [Motor Test README](docs/motor-test/README.md)、[GPIO・未解決リスク](docs/motor-test/wiring-and-risks.md)、[実機試験手順](docs/motor-test/hardware-test-procedure.md) を参照してください。
+
+## Colon統合版 v32
+
+会話・ATOM表示・短時間ラジコンの起動方法、実機の成立条件、検証状況は docs/colon-integrated-v32.md を参照してください。
+
+## iPhone 11直接連携 v33
+
+家庭内Wi-FiからAtomS3のHTTPS APIへ直接接続する構成は docs/iphone11-direct-atom-v33.md を参照してください。v32のPC中継構成に加えて選択できます。
+
+## BLE直接連携 v34（現在の方針）
+
+スマホ → BLE → AtomS3 → モータードライバー → モーター。既存BLE 1.8.0を再利用します。iPhoneでは対応ブラウザーが必要です。手順・100%固定の出力条件・検証範囲は docs/ble-integration-v34.md を参照してください。

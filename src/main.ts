@@ -1,3 +1,4 @@
+import { mountRobotIntegration } from './robot/integration';
 import { setAudioSessionType } from './speech/audio-session';
 import { FaceRenderer, expressions, type Expression, type FaceState } from './character/face-renderer';
 import { chooseConversationEmotion, ConversationExpressionController } from './character/conversation-expression';
@@ -44,7 +45,8 @@ let targetGazeY = 0;
 let talking = false;
 const launchSettings = conversationLaunchSettings(location.search);
 const simpleConversationMode = launchSettings.simpleConversationMode;
-let debug = launchSettings.debug;
+const phoneMode = location.pathname.endsWith('/phone.html') || new URLSearchParams(location.search).get('phone') === '1';
+let debug = launchSettings.debug || phoneMode;
 let nextBlink = performance.now() + 2200 + Math.random() * 3500;
 let lastFrame = performance.now();
 let lastDraw = 0;
@@ -898,6 +900,7 @@ function scheduleRecognitionResume(token: number, session: number, retry = 0, de
 }
 
 function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token: number, expressionGeneration: number): void {
+  robotIntegration.finished(token);
   responseFinishedAt = performance.now();
   const shouldResume = shouldResumeAfterReply(reason, recognitionEnabled, voiceResponseActive);
   const session = recognitionSessionGeneration;
@@ -951,6 +954,7 @@ function finishReactionResponseOnce(reason: SpeechEndReason | 'text-only', token
   }
 }
 
+const robotIntegration = mountRobotIntegration();
 function speakReply(text: string, token: number, emotion: ReturnType<typeof chooseConversationEmotion>, harukaReply: HarukaNanaSelectedResponse | null = null): void {
   const expressionGeneration = activeExpressionGeneration;
   conversationExpressionController.setEmotion(expressionGeneration, emotion);
@@ -985,6 +989,7 @@ function speakReply(text: string, token: number, emotion: ReturnType<typeof choo
   const callbacks: SpeechCallbacks = {
     onStart: () => {
       if (token !== conversationGeneration) return;
+      robotIntegration.started(token, text);
       if (activeReplyEngineForTurn === 'tohoku' || activeReplyEngineForTurn === 'haruka') talking = true;
       recordSpeechStage('tts-start', 'onstart');
       recordSpeechStage('mouth-start', '口パクを開始');
@@ -1117,6 +1122,7 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   if (!debug) return;
   if (!text.trim()) return;
   const token = ++conversationGeneration;
+  robotIntegration.interrupt();
   tohokuAudio?.pause();
   speechEngine.stop();
   tohokuConversationSpeech.stop();
@@ -1181,6 +1187,8 @@ async function respondToConversation(text: string, fromVoice = false): Promise<v
   renderConversationQuality(result, quality);
   recordSpeechStage('reply-generated', `${result.text.length}文字 ${replyGenerationMs.toFixed(1)}ms`);
   conversationReply.value = `確定返答: ${result.text}`;
+  if (result.topic === 'safety' || result.quality?.category === 'safety' || result.quality?.intent === 'farewell') robotIntegration.safetyStop();
+  robotIntegration.prepare(token, result, emotion);
   voiceAudioCheck.hidden = harukaReply === null;
   if (harukaReply) {
     voiceAudioCheck.pause();
@@ -1827,6 +1835,8 @@ function setDebug(value: boolean): void {
   replyVoiceEngineSelect.disabled = simpleConversationMode;
   renderSimpleConversation();
   if (!value) {
+    document.body.classList.remove('debug-expanded');
+    robotIntegration.safetyStop();
     nativeTtsDiagnostic.stopFromUserGesture();
     stopVoiceRecognition();
     speechEngine.stop();
@@ -1922,12 +1932,40 @@ function speechMouthTarget(now: number, startedAt: number): number {
 
 buildDebugControls();
 setDebug(debug);
+debugPanel.classList.add('debug--minimized');
+minimizeDebugButton.textContent = '設定';
+minimizeDebugButton.setAttribute('aria-label', '設定パネルを開く');
+if (phoneMode) {
+  const phoneVoice = document.createElement('button'); phoneVoice.id = 'phone-voice'; phoneVoice.textContent = '会話開始';
+  phoneVoice.type = 'button'; document.body.append(phoneVoice);
+  const refreshPhoneVoice = () => {
+    const active = !recognitionStopButton.disabled;
+    phoneVoice.textContent = active ? '会話停止' : '会話開始'; phoneVoice.setAttribute('aria-pressed', String(active));
+  };
+  phoneVoice.onclick = () => {
+    if (!recognitionStopButton.disabled) { recognitionStopButton.click(); robotIntegration.safetyStop(); return; }
+    if (!recognitionConsent.checked || !ttsEnabled.checked || !canStartConversation(replyVoiceMode, tohokuVoiceLab.state === 'ready' || tohokuVoiceLab.state === 'generated', tohokuConversationActivated)) {
+      setDebug(true); debugPanel.classList.remove('debug--minimized'); document.body.classList.add('debug-expanded');
+      document.querySelector<HTMLElement>('#robot-panel')!.hidden = true; document.body.classList.remove('robot-panel-open');
+      minimizeDebugButton.textContent = '顔を見る'; robotIntegration.safetyStop(); return;
+    }
+    recognitionStartButton.click();
+  };
+  new MutationObserver(refreshPhoneVoice).observe(recognitionStopButton, { attributes: true, attributeFilter: ['disabled'] });
+  refreshPhoneVoice();
+}
 document.querySelector('#close-debug')!.addEventListener('click', () => setDebug(false));
 assembleQuickActions();
 setVisibleAppState(visibleAppState);
 diagnosticCopyButton.addEventListener('click', () => { void copyDiagnosticReport(); });
 minimizeDebugButton.addEventListener('click', () => {
   const minimized = debugPanel.classList.toggle('debug--minimized');
+  document.body.classList.toggle('debug-expanded', !minimized);
+  if (!minimized) {
+    document.querySelector<HTMLElement>('#robot-panel')!.hidden = true;
+    document.body.classList.remove('robot-panel-open');
+    robotIntegration.safetyStop();
+  }
   minimizeDebugButton.innerHTML = `${minimized ? ACTION_ICONS.gear : ACTION_ICONS.face}${minimized ? '設定' : '顔を見る'}`;
   minimizeDebugButton.setAttribute('aria-label', minimized ? '設定パネルを開く' : '顔を見やすくする');
 });

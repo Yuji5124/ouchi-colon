@@ -1,0 +1,14 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+const root = fileURLToPath(new URL('../', import.meta.url));
+const choices = [process.env.ARDUINO_CLI, resolve(process.env.LOCALAPPDATA ?? '.', 'Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe'), 'C:/Program Files/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe'];
+const cli = choices.find(path => path && existsSync(path)) ?? 'arduino-cli';
+const output = resolve(root, '.motor-build/atoms3'); mkdirSync(output, { recursive: true });
+if (!existsSync(resolve(root, 'firmware/ColonAtomS3MotorTest/generated/WebAssets.h'))) throw new Error('Run npm run build and npm run motor:package first.');
+const result = spawnSync(cli, ['compile', '--jobs', '4', '--fqbn', 'esp32:esp32:m5stack_atoms3', '--build-path', output, '--warnings', 'all', resolve(root, 'firmware/ColonAtomS3MotorTest')], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+const log = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? String(result.error) : '');
+writeFileSync(resolve(root, '.motor-build/firmware-build.log'), log); console.log(log);
+if (result.status !== 0) process.exit(result.status ?? 1);
+console.log('Compiled diagnostic-only firmware. No upload, serial connection, or motor power operation performed.');
