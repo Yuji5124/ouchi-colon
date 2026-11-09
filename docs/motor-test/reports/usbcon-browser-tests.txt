@@ -1,0 +1,1 @@
+USBcon UI passed: separate entry, neutral startup, four directions, 500ms limit, no held repeat, release, unplug, reconnect, face-button stop, learned mapping, mobile layout. Mock only; no real BLE or motor.
