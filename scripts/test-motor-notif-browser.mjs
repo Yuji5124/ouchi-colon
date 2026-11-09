@@ -15,7 +15,7 @@ const chrome=spawn(process.env.CHROME_BIN??'C:/Program Files/Google/Chrome/Appli
   '--remote-debugging-port=0','--user-data-dir='+profile,'about:blank',
 ],{stdio:['ignore','ignore','inherit'],windowsHide:true});
 const {startNotifFixture}=await import('./lib/notif-fixture.mjs');
-const fixture=await startNotifFixture();
+const fixture=await startNotifFixture(undefined,{readMs:400,writeMs:80});
 let socket;
 try{
   const port=(await waitFor(()=>readFile(resolve(profile,'DevToolsActivePort'),'utf8'),'Chrome debugging port')).split('\n')[0].trim();
@@ -40,13 +40,24 @@ try{
   await waitFor(async()=> (await text('#left-state')).includes('正転'),'W through real HTTP and server');
   await send('Input.dispatchKeyEvent',{type:'keyUp',key:'w',code:'KeyW'});
   await waitFor(async()=> (await text('#left-state')).includes('0%'),'release stop');
-  await waitFor(()=>evalPage("!document.querySelector('[data-action=A01]').disabled"),'action ready');
-  await evalPage("document.querySelector('[data-action=A01]').click()");
-  await waitFor(async()=> (await text('.colon-actions [data-role=message]')).includes('A01 · 完了'),'A01 through HTTP');
+  await waitFor(()=>evalPage("!document.querySelector('[data-action=A01]').disabled"),'release STOP acknowledgement complete');
+  const actionStart=fixture.frames.length;
+  for(const action of ['A01','A01','A01','A02','A03','A06','A11','A12']){
+    await waitFor(()=>evalPage("!document.querySelector('[data-action="+action+"]').disabled"),'action ready');
+    await evalPage("document.querySelector('[data-action="+action+"]').click()");
+    await waitFor(async()=> (await text('.colon-actions [data-role=message]')).includes(action+' · 完了'),'calibrated '+action+' through delayed HTTP');
+  }
+  const actionFrames=fixture.frames.slice(actionStart);
+  assert.equal(actionFrames.filter(frame=>frame[1]===4).length,0,'normal actions never emit an intermediate STOP');
+  assert.deepEqual(actionFrames.filter(frame=>frame[1]===3).map(frame=>new DataView(new Uint8Array(frame).buffer).getUint16(17,true)),[250,250,250,500,750,750,1500,1500]);
   await evalPage("document.querySelector('#pattern-read').click()");
   await waitFor(async()=> (await text('#pattern-message')).includes('読み込みました'),'NVS read');
   await evalPage("document.querySelector('#disconnect').click()");
   await waitFor(async()=> (await text('#rc-badge')).includes('未接続'),'server disconnect');
   assert.ok(fixture.ops.includes('disconnect'));
-  console.log('Notif HTTP UI passed: server default, explicit device selection, connect stopped, real HTTP write/read/patterns, WASD release stop, A01 complete, disconnect. No navigator.bluetooth and no real motor.');
+  await send('Page.navigate',{url:fixture.base+'/ouchi-colon/?motor=1&transport=ble'});
+  await waitFor(()=>evalPage("document.querySelector('#mode')?.value==='ble'"),'explicit BLE overrides Notif host default');
+  await send('Page.navigate',{url:fixture.base+'/ouchi-colon/?motor=1&transport=notif'});
+  await waitFor(()=>evalPage("document.querySelector('#mode')?.value==='notif'"),'return to Notif');
+  console.log('Notif 1.9.0 HTTP UI passed with 400ms reads / 80ms writes: explicit selection, connect stopped, WASD release stop, 250/500/750/1500ms actions and repeated A01 without intermediate STOP, NVS read, disconnect, BLE selection and return to Notif. No real Bluetooth or motor.');
 }finally{socket?.close();chrome.kill();await fixture.close();}

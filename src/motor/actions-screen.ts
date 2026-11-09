@@ -15,7 +15,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   const root=document.createElement('section');root.className='motor-card colon-actions';
   root.innerHTML=`<div class="section-top"><h2>Colonの動作 · A01〜A17</h2><span class="badge" data-role="state">停止中</span></div>
     <p>出力100%・時間制御。番号を使ってColonの言葉や表情に結び付けます。各動作は停止まで確認してから次へ進みます。</p>
-    <p data-role="message" class="motor-feedback" role="status">ファーム1.8.0に接続すると試せます。</p>
+    <p data-role="message" class="motor-feedback" role="status">ファーム1.9.0に接続すると試せます。</p>
     <div class="colon-action-grid"></div>
     <div class="colon-action-link"><h3>Colonと連動</h3>
       <label class="check"><input data-role="enabled" type="checkbox"> 言葉・うれしい・よくわからないを連動する</label>
@@ -53,7 +53,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
       finally{clearTimeout(timer);signal.removeEventListener('abort',abort);}
     },changed:()=>{update();hooks.changed();},
   });
-  function block(){return hooks.blocked()||(!isCommonTimingFirmware(hooks.session()?.status)?'A01〜A17には走行プログラム1.8.0を書き込んでください。':'');}
+  function block(){return hooks.blocked()||(!isCommonTimingFirmware(hooks.session()?.status)?'A01〜A17には走行プログラム1.9.0を書き込んでください。':'');}
   function occupied(){const session=hooks.session();return runner.running||!!session?.foregroundBusy||!!session?.status?.armed;}
   function disableAutomatic(){commandGeneration++;enabled=follow=radio=false;candidate=null;stable=0;for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).checked=false;}
   function stop(emergency=false){disableAutomatic();runner.stop(emergency);update();}
@@ -132,7 +132,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
     settings=value;try{localStorage.setItem(ACTION_SETTINGS_KEY,JSON.stringify(settings));message('動作設定をこのブラウザに保存しました。');}catch{message('このブラウザでは設定を保存できません。');}
   }));
   el('export').addEventListener('click',()=>{
-    const url=URL.createObjectURL(new Blob([JSON.stringify({schema:'colon-actions/1',firmware:'1.8.0',settings,actions:ACTIONS},null,2)],{type:'application/json'}));
+    const url=URL.createObjectURL(new Blob([JSON.stringify({schema:'colon-actions/1',firmware:'1.9.0',settings,actions:ACTIONS},null,2)],{type:'application/json'}));
     const a=document.createElement('a');a.href=url;a.download='colon-actions-v1.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
   const refresh=setInterval(()=>{

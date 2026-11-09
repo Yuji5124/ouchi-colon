@@ -1,4 +1,4 @@
-import {INITIAL_SETTINGS,isDirectFirmware,makeFrame,OPS,type MotorSettings,type MotorStatus,type Op} from './protocol.ts';
+import {INITIAL_SETTINGS,isDirectFirmware,isCalibratedFirmware,heartbeatTimeout,makeFrame,OPS,type MotorSettings,type MotorStatus,type Op} from './protocol.ts';
 import type {Transport} from './transport.ts';
 import type {PatternTable,PatternId,PatternConfig} from './patterns.ts';
 import {fixedProgram,patternIds,validPattern,sharedTurnsMatch} from './patterns.ts';
@@ -30,7 +30,7 @@ export class MotorSession {
     if(this.pendingHeartbeat){
       if(next.nonce!==this.pendingHeartbeat.nonce)this.pendingHeartbeat=null;
       else if(next.seq>=this.pendingHeartbeat.seq){
-        if(next.heartbeatAgeMs<350){
+        if(next.heartbeatAgeMs<heartbeatTimeout(next)){
           this.lastHeartbeatAt=new Date().toISOString();
           this.onEvent('HEARTBEAT');
         }
@@ -77,7 +77,7 @@ export class MotorSession {
   async savePatternTable(table:PatternTable,progress:(count:number)=>void=()=>{}):Promise<PatternTable>{
     const snapshot=structuredClone(table);
     const ids=patternIds(this.status?.patternsVersion);
-    if(this.status?.patternsVersion===6&&!sharedTurnsMatch(snapshot))throw new Error('左右の共通旋回時間が一致しません。');
+    if((this.status?.patternsVersion??0)>=6&&!sharedTurnsMatch(snapshot))throw new Error('左右の共通旋回時間が一致しません。');
     if(!ids.every(id=>validPattern(id,snapshot[id],this.status?.patternsVersion)))throw new Error('パターンの出力・時間が不正です。');
     return this.foreground(async assertCurrent=>{
       if(this.status?.armed)throw new Error('停止してから書き込んでください。');
@@ -93,7 +93,7 @@ export class MotorSession {
   async arm(){return this.foreground(async assertCurrent=>{await this.sendNow(OPS.CONFIG);assertCurrent();await this.sendNow(OPS.ARM);});}
   private async prepareDirectMotion(assertCurrent:()=>void){
     const status=this.status;
-    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.8.0へ更新してください。');
+    if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.9.0へ更新してください。');
     if(status.estop)throw new Error('緊急停止を解除してください。');
     if(status.armed||status.left||status.right)throw new Error('停止してから操作してください。');
     const remaining=100-(performance.now()-this.stoppedObservedAt);
@@ -176,11 +176,17 @@ export class MotorSession {
         await new Promise(resolve=>setTimeout(resolve,15));
       }
       const accepted=this.status.nonce===before.nonce&&this.status.seq>=this.sequence;
+      // A short calibrated pulse may finish before the HTTP/GATT read returns.
+      // Match its retained receipt; never accept a different stop or another motion.
+      const completedMotion=(op===OPS.MOVE||op===OPS.PATTERN)&&isCalibratedFirmware(this.status)
+        &&this.status.bootId===before.bootId&&this.status.moveSeq===this.sequence
+        &&this.status.nonce!==before.nonce&&this.status.stopReason==='pulse-limit'
+        &&!this.status.armed&&this.status.left===0&&this.status.right===0;
       const resetReason=op===OPS.STOP?'operator-stop':op===OPS.DISARM?'disarm':op===OPS.ESTOP?'emergency':op===OPS.RESET_ESTOP?'emergency-reset-disarmed':null;
       const resetAccepted=resetReason&&this.status.bootId===before.bootId&&this.status.nonce!==before.nonce&&this.status.stopReason===resetReason;
-      if(!accepted&&!resetAccepted)throw new Error('本体の受付応答を確認できません。再接続してください。');
+      if(!accepted&&!resetAccepted&&!completedMotion)throw new Error('本体の受付応答を確認できません。再接続してください。');
       if(stop&&(this.status.armed||this.status.left!==0||this.status.right!==0))throw new Error('本体の停止応答を確認できません。');
-      if((op===OPS.ARM&&!this.status.armed)||((op===OPS.MOVE||op===OPS.PATTERN)&&(!accepted||!this.status.armed))||((op===OPS.CONFIG||op===OPS.SAVE_PATTERN)&&!accepted))throw new Error(`ファームウェアが操作を拒否：${this.status.stopReason}`);
+      if((op===OPS.ARM&&!this.status.armed)||((op===OPS.MOVE||op===OPS.PATTERN)&&!completedMotion&&(!accepted||!this.status.armed))||((op===OPS.CONFIG||op===OPS.SAVE_PATTERN)&&!accepted))throw new Error(`ファームウェアが操作を拒否：${this.status.stopReason}`);
       if(op===OPS.HEARTBEAT&&accepted)this.lastHeartbeatAt=new Date().toISOString();
       this.onEvent(Object.entries(OPS).find(([,n])=>n===op)?.[0]??'command');this.onStatus();
     }catch(e){this.onEvent('command-error',String(e));if(op!==OPS.STOP&&op!==OPS.ESTOP){this.generation++;if(this.stopPending!==OPS.ESTOP)this.stopPending=OPS.STOP;this.signalIdle();}throw e;}

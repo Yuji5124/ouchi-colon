@@ -36,7 +36,7 @@ export class ActionRunner {
     if(this.running)throw new Error('動作中です。停止後に実行してください。');
     const session=this.hooks.session();
     if(!session?.connected||!session.status)throw new Error('AtomS3へ接続してください。');
-    if(!isCommonTimingFirmware(session.status))throw new Error('動作連動には走行プログラム1.8.0が必要です。');
+    if(!isCommonTimingFirmware(session.status))throw new Error('動作連動には走行プログラム1.9.0が必要です。');
     const boot=session.status.bootId,aborter=new AbortController(),signal=aborter.signal;
     const assertCurrent=()=>{
       if(signal.aborted||!session.connected||session!==this.hooks.session()||session.status?.bootId!==boot)throw new Error('停止・切断・再起動により動作を取り消しました。');

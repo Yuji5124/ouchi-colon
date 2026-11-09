@@ -2,6 +2,7 @@ import {fetchFirmware,verifyChip,writeBundle,type FirmwareBundle,type LoaderPort
 import {loadUsbLibrary,type UsbLibrary} from './usb-library.ts';
 const firmwareChoices={
   program:{name:'走行プログラム',path:'program/',kind:'drive-program'},
+  notif190:{name:'Notif保存版1.9.0',path:'notif-1.9.0/',kind:'drive-program'},
 } as const;
 interface Hooks {beforeConnect:()=>void;record:(event:string,error?:string,result?:string)=>void;}
 export function mountUsbWriter(hooks:Hooks){
@@ -16,7 +17,7 @@ export function mountUsbWriter(hooks:Hooks){
   document.querySelectorAll('a[href="#usb-writer"]').forEach(link=>link.addEventListener('click',reveal));
   window.addEventListener('hashchange',()=>{if(location.hash==='#usb-writer')reveal();});
   const firmwareChoice=document.createElement('label');
-  firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="program">走行プログラム1.8.0（電池3V・出力100%・A01〜A17対応）</option></select>';
+  firmwareChoice.innerHTML='<strong>書き込むファーム</strong><select id="usb-firmware-kind"><option value="program">走行プログラム1.9.0（電池3V・共通角度校正）</option><option value="notif190">Notif保存版1.9.0に戻す</option></select>';
   section.querySelector('.check')!.before(firmwareChoice);
   const prerequisite=document.createElement('p');prerequisite.id='usb-prerequisites';prerequisite.className='motor-feedback';prerequisite.setAttribute('role','status');section.querySelector('.pattern-actions')!.before(prerequisite);
   const el=<T extends HTMLElement=HTMLElement>(id:string)=>section.querySelector<T>(`#${id}`)!;

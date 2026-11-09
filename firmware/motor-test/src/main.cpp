@@ -43,8 +43,8 @@ constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_BOOT_TEST=1";
 #endif
 const char* startupResult="起動試験なし";
 #elif MOTOR_PROGRAM
-#define COLON_FIRMWARE_VERSION "1.8.0"
-constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_RC_TEST=1;COLON_PROGRAM=1;COLON_DIRECT=1;COLON_SHARED_TURNS=1";
+#define COLON_FIRMWARE_VERSION "1.9.0"
+constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_RC_TEST=1;COLON_PROGRAM=1;COLON_DIRECT=1;COLON_SHARED_TURNS=1;COLON_CALIBRATION=360DEG_6000MS;COLON_HEARTBEAT_MS=1000";
 #elif MOTOR_RC_TEST
 #define COLON_FIRMWARE_VERSION "1.3.0"
 constexpr char SINGLE_TEST_TAG[]="COLON_SINGLE_TEST=0;COLON_RC_TEST=1";
@@ -94,24 +94,24 @@ void writePair(int channel,int value){
 }
 void publishStatus(uint32_t now){
   char out[512];
-  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":%u,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"lcd\":%s,\"left\":%d,\"right\":%d,\"physicalLeft\":%d,\"physicalRight\":%d,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
-    motor.program?6u:1u,(unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",lcdReady.load()?"true":"false",motor.left,motor.right,motor.physicalLeft(),motor.physicalRight(),motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.activePulseMs?motor.activePulseMs:motor.pulseMs,motor.frequency);
+  snprintf(out,sizeof(out),"{\"protocol\":1,\"firmware\":\"colon-motor-" COLON_FIRMWARE_VERSION "\",\"patternsVersion\":%u,\"bootId\":%lu,\"bootCount\":%s,\"uptimeMs\":%lu,\"resetReason\":\"%s\",\"nonce\":%lu,\"seq\":%lu,\"connected\":%s,\"gpioReady\":%s,\"armed\":%s,\"estop\":%s,\"powerQualified\":%s,\"signalOnly\":%s,\"singleTest\":%s,\"lcd\":%s,\"left\":%d,\"right\":%d,\"invert\":%u,\"moveSeq\":%lu,\"stopReason\":\"%s\",\"heartbeatAgeMs\":%lu,\"pulseMs\":%u,\"frequency\":%u}",
+    motor.program?7u:1u,(unsigned long)bootId,bootCountKnown?String(bootCount).c_str():"null",(unsigned long)now,resetReason,(unsigned long)motor.nonce,(unsigned long)motor.seq,motor.connected?"true":"false",motor.ready?"true":"false",motor.armed?"true":"false",motor.estop?"true":"false",motor.powerQualified?"true":"false",motor.signalOnly?"true":"false",motor.singleTest?"true":"false",lcdReady.load()?"true":"false",motor.left,motor.right,unsigned(motor.invertLeft?1:0)|unsigned(motor.invertRight?2:0),(unsigned long)motor.moveSeq,motor.reason,(unsigned long)(now-motor.heartbeatAt),motor.activePulseMs?motor.activePulseMs:motor.pulseMs,motor.frequency);
   portENTER_CRITICAL(&statusMux);strncpy(statusBuffer,out,sizeof(statusBuffer));statusBuffer[511]=0;portEXIT_CRITICAL(&statusMux);
   auto screen=colon::displaySnapshot(motor,now,bleReady.load());
 #if MOTOR_BOOT_TEST
   screen.startupResult=startupResult;
 #endif
   portENTER_CRITICAL(&statusMux);latestDisplay=screen;portEXIT_CRITICAL(&statusMux);
-  char table[512]{};size_t used=snprintf(table,sizeof(table),"{\"version\":%u,\"build\":\"%s;%s\",\"slots\":[",motor.program?6u:1u,BUILD_LOCK_TAG,SINGLE_TEST_TAG);
+  char table[512]{};size_t used=snprintf(table,sizeof(table),"{\"version\":%u,\"build\":\"%s;%s\",\"slots\":[",motor.program?7u:1u,BUILD_LOCK_TAG,SINGLE_TEST_TAG);
   for(uint8_t i=0;i<motor.patternCount();i++)used+=snprintf(table+used,sizeof(table)-used,"%s[%u,%u]",i?",":"",motor.patterns[i].speed,motor.patterns[i].durationMs);
   snprintf(table+used,sizeof(table)-used,"]}");portENTER_CRITICAL(&statusMux);memcpy(patternsBuffer,table,sizeof(table));portEXIT_CRITICAL(&statusMux);
 }
 bool storePatterns(){
-  uint8_t blob[1+colon::PATTERN_COUNT*3];blob[0]=motor.program?6:1;
+  uint8_t blob[1+colon::PATTERN_COUNT*3];blob[0]=motor.program?7:1;
   for(uint8_t i=0;i<motor.patternCount();i++){blob[1+i*3]=motor.patterns[i].speed;blob[2+i*3]=motor.patterns[i].durationMs&255;blob[3+i*3]=motor.patterns[i].durationMs>>8;}
   const size_t len=1+motor.patternCount()*3;
   Preferences p;if(!p.begin("colon-motor",false))return false;
-  const bool ok=p.putBytes(motor.program?"patterns-v6":"patterns",blob,len)==len;p.end();return ok;
+  const bool ok=p.putBytes(motor.program?"patterns-v7":"patterns",blob,len)==len;p.end();return ok;
 }
 void loadPatterns(){
   uint8_t blob[1+colon::PATTERN_COUNT*3]{};
@@ -119,10 +119,8 @@ void loadPatterns(){
   const char* key="patterns";
   uint8_t version=1,count=colon::PATTERN_COUNT;
   if(motor.program){
-    if(p.isKey("patterns-v6")){key="patterns-v6";version=6;count=10;}
-    else if(p.isKey("patterns-v5")){key="patterns-v5";version=5;count=10;}
-    else if(p.isKey("patterns-v4")){key="patterns-v4";version=4;count=8;}
-    else{key="patterns-v3";version=3;count=8;}
+    // v7 has a new calibration baseline. Keep v6 untouched for rollback.
+    key="patterns-v7";version=7;count=10;
   }
   const size_t len=p.getBytes(key,blob,sizeof(blob));p.end();
   if(len!=size_t(1+count*3)||blob[0]!=version)return;
@@ -131,8 +129,8 @@ void loadPatterns(){
     slots[i]={blob[1+i*3],uint16_t(blob[2+i*3]|uint16_t(blob[3+i*3])<<8)};
     if(motor.program?!colon::validStoredPattern(i,slots[i],version):!colon::validPattern(i,slots[i],false))return;
   }
-  if(motor.program&&version<6)for(uint8_t i=2;i<count;i++)slots[i]=colon::defaultPattern(i,true);
-  if(motor.program&&version==6&&!colon::commonTurnsMatch(slots))return;
+  if(motor.program&&version<7)for(uint8_t i=2;i<count;i++)slots[i]=colon::defaultPattern(i,true);
+  if(motor.program&&version==7&&!colon::commonTurnsMatch(slots))return;
   memcpy(motor.patterns,slots,count*sizeof(slots[0]));
 }
 

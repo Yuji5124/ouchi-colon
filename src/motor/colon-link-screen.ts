@@ -25,7 +25,7 @@ export function mountColonMotorLink(){
   let session:MotorSession|null=null,connecting=false;
   let actions:ReturnType<typeof mountActionPanel>|null=null,patterns:ReturnType<typeof mountPatternPanel>|null=null;
   const say=(text:string)=>{el('colon-motor-status').textContent=text;};
-  const block=()=>!session?.connected?'AtomS3へ接続してください。':!isCommonTimingFirmware(session.status)?'走行プログラム1.8.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
+  const block=()=>!session?.connected?'AtomS3へ接続してください。':!isCommonTimingFirmware(session.status)?'走行プログラム1.9.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
   function stop(emergency=false){if(actions)actions.stop(emergency);else session?.requestStop(emergency);}
   function update(){
     const connected=!!session?.connected;floatingStop.hidden=!connected;floatingStop.textContent=`■ モーター緊急停止（${session?.transport.kind==='mock'?'モック':session?.transport.kind==='notif'?'Notifサーバー':'実機BLE'}）`;
@@ -38,7 +38,7 @@ export function mountColonMotorLink(){
   patterns=mountPatternPanel({session:()=>session,blocked:block,occupied:()=>!!actions?.running,stop,say,record:(event,error)=>say(error??event),directControl:true},el('colon-motor-patterns'));
   el('colon-motor-connect').addEventListener('click',async()=>{
     if(connecting||session?.connected)return;connecting=true;update();
-    const next=new MotorSession(el<HTMLSelectElement>('colon-motor-mode').value==='mock'?new MockTransport(false,true):el<HTMLSelectElement>('colon-motor-mode').value==='notif'?new NotifTransport():new BleTransport());session=next;
+    const next=new MotorSession(el<HTMLSelectElement>('colon-motor-mode').value==='mock'?new MockTransport(false,true,true):el<HTMLSelectElement>('colon-motor-mode').value==='notif'?new NotifTransport():new BleTransport());session=next;
     next.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
     next.onStatus=update;next.onEvent=(event,error)=>{if(error||event==='disconnect')say(error??'切断しました。連動はOFFです。');};
     try{await next.connect();say(block()||`${next.status?.firmware} · 接続しました。連動はOFFです。`);}catch(error){next.disconnect();say(String(error));}
@@ -55,7 +55,9 @@ export function mountColonMotorLink(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('blur',()=>stop());window.addEventListener('pagehide',()=>{stop();session?.disconnect();});
   const communications=new MotorCommunications({session:()=>session,enabled:()=>!document.hidden,error:error=>say(String(error))});
   setInterval(()=>void communications.tick(),40);
-  if(new URLSearchParams(location.search).get('transport')==='notif'||document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('colon-motor-mode').value='notif';
+  const preferredTransport=new URLSearchParams(location.search).get('transport');
+  if(preferredTransport&&['notif','ble','mock'].includes(preferredTransport))el<HTMLSelectElement>('colon-motor-mode').value=preferredTransport;
+  else if(document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('colon-motor-mode').value='notif';
   update();
   if(new URLSearchParams(location.search).get('motorLink')==='1'){root.querySelector('details')!.open=true;root.scrollIntoView({block:'start'});}
 }

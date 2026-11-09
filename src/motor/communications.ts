@@ -1,4 +1,5 @@
 import type {MotorSession} from './session.ts';
+import {isCalibratedFirmware} from './protocol.ts';
 
 interface Hooks {
   session:()=>MotorSession|null;
@@ -28,10 +29,10 @@ export class MotorCommunications {
       const polling=this.now()>=this.nextPoll;
       // A long read cannot be interrupted. Start it with a fresh lease while moving.
       if(this.hooks.heartbeatEnabled?.()!==false&&(this.now()>=this.nextHeartbeat||(polling&&s.status?.armed))){
-        await s.heartbeat();if(generation!==this.generation)return;this.nextHeartbeat=this.now()+120;
+        await s.heartbeat();if(generation!==this.generation)return;this.nextHeartbeat=this.now()+(isCalibratedFirmware(s.status)?80:120);
       }
       if(polling&&this.hooks.enabled()&&s===this.hooks.session()&&s.connected&&!s.busy&&!s.foregroundBusy){
-        await s.poll();if(generation===this.generation)this.nextPoll=this.now()+150;
+        await s.poll();if(generation===this.generation)this.nextPoll=this.now()+(isCalibratedFirmware(s.status)?500:150);
       }
     }catch(error){if(generation===this.generation)this.hooks.error(error);}
     finally{if(generation===this.generation)this.busy=false;}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {COMMON_TURN_MS,ACTION_PATTERN_IDS,defaultPatterns,parsePatterns,setSharedTurn,sharedTurnsMatch,readLocalPatterns,type PatternId} from '../src/motor/patterns.ts';
+import {LEGACY_TURN_MS,ACTION_PATTERN_IDS,defaultPatterns,parsePatterns,setSharedTurn,sharedTurnsMatch,readLocalPatterns,type PatternId} from '../src/motor/patterns.ts';
 import {MockMotor} from '../src/motor/mock.ts';
 import {INITIAL_SETTINGS,OPS,makeFrame} from '../src/motor/protocol.ts';
 import {planAction,DEFAULT_ACTION_SETTINGS,type ActionId} from '../src/motor/actions.ts';
@@ -10,7 +10,7 @@ import {MockTransport} from '../src/motor/transport.ts';
 const settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
 test('Common turns: 左右15/30/45/90°は2000/4000/6000/12000ms、前後進は1秒',()=>{
   const table=defaultPatterns(6);
-  for(const [angle,duration] of Object.entries(COMMON_TURN_MS))for(const side of ['right','left'])assert.deepEqual(table[`${side}${angle}` as PatternId],{speed:100,durationMs:duration});
+  for(const [angle,duration] of Object.entries(LEGACY_TURN_MS))for(const side of ['right','left'])assert.deepEqual(table[`${side}${angle}` as PatternId],{speed:100,durationMs:duration});
   assert.equal(table.forward100.durationMs,1000);assert.equal(table.backward100.durationMs,1000);
   const slots=ACTION_PATTERN_IDS.map(id=>[table[id].speed,table[id].durationMs]);
   assert.deepEqual(parsePatterns({version:6,slots},6),table);
@@ -42,7 +42,7 @@ test('Common turns: 12秒でも心拍断350msで停止し、心拍継続時も12
     assert.equal(c.state.armed,false);assert.equal(c.state.left,0);assert.equal(c.state.right,0);
   }
   const old=new MockMotor(false,true,false);
-  assert.throws(()=>makeFrame(old.state,OPS.MOVE,1,{...settings,pulseMs:12000,actionStep:true},100,-100),/1.8.0/);
+  assert.throws(()=>makeFrame(old.state,OPS.MOVE,1,{...settings,pulseMs:12000,actionStep:true},100,-100),/1.9.0/);
 });
 test('Common turns: 旧PC設定を混在させず、新しい共通値を初期表示する',()=>{
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage');

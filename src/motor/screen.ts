@@ -11,23 +11,23 @@ import {driveKey} from './keyboard.ts';
 import {mountActionPanel} from './actions-screen.ts';
 
 export function mountMotorTest(){
-  document.title='Colon · Motor Control';
+  document.title='Colon · Motor Control 1.9.0';
   document.body.innerHTML=`<header class="motor-header">
     <a href="?debug=1" class="motor-brand">c: <span>Colon <small>Motor Control</small></span></a>
     <button id="emergency" class="emergency">■ 緊急停止</button>
   </header>
   <main class="motor-shell">
     <section class="motor-intro"><div><p class="eyebrow">ATOM S3 × AE-DRV8835-S</p>
-      <h1>AtomS3 ラジコン操作</h1><p>電池3V・出力100%。動作時間で調整します。</p>
+      <h1>AtomS3 ラジコン操作</h1><p>ソフト1.9.0 · 電池3V・出力100%。動作時間で調整します。</p>
     </div><span id="mode-badge" class="badge">モック</span></section>
     <div class="motor-layout">
       <aside class="motor-sidebar">
         <section class="motor-card"><h2>接続</h2>
-          <label>接続先<select id="mode"><option value="mock">モック（実機なし）</option><option value="notif">Notifローカルサーバー経由</option><option value="ble">ブラウザから直接BLE（従来の試験用）</option></select></label>
+          <label>接続先<select id="mode"><option value="mock">モック（実機なし）</option><option value="notif">Notifローカルサーバー経由</option><option value="ble">ブラウザから直接BLE</option></select></label>
           <button id="connect" class="motor-primary">モックを接続</button>
           <button id="disconnect" class="motor-secondary" disabled>切断</button>
           <p class="subtle">Notif経由ではPC上のサーバーがAtomと通信します。USBは書込み・給電用です。ブラウザ直接BLEとは別方式です。</p>
-          <a href="#usb-writer">AtomS3へ書き込む</a>
+          <a href="#usb-writer">AtomS3へ書き込む</a><p class="subtle"><a href="?motor=1&transport=notif">Notif接続に戻る</a> · <a href="?motor=1&transport=ble">直接BLEを選ぶ</a></p>
         </section>
         <section class="motor-card wiring"><h2>配線</h2>
           <p>G5 → AIN1　G6 → AIN2<br>G7 → BIN1　G8 → BIN2<br>3V3 → VCC　GND → MODE / GND<br>電池3V → VM</p>
@@ -122,7 +122,7 @@ export function mountMotorTest(){
   function controlBlock(){
     const status=session?.status;
     if(!session?.connected||!status)return '左の「接続」から接続してください。';
-    if(!isCorrectedTurnFirmware(status))return '走行プログラム1.8.0をUSB欄から書き込んでください。';
+    if(!isCorrectedTurnFirmware(status))return '走行プログラム1.9.0をUSB欄から書き込んでください。';
     if(status.estop)return '緊急停止中です。「緊急停止を解除」を押してください。';
     if(!status.gpioReady)return '本体の初期化が完了していません。';
     if(!Number.isInteger(settings.pulseMs)||settings.pulseMs<50||settings.pulseMs>500)return '最大時間は50〜500msで指定してください。';
@@ -141,7 +141,7 @@ export function mountMotorTest(){
     const state=connecting?'接続確認中':!connected?'未接続':s?.estop?'緊急停止':moving?'動作指令中':session?.foregroundBusy?(session.activity||'操作準備中'):'接続済み・停止中';
     el('rc-badge').textContent=el('arm-badge').textContent=state;
     const blocked=controlBlock();
-    el('rc-help').textContent=(connecting?'本体の初期状態を確認しています。':blocked)||(actionPanel?.running?'番号付き動作を実行中です。停止ボタンで中断できます。':moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?(session.activity+'です。停止ボタンで中断できます。'):held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.8.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
+    el('rc-help').textContent=(connecting?'本体の初期状態を確認しています。':blocked)||(actionPanel?.running?'番号付き動作を実行中です。停止ボタンで中断できます。':moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?(session.activity+'です。停止ボタンで中断できます。'):held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.9.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
     const canMove=!blocked&&!actionPanel?.running&&(!session?.foregroundBusy||held);
     for(const button of buttons){
       button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion)||(['left','right'].includes(button.dataset.motion!)&&!isCommonTimingFirmware(s));
@@ -180,7 +180,7 @@ export function mountMotorTest(){
   async function connect(){
     if(connecting||session?.connected)return;
     connecting=true;update();
-    const next=new MotorSession(el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(false,true):el<HTMLSelectElement>('mode').value==='notif'?new NotifTransport():new BleTransport());
+    const next=new MotorSession(el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(false,true,true):el<HTMLSelectElement>('mode').value==='notif'?new NotifTransport():new BleTransport());
     session=next;next.onStatus=()=>{if(session===next)update();};
     next.onEvent=(event,error)=>{
       if(session!==next)return;
@@ -208,7 +208,7 @@ export function mountMotorTest(){
   async function startMotion(name:string){
     if(held||controlBlock()||!session||session.foregroundBusy||actionPanel?.running)return;
     if(name==='left'||name==='right'){
-      if(!isCommonTimingFirmware(session.status)){say('90°旋回には走行プログラム1.8.0へ更新してください。');return;}
+      if(!isCommonTimingFirmware(session.status)){say('90°旋回には走行プログラム1.9.0へ更新してください。');return;}
       pointerId=null;heldKey=null;
       await actionPanel?.run(name==='left'?'A15':'A16');return;
     }
@@ -288,6 +288,8 @@ export function mountMotorTest(){
   patternPanel=mountPatternPanel({session:()=>session,blocked:controlBlock,occupied:()=>!!actionPanel?.running,stop,say,record,directControl:true});
   mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
   document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!,document.querySelector('.colon-actions')!,document.querySelector('.pattern-panel')!);
-  if(new URLSearchParams(location.search).get('transport')==='notif'||document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('mode').value='notif';
+  const preferredTransport=new URLSearchParams(location.search).get('transport');
+  if(preferredTransport&&['notif','ble','mock'].includes(preferredTransport))el<HTMLSelectElement>('mode').value=preferredTransport;
+  else if(document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('mode').value='notif';
   update();
 }

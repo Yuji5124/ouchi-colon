@@ -11,20 +11,22 @@
 1. colon-atom-app と ouchi-colon-motor-test の2リポジトリを同じ親フォルダへ置きます。別配置ならCOLON_MOTOR_ROOTにOuchiColonのルートを指定します。
 2. OuchiColonのlocal-server/セットアップ.cmdを実行すると、専用Python環境・依存を導入してWebをビルドします。この作業フォルダでは準備済みです。Python 3.12以降、Node.js 22以降を使用します。
 3. colon-atom-appの起動.cmdまたはnpm startで元のサーバーを起動します。専用Pythonはwork/notif-motor-venv内。別のPythonを使う場合はCOLON_MOTOR_PYTHONを指定します。
-4. 元のアプリの「モーター用1.8.0をサーバー経由で操作する」リンクを開きます。接続先は「Notifローカルサーバー経由」です。18181の開発画面はこのAPIを提供しません。
+4. 元のアプリの「モーター用1.9.0をサーバー経由で操作する」リンクを開きます。接続先は「Notifローカルサーバー経由」です。18181の開発画面はこのAPIを提供しません。
 5. 他の画面の直接BLE接続を切断し、本体を通常起動した状態で「サーバーでAtomを検索」を押し、サーバーの候補から1台を選びます。検索だけ・接続だけではモーターは動きません。
-6. 接続表示が「Notifサーバー接続済み」、ファームがcolon-motor-1.8.0となってから操作します。ファームの再書込みは不要です。
+6. 接続表示が「Notifサーバー接続済み」、ファームがcolon-motor-1.9.0となってから操作します。1.8.0からはUSB欄で1.9.0へ更新してください。
 
-サーバー経由でも、既存WASD・番号動作・共通旋回時間・NVS読書きを同じMotorSessionで扱います。本体の350ms心拍断・時間上限・起動停止は変更しません。サーバーは心拍やMOVEを自動生成・自動再送しません。ブラウザが止まると本体のタイマーで停止します。1つの画面だけが接続を所有します。クラッシュ後は5秒以上通信がなければ、次の明示的な検索・接続時に古い接続を閉じます。実機が停止済みでも通信経路の復帰だけで再始動しません。
+サーバー経由でも、既存WASD・番号動作・共通旋回時間・NVS読書きを同じMotorSessionで扱います。1.9.0は本体の心拍監視を1000msへ変更し、時間上限・起動停止も維持します。サーバーは心拍やMOVEを自動生成・自動再送しません。ブラウザが止まると本体のタイマーで停止します。1つの画面だけが接続を所有します。クラッシュ後は5秒以上通信がなければ、次の明示的な検索・接続時に古い接続を閉じます。実機が停止済みでも通信経路の復帰だけで再始動しません。
 
 通信はlocalhost限定、Host/Origin確認と画面セッショントークン、接続ごとのランダムID、20byte指令の型・版・opcode検証を行います。ブラウザから任意URLへ中継できるAPIはありません。GETだけでモーターは操作できません。
 
 ## 検証と制限
 
-HTTP統合試験では、実HTTPでトークン・接続所有権・不正指令拒否・350ms心拍切れを確認しました。ChromeではブラウザのBluetooth APIを使わず、HTTP経由で候補選択・接続停止・WASD解放停止・A01完了・NVS読取り・切断を確認しています。OS BLEアダプターは差替えテストで確認し、PythonワーカーのIPCも切断のみの要求で起動確認しました。実機検索・実機接続・モーター通電は行っていません。実際のWindows Bluetoothと機器の通信遅延はユーザーによる確認が必要です。
+HTTP統合試験では、実HTTPでトークン・接続所有権・不正指令拒否・1000ms心拍切れを確認しました。ChromeではブラウザのBluetooth APIを使わず、HTTP経由で候補選択・接続停止・WASD解放停止・A01完了・NVS読取り・切断を確認しています。OS BLEアダプターは差替えテストで確認し、PythonワーカーのIPCも切断のみの要求で起動確認しました。実機検索・実機接続・モーター通電は行っていません。実際のWindows Bluetoothと機器の通信遅延はユーザーによる確認が必要です。
 
 Python/Bleak拡張の仕様は[公式クライアント資料](https://bleak.readthedocs.io/en/stable/api/client.html)と[公式スキャナー資料](https://bleak.readthedocs.io/en/stable/api/scanner.html)を参照しています。
 
-検証結果：Web321件、元のColon Atomサーバー9件、Python OS接続アダプター2件が成功。既存BLE画面と新しいHTTP画面のChrome試験、TypeScript/Viteビルドも成功しました。本体C++は変更していません。
+検証結果：Web330件、元のColon Atomサーバー9件、Python OS接続アダプター2件が成功。既存BLE画面と新しいHTTP画面のChrome試験、TypeScript/Viteビルドも成功しました。本体C++は変更していません。
 
 [Web](reports/notif-web-tests.txt) / [元サーバー](reports/notif-original-tests.txt) / [Python](reports/notif-python-tests.txt) / [HTTP画面](reports/notif-browser-tests.txt) / [既存画面](reports/notif-regression-browser.txt) / [ビルド](reports/notif-build.txt)
+
+[1.9.0の角度修正・停止対策・復元手順](release-1.9.0.md)を参照してください。過去のnotif-*試験ログは1.8.0当時の記録です。現在の結果はreports/release-1.9.0-*に保存します。

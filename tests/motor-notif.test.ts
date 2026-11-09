@@ -10,7 +10,7 @@ test('Notif host: token, explicit connect, exclusive ownership, no automatic mot
   assert.equal((await call('scan',{},'bad')).status,403);assert.equal(f.ops.length,0);
   assert.equal((await call('scan')).data.result[0].id,'test-atom');
   const connected=await call('connect',{device:'test-atom'}),connection=connected.data.connection;
-  assert.equal(connected.data.result.firmware,'colon-motor-1.8.0');assert.equal(connected.data.result.armed,false);assert.deepEqual(f.ops,['scan','connect']);
+  assert.equal(connected.data.result.firmware,'colon-motor-1.9.0');assert.equal(connected.data.result.armed,false);assert.deepEqual(f.ops,['scan','connect']);
   assert.equal((await call('connect',{device:'test-atom'})).status,502);
   assert.equal((await call('read',{connection:'wrong'})).status,502);
   assert.equal((await call('write',{connection,frame:[1,3]})).status,502);
@@ -19,7 +19,7 @@ test('Notif host: token, explicit connect, exclusive ownership, no automatic mot
   const frame=makeFrame(connected.data.result,OPS.MOVE,1,{...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,actionStep:true,pulseMs:2000},100,100);
   assert.equal((await call('write',{connection,frame:Array.from(frame)})).status,200);
   assert.equal((await call('read',{connection})).data.result.left,100);
-  await new Promise(r=>setTimeout(r,400));
+  await new Promise(r=>setTimeout(r,1020));
   assert.equal((await call('read',{connection})).data.result.stopReason,'heartbeat-timeout');
   await call('disconnect',{connection});assert.equal((await call('read',{connection})).status,502);
  }finally{await f.close();}

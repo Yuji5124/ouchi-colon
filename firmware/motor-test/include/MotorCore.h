@@ -5,6 +5,7 @@
 
 namespace colon {
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 350;
+constexpr uint32_t PROGRAM_HEARTBEAT_TIMEOUT_MS = 1000;
 constexpr uint32_t MAX_PULSE_MS = 500;
 constexpr uint32_t REVERSAL_DWELL_MS = 100;
 constexpr uint8_t PROTOCOL = 1;
@@ -25,6 +26,7 @@ struct MotorCore {
   bool powerQualified=false, invertLeft=false, invertRight=false;
   bool singleTest=false, rcTest=false, program=false, experimentalActive=false;
   uint32_t nonce=1, seq=0, heartbeatAt=0, startedAt=0, stoppedAt=0, rampAt=0;
+  uint32_t moveSeq=0;
   uint16_t pulseMs=200, frequency=1000, activePulseMs=0;
   int targetLeft=0,targetRight=0,left=0,right=0;
   const char* reason="boot";
@@ -34,12 +36,13 @@ struct MotorCore {
     for(uint8_t i=0;i<patternCount();i++)patterns[i]=defaultPattern(i,program);
   }
   uint8_t patternCount() const {return program?PROGRAM_COUNT:PATTERN_COUNT;}
+  uint32_t heartbeatTimeout() const {return program?PROGRAM_HEARTBEAT_TIMEOUT_MS:HEARTBEAT_TIMEOUT_MS;}
   static uint32_t elapsed(uint32_t now,uint32_t then) {return now-then;}
   void rotate() {if(++nonce==0)nonce=1; seq=0;}
   void stop(const char* why,uint32_t now) {
     left=right=targetLeft=targetRight=0;activePulseMs=0;armed=false;experimentalActive=false;reason=why;stoppedAt=now;rotate();
   }
-  void connect(uint32_t seed,uint32_t now) {nonce=seed?seed:1;connected=true;stop("connected-disarmed",now);}
+  void connect(uint32_t seed,uint32_t now) {moveSeq=0;nonce=seed?seed:1;connected=true;stop("connected-disarmed",now);}
   void disconnect(uint32_t now) {connected=false;stop("disconnect",now);}
   bool reject(const char* why,uint32_t now) {stop(why,now);return false;}
   bool configure(const uint8_t* p,uint32_t now,uint32_t maximum=MAX_PULSE_MS){
@@ -104,18 +107,18 @@ struct MotorCore {
     if(singleTest&&(!experimentalActive||(l!=0&&r!=0)||(l==0&&r==0)||l < -75||l>75||r < -75||r>75))return reject("single-motor-limit",now);
     if(rcTest&&!signalOnly&&((!program&&(l < -RC_MAX_DUTY||l > RC_MAX_DUTY||r < -RC_MAX_DUTY||r > RC_MAX_DUTY))||(!l&&!r)))return reject("rc-duty-limit",now);
     if(!armed)return reject("disarmed",now);
-    if(elapsed(now,heartbeatAt)>=HEARTBEAT_TIMEOUT_MS)return reject("heartbeat-timeout",now);
+    if(elapsed(now,heartbeatAt)>=heartbeatTimeout())return reject("heartbeat-timeout",now);
     // A press is a single bounded pulse, never an extendable motion lease.
     if(targetLeft||targetRight||left||right)return reject("stop-before-new-motion",now);
     if(elapsed(now,stoppedAt)<REVERSAL_DWELL_MS)return reject("stop-dwell",now);
-    targetLeft=l;targetRight=r;activePulseMs=duration;startedAt=now;rampAt=now;reason="running";
+    moveSeq=seq;targetLeft=l;targetRight=r;activePulseMs=duration;startedAt=now;rampAt=now;reason="running";
     if(program){left=l;right=r;}
     return true;
   }
   void tick(uint32_t now) {
     if(!armed)return;
     if(!connected){disconnect(now);return;}
-    if(elapsed(now,heartbeatAt)>=HEARTBEAT_TIMEOUT_MS){stop("heartbeat-timeout",now);return;}
+    if(elapsed(now,heartbeatAt)>=heartbeatTimeout()){stop("heartbeat-timeout",now);return;}
     const uint32_t limit=singleTest&&activePulseMs>100?100:activePulseMs;
     if((targetLeft||targetRight||left||right)&&elapsed(now,startedAt)>=limit){stop("pulse-limit",now);return;}
     const uint32_t dt=elapsed(now,rampAt);if(dt<10)return;rampAt=now;

@@ -1,0 +1,26 @@
+{
+  "software": "1.9.0",
+  "firmware": "colon-motor-1.9.0",
+  "name": "Notif保存版",
+  "patternsVersion": 7,
+  "storageKey": "colon-motor-patterns-v7",
+  "nvsKey": "patterns-v7",
+  "defaultTransport": "notif",
+  "transports": ["notif", "ble", "mock"],
+  "calibration": {"source": "user-observation", "observedDegrees": 360, "durationMs": 6000, "actualAnglesVerified": false},
+  "turnMs": {"15": 250, "30": 500, "45": 750, "90": 1500},
+  "heartbeatTimeoutMs": 1000,
+  "patterns": [
+    {"id": "forward100", "speed": 100, "durationMs": 1000},
+    {"id": "backward100", "speed": 100, "durationMs": 1000},
+    {"id": "right15", "speed": 100, "durationMs": 250},
+    {"id": "right30", "speed": 100, "durationMs": 500},
+    {"id": "right45", "speed": 100, "durationMs": 750},
+    {"id": "left15", "speed": 100, "durationMs": 250},
+    {"id": "left30", "speed": 100, "durationMs": 500},
+    {"id": "left45", "speed": 100, "durationMs": 750},
+    {"id": "right90", "speed": 100, "durationMs": 1500},
+    {"id": "left90", "speed": 100, "durationMs": 1500}
+  ],
+  "a10": {"backwardMs": 500, "pauseMs": 1000, "forwardMs": 500}
+}

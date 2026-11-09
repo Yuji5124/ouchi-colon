@@ -11,7 +11,9 @@ class Client:
     def __init__(self, device): self.is_connected=False; self.writes=[]
     async def connect(self): self.is_connected=True
     async def disconnect(self): self.is_connected=False
-    async def read_gatt_char(self, uuid): return b'{"firmware":"colon-motor-1.8.0"}'
+    async def read_gatt_char(self, uuid, *, use_cached):
+        assert use_cached is False
+        return b'{"firmware":"colon-motor-1.9.0"}'
     async def write_gatt_char(self, uuid, data, response):
         assert uuid == COMMAND and response is True
         self.writes.append(data)

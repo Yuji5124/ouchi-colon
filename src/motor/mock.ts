@@ -1,19 +1,19 @@
-import {OPS,isDirectFirmware,isActionFirmware,isCorrectedTurnFirmware,isRcFirmware,isCommonTimingFirmware,parseStatus,type MotorStatus} from './protocol.ts';
+import {OPS,heartbeatTimeout,isDirectFirmware,isActionFirmware,isCorrectedTurnFirmware,isRcFirmware,isCommonTimingFirmware,parseStatus,type MotorStatus} from './protocol.ts';
 import {patternIds,fixedProgram,defaultPatterns,validPattern,patternOutput,setSharedTurn,type PatternConfig} from './patterns.ts';
 /** Reference simulation. No physical connection or GPIO access. Native C++ core is tested separately. */
 export class MockMotor {
   state:MotorStatus={protocol:1,firmware:'colon-motor-1.1.0-mock',patternsVersion:1,bootId:1,bootCount:1,uptimeMs:0,resetReason:'mock-start',nonce:100,seq:0,connected:false,gpioReady:true,armed:false,estop:false,powerQualified:false,signalOnly:false,left:0,right:0,physicalLeft:0,physicalRight:0,stopReason:'boot',heartbeatAgeMs:0,pulseMs:200,frequency:1000};
   patterns=defaultPatterns();
   private experimentalActive=false;
-  constructor(singleTest=false,program=false,commonTiming=true){
+  constructor(singleTest=false,program=false,commonTiming=true,calibrated=false){
     this.state.singleTest=singleTest;
     if(singleTest)this.state.firmware='colon-motor-1.2.0-single-mock';
-    else if(program){Object.assign(this.state,{firmware:commonTiming?'colon-motor-1.8.0':'colon-motor-1.7.0',patternsVersion:commonTiming?6:5});this.patterns=defaultPatterns(commonTiming?6:5);}
+    else if(program){Object.assign(this.state,{firmware:calibrated?'colon-motor-1.9.0':commonTiming?'colon-motor-1.8.0':'colon-motor-1.7.0',patternsVersion:calibrated?7:commonTiming?6:5});this.patterns=defaultPatterns(calibrated?7:commonTiming?6:5);if(calibrated)this.state.moveSeq=0;}
   }
   private activePulseMs=0;private uptimeOrigin=0;
   private heartbeatAt=0;private startedAt=0;private stoppedAt=0;private rampAt=0;private target:[number,number]=[0,0];private invert=[false,false];
   stop(reason:string,now:number){Object.assign(this.state,{left:0,right:0,physicalLeft:0,physicalRight:0,armed:false,stopReason:reason,nonce:(this.state.nonce+1)>>>0||1,seq:0});this.target=[0,0];this.activePulseMs=0;this.experimentalActive=false;this.stoppedAt=now;}
-  connect(now:number){this.state.connected=true;this.stop('connected-disarmed',now);}
+  connect(now:number){if(this.state.moveSeq!==undefined)this.state.moveSeq=0;this.state.connected=true;this.stop('connected-disarmed',now);}
   disconnect(now:number){this.state.connected=false;this.stop('disconnect',now);}
   reboot(now:number){this.uptimeOrigin=now;this.state.bootId++;this.state.bootCount=(this.state.bootCount??0)+1;this.state.resetReason='mock-restart';this.state.estop=false;this.stop('boot',now);}
   write(bytes:Uint8Array,now:number){
@@ -27,7 +27,7 @@ export class MockMotor {
     if(op===OPS.RESET_ESTOP){s.estop=false;this.stop('emergency-reset-disarmed',now);return;}
     if(op===OPS.HEARTBEAT){this.heartbeatAt=now;return;}
     if(s.estop){this.stop('emergency-latched',now);return;}
-    if(op===OPS.SAVE_PATTERN){const id=patternIds(s.patternsVersion)[bytes[10]],config={speed:bytes[11],durationMs:v.getUint16(17,true)} as PatternConfig;if(s.armed||s.left||s.right){this.stop('save-while-armed',now);return;}if(!id||!validPattern(id,config,s.patternsVersion)){this.stop('invalid-pattern-config',now);return;}if(s.patternsVersion===6)setSharedTurn(this.patterns,id,config);else this.patterns[id]=config;return;}
+    if(op===OPS.SAVE_PATTERN){const id=patternIds(s.patternsVersion)[bytes[10]],config={speed:bytes[11],durationMs:v.getUint16(17,true)} as PatternConfig;if(s.armed||s.left||s.right){this.stop('save-while-armed',now);return;}if(!id||!validPattern(id,config,s.patternsVersion)){this.stop('invalid-pattern-config',now);return;}if((s.patternsVersion??0)>=6)setSharedTurn(this.patterns,id,config);else this.patterns[id]=config;return;}
     if(op===OPS.CONFIG){const f=v.getUint16(12,true),p=v.getUint16(17,true);if(s.armed||s.left||s.right){this.stop('config-while-armed',now);return;}if(f<100||f>20000||p<50||p>500||(bytes[14]&~3)){this.stop('invalid-config',now);return;}if(s.singleTest&&(f!==1000||p>100)){this.stop("single-config-limit",now);return;}if(isRcFirmware(s)&&f!==1000){this.stop('rc-frequency',now);return;}s.frequency=f;s.pulseMs=p;this.invert=[!!(bytes[14]&1),!!(bytes[14]&2)];return;}
     if(op===OPS.ARM){
       if(bytes[15]!==15||bytes[16]>3){this.stop('safety-unconfirmed',now);return;}
@@ -58,15 +58,15 @@ export class MockMotor {
     if(isRcFirmware(s)&&!s.signalOnly&&(!l&&!r)){this.stop('rc-duty-limit',now);return;}
     if(s.singleTest&&(!this.experimentalActive||(l!==0&&r!==0)||(l===0&&r===0)||Math.abs(l)>75||Math.abs(r)>75)){this.stop('single-motor-limit',now);return;}
     if(!s.armed){this.stop('disarmed',now);return;}
-    if(now-this.heartbeatAt>=350){this.stop('heartbeat-timeout',now);return;}
+    if(now-this.heartbeatAt>=heartbeatTimeout(s)){this.stop('heartbeat-timeout',now);return;}
     if(this.target.some(Boolean)||s.left||s.right){this.stop('stop-before-new-motion',now);return;}
     if(now-this.stoppedAt<100){this.stop('stop-dwell',now);return;}
-    this.target=[l,r];this.activePulseMs=duration;this.startedAt=this.rampAt=now;s.stopReason='running';
+    if(s.moveSeq!==undefined)s.moveSeq=s.seq;this.target=[l,r];this.activePulseMs=duration;this.startedAt=this.rampAt=now;s.stopReason='running';
     if(fullStraight||(s.patternsVersion??0)>=3)this.setOutput(l,r);
   }
   private setOutput(left:number,right:number){
     Object.assign(this.state,{left,right,physicalLeft:this.invert[0]?-left:left,physicalRight:this.invert[1]?-right:right});
   }
-  tick(now:number){const s=this.state;s.uptimeMs=now-this.uptimeOrigin;s.heartbeatAgeMs=now-this.heartbeatAt;if(!s.armed)return;if(!s.connected){this.disconnect(now);return;}if(now-this.heartbeatAt>=350){this.stop('heartbeat-timeout',now);return;}if(this.target.some(Boolean)&&now-this.startedAt>=this.activePulseMs){this.stop('pulse-limit',now);return;}const dt=now-this.rampAt;if(dt<10)return;this.rampAt=now;const approach=(a:number,b:number)=>a<b?Math.min(b,a+Math.min(dt,100)):Math.max(b,a-Math.min(dt,100));this.setOutput(approach(s.left,this.target[0]),approach(s.right,this.target[1]));}
+  tick(now:number){const s=this.state;s.uptimeMs=now-this.uptimeOrigin;s.heartbeatAgeMs=now-this.heartbeatAt;if(!s.armed)return;if(!s.connected){this.disconnect(now);return;}if(now-this.heartbeatAt>=heartbeatTimeout(s)){this.stop('heartbeat-timeout',now);return;}if(this.target.some(Boolean)&&now-this.startedAt>=this.activePulseMs){this.stop('pulse-limit',now);return;}const dt=now-this.rampAt;if(dt<10)return;this.rampAt=now;const approach=(a:number,b:number)=>a<b?Math.min(b,a+Math.min(dt,100)):Math.max(b,a-Math.min(dt,100));this.setOutput(approach(s.left,this.target[0]),approach(s.right,this.target[1]));}
   status(now:number){this.tick(now);return parseStatus({...this.state,pulseMs:this.activePulseMs||this.state.pulseMs});}
 }

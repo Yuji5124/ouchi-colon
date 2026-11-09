@@ -1,0 +1,1 @@
+Notif 1.9.0 HTTP UI passed with 400ms reads / 80ms writes: explicit selection, connect stopped, WASD release stop, 250/500/750/1500ms actions and repeated A01 without intermediate STOP, NVS read, disconnect, BLE selection and return to Notif. No real Bluetooth or motor.

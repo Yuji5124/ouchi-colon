@@ -44,7 +44,7 @@ try{
   assert.match(await text('#left-state'),/0%/);
   assert.equal(await evalPage("document.querySelectorAll('[data-action]').length"),17);
   assert.equal(await evalPage("document.querySelector('[data-setting=pauseMs]').value"),'1000');
-  for(const [angle,ms] of [[15,2000],[30,4000],[45,6000],[90,12000]])for(const side of ['right','left'])assert.equal(await evalPage('document.querySelector('+JSON.stringify('button[data-id="'+side+angle+'"]')+').closest(".pattern-row").querySelector("input").value'),String(ms),'common initial duration '+side+angle);
+  for(const [angle,ms] of [[15,250],[30,500],[45,750],[90,1500]])for(const side of ['right','left'])assert.equal(await evalPage('document.querySelector('+JSON.stringify('button[data-id="'+side+angle+'"]')+').closest(".pattern-row").querySelector("input").value'),String(ms),'common initial duration '+side+angle);
   for(const id of ['right90','left90']){
     await evalPage('{const input=document.querySelector('+JSON.stringify('button[data-id="'+id+'"]')+').closest(".pattern-row").querySelector("input");input.value="1200";input.dispatchEvent(new Event("change"));}');
   }

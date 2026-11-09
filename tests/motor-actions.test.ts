@@ -113,6 +113,6 @@ test('Runner: 旧ファーム・重複実行・12000ms超・通常操作500ms超
     assert.throws(()=>makeFrame(f.session.status!,OPS.MOVE,1,{...f.session.settings,pulseMs:501},100,100));
     const operation=f.runner.run('A08',settings);await assert.rejects(f.runner.run('A09',settings),/動作中/);await operation;
     f.transport.core.state.firmware='colon-motor-1.6.1';f.transport.core.state.patternsVersion=4;await f.session.poll();
-    await assert.rejects(f.runner.run('A08',settings),/1.8.0/);
+    await assert.rejects(f.runner.run('A08',settings),/1.9.0/);
   }finally{f.session.disconnect();}
 });

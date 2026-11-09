@@ -3,7 +3,7 @@ import {MockMotor} from './mock.ts';
 import {parsePatterns,type PatternTable} from './patterns.ts';
 export interface Transport {kind:'mock'|'ble'|'notif';connect():Promise<void>;disconnect():void;read():Promise<MotorStatus>;write(frame:Uint8Array):Promise<void>;readPatterns():Promise<PatternTable>;onDisconnect:()=>void;}
 export class MockTransport implements Transport {
-  kind='mock' as const;core:MockMotor;constructor(singleTest=false,program=false){this.core=new MockMotor(singleTest,program);}onDisconnect=()=>{};private start=performance.now();private timer:ReturnType<typeof setInterval>|null=null;
+  kind='mock' as const;core:MockMotor;constructor(singleTest=false,program=false,calibrated=false){this.core=new MockMotor(singleTest,program,true,calibrated);}onDisconnect=()=>{};private start=performance.now();private timer:ReturnType<typeof setInterval>|null=null;
   now(){return Math.floor(performance.now()-this.start);}
   async connect(){this.core.connect(this.now());this.timer=setInterval(()=>this.core.tick(this.now()),5);}
   disconnect(){if(this.timer)clearInterval(this.timer);this.timer=null;this.core.disconnect(this.now());this.onDisconnect();}
@@ -18,7 +18,7 @@ interface Gatt {connected:boolean;connect():Promise<Gatt>;disconnect():void;getP
 interface Device {gatt?:Gatt;addEventListener(type:string,listener:()=>void):void;}
 export class BleTransport implements Transport {
   kind='ble' as const;onDisconnect=()=>{};private device:Device|null=null;private command:Characteristic|null=null;private status:Characteristic|null=null;private patterns:Characteristic|null=null;
-  private patternsVersion:1|2|3|4|5|6|undefined;
+  private patternsVersion:1|2|3|4|5|6|7|undefined;
   async connect(){
     const bluetooth=(navigator as unknown as {bluetooth?:{requestDevice(options:unknown):Promise<Device>}}).bluetooth;
     if(!isSecureContext||!bluetooth)throw new Error('実機BLEはPCのChrome / Edge、Android Chromeなどで使用してください。iPhone Safariは非対応です。');

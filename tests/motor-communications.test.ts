@@ -8,15 +8,15 @@ import type {Transport} from '../src/motor/transport.ts';
 
 const flush=async()=>{for(let i=0;i<32;i++)await Promise.resolve();};
 /** Deterministic GATT latency; virtual motor time never waits on wall-clock Bluetooth. */
-async function fixture(){
+async function fixture(calibrated=false){
   let now=0,latency=false,enabled=true,heartbeats=true,started=0;
-  const core=new MockMotor(false,true),pending:Array<{at:number;resolve:()=>void}>=[];
+  const core=new MockMotor(false,true,true,calibrated),pending:Array<{at:number;resolve:()=>void}>=[];
   const stops:Array<{reason:string;duration:number}>=[],events:number[]=[],errors:unknown[]=[];
   const delay=(ms:number)=>latency?new Promise<void>(resolve=>pending.push({at:now+ms,resolve})):Promise.resolve();
   const transport:Transport={kind:'mock',onDisconnect:()=>{},
     connect:async()=>{core.connect(now);},disconnect:()=>{core.disconnect(now);transport.onDisconnect();},
-    read:async()=>{await delay(120);return core.status(now);},
-    write:async frame=>{await delay(40);events.push(frame[1]);core.write(frame,now);if(frame[1]===OPS.MOVE&&core.state.armed)started=now;},
+    read:async()=>{await delay(calibrated?400:120);return core.status(now);},
+    write:async frame=>{await delay(calibrated?80:40);events.push(frame[1]);core.write(frame,now);if(frame[1]===OPS.MOVE&&core.state.armed)started=now;},
     readPatterns:async()=>structuredClone(core.patterns),
   };
   const s=new MotorSession(transport);s.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
@@ -68,4 +68,16 @@ test('Communications: 古い接続の未完了読取りは、新しい接続の�
   const pendingNext=scheduler.tick();await flush();assert.equal(oldWrites,1);assert.equal(nextWrites,1);
   releaseOld();await pendingOld;await scheduler.tick();assert.equal(nextWrites,1,'古い処理の終了で新しい通信中フラグを解除しない');
   releaseNext();await pendingNext;
+});
+
+test('Communications 1.9.0: three 2s pulses survive 400ms reads and 80ms writes without intermediate STOP',async()=>{
+ const f=await fixture(true);try{
+  for(let repeat=0;repeat<3;repeat++){await f.move();await f.advance(2500,'new');}
+  assert.deepEqual(f.stops,Array.from({length:3},()=>({reason:'pulse-limit',duration:2000})));
+  assert.equal(f.events.filter(op=>op===OPS.STOP).length,0);
+  assert.equal(f.events.filter(op=>op===OPS.MOVE).length,3);assert.deepEqual(f.errors,[]);
+ }finally{await f.close();}
+});
+test('Communications 1.9.0: heartbeat loss still stops after 1000ms and never resumes',async()=>{
+ const f=await fixture(true);try{await f.move();f.pauseHeartbeat();await f.advance(2400,'new');assert.deepEqual(f.stops,[{reason:'heartbeat-timeout',duration:1000}]);assert.equal(f.events.filter(op=>op===OPS.MOVE).length,1);}finally{await f.close();}
 });

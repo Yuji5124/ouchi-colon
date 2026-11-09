@@ -37,8 +37,8 @@ class MotorBridge:
             try:
                 await asyncio.wait_for(self.client.connect(), 10)
                 status = await self.handle({'op': 'read'})
-                if status.get('firmware') != 'colon-motor-1.8.0':
-                    raise ValueError('モーター用1.8.0のAtomを選んでください。')
+                if status.get('firmware') not in ('colon-motor-1.8.0', 'colon-motor-1.9.0'):
+                    raise ValueError('モーター用1.9.0（または復元用1.8.0）のAtomを選んでください。')
                 return status
             except Exception:
                 await self.close()
@@ -49,7 +49,7 @@ class MotorBridge:
         if not self.client or not self.client.is_connected:
             raise ValueError('Atomへのサーバー接続が切れています。')
         if op in ('read', 'patterns'):
-            raw = await asyncio.wait_for(self.client.read_gatt_char(STATUS if op == 'read' else PATTERNS), 1.5)
+            raw = await asyncio.wait_for(self.client.read_gatt_char(STATUS if op == 'read' else PATTERNS, use_cached=False), 1.5)
             return json.loads(bytes(raw).decode('utf-8'))
         if op == 'write':
             data = request.get('frame')

@@ -2,7 +2,7 @@ import {parseStatus,type MotorStatus} from './protocol.ts';
 import {parsePatterns,type PatternTable} from './patterns.ts';
 import type {Transport} from './transport.ts';
 export class NotifTransport implements Transport {
- kind='notif' as const;onDisconnect=()=>{};private token='';private connection:string|null=null;private version:1|2|3|4|5|6|undefined;
+ kind='notif' as const;onDisconnect=()=>{};private token='';private connection:string|null=null;private version:1|2|3|4|5|6|7|undefined;
  private async call(op:string,payload:Record<string,unknown>={}){
    const response=await fetch('/api/motor/'+op,{method:'POST',headers:{'Content-Type':'application/json','x-colon-token':this.token},body:JSON.stringify({connection:this.connection,...payload}),signal:AbortSignal.timeout(op==='scan'?9000:op==='connect'?14000:2500)});
    const data=await response.json();if(!response.ok||data.error)throw new Error(data.error||'Notifサーバーの接続に失敗しました。');return data;
