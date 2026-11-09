@@ -78,8 +78,9 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
   function update(){
     const session=hooks.session(),connected=!!session?.connected,boot=session?.status?.bootId;
     if(session!==observedSession){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();observedSession=session;}
-    if(previousConnected&&(!connected||boot!==previousBoot)){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();runner.stop();}
+    const lostSession=previousConnected&&(!connected||boot!==previousBoot);
     previousConnected=connected;previousBoot=boot;
+    if(lostSession){pose=null;el<HTMLInputElement>('mock-detected').checked=false;disableAutomatic();runner.stop();}
     const blocked=block(),moving=!!session?.status&&(!!session.status.left||!!session.status.right||session.status.armed);
     el('state').textContent=!connected?'未接続':session?.status?.estop?'緊急停止':runner.running?(runner.restMs?`${runner.active} · 次の動作まで停止 ${(runner.restMs/1000).toFixed(1)}秒`:`${runner.active} · ${runner.step}/${runner.total}`):moving?'別の操作で出力指令中':session?.foregroundBusy?'通信処理中':blocked?'更新・停止状態を確認':'停止指令を確認';
     for(const [id,button] of buttons){button.disabled=id!=='A17'&&(!!blocked||runner.running||!!session?.foregroundBusy||moving);button.classList.toggle('is-active',runner.active===id);}

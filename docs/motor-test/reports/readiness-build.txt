@@ -1,0 +1,28 @@
+
+> ouchi-colon@0.1.0 build
+> tsc -b && vite build
+
+vite v6.3.7 building for production...
+transforming...
+✓ 82 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                   21.27 kB │ gzip:   6.72 kB
+dist/assets/actions-screen-sbbGHKDO.css            1.77 kB │ gzip:   0.63 kB
+dist/assets/colon-link-screen-v8ZSJ6N_.css         1.88 kB │ gzip:   0.70 kB
+dist/assets/main-BhmhD-5Y.css                      7.40 kB │ gzip:   1.92 kB
+dist/assets/screen-DPgBnYJu.css                   10.08 kB │ gzip:   2.99 kB
+dist/assets/index-BPy0MpUL.js                      2.62 kB │ gzip:   1.28 kB
+dist/assets/colon-link-screen-fEWVTY1V.js          4.51 kB │ gzip:   2.04 kB
+dist/assets/speech-synthesis-engine-Mqt4JN0F.js   14.19 kB │ gzip:   5.27 kB
+dist/assets/screen-CbZevFVG.js                    30.08 kB │ gzip:  11.31 kB
+dist/assets/actions-screen-xQdzEKRy.js            41.81 kB │ gzip:  13.75 kB
+dist/assets/vision_bundle-Du3i5Z0q.js            154.81 kB │ gzip:  46.24 kB
+dist/assets/bundle-CDeIc9Ic.js                   315.16 kB │ gzip: 113.25 kB
+dist/assets/main-K54Yiu2o.js                     795.30 kB │ gzip:  99.44 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 6.50s

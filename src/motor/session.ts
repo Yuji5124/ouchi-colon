@@ -13,6 +13,11 @@ export class MotorSession {
   private idleWaiters=new Set<()=>void>();
   /** User controls stay stable while periodic telemetry/heartbeat is in flight. */
   get foregroundBusy(){return this.foregroundReserved||(this.busy&&!this.wireIsBackground)||this.stopPending!==null;}
+  get activity(){
+    if(this.stopPending!==null||this.stopInFlight!==null)return '停止応答を確認中';
+    if(this.foregroundReserved)return '操作・設定の応答を確認中';
+    return this.busy&&!this.wireIsBackground?'本体の応答を確認中':'';
+  }
   readonly transport:Transport;
   constructor(transport:Transport){this.transport=transport;transport.onDisconnect=()=>{this.connected=false;this.status=null;this.generation++;this.signalIdle();this.onEvent('disconnect');this.onStatus();};}
   private observe(next:MotorStatus){
@@ -34,7 +39,14 @@ export class MotorSession {
     }
     if(previous&&next.stopReason!==previous.stopReason&&!next.armed)this.onEvent(`stopped:${next.stopReason}`);
   }
-  async connect(){await this.transport.connect();this.connected=true;this.lastHeartbeatTimeoutAt=null;this.status=await this.transport.read();this.stoppedObservedAt=performance.now();this.sequence=this.status.seq;this.onEvent('connect');this.onStatus();}
+  async connect(){
+    const generation=this.generation;
+    await this.transport.connect();
+    const status=await this.bounded(this.transport.read());
+    if(generation!==this.generation){this.transport.disconnect();throw new Error('接続準備を取り消しました。');}
+    this.status=status;this.sequence=status.seq;this.stoppedObservedAt=performance.now();
+    this.lastHeartbeatTimeoutAt=null;this.connected=true;this.onEvent('connect');this.onStatus();
+  }
   disconnect(){this.generation++;this.connected=false;this.transport.disconnect();this.status=null;this.signalIdle();this.onStatus();}
   private signalIdle(){for(const resolve of this.idleWaiters)resolve();this.idleWaiters.clear();}
   private releaseWire(){this.busy=false;this.flushStop();this.signalIdle();this.onStatus();}
@@ -113,7 +125,7 @@ export class MotorSession {
       await this.sendNow(OPS.PATTERN,slot);
     });
   }
-  async bounded<T>(operation:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>;try{return await Promise.race([operation,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('通信応答なし。独立停止タイマーが停止させます。')),2000);})]);}finally{clearTimeout(timer!);}}
+  async bounded<T>(operation:Promise<T>,timeoutMs=2000):Promise<T>{let timer:ReturnType<typeof setTimeout>;try{return await Promise.race([operation,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('通信応答なし。独立停止タイマーが停止させます。')),timeoutMs);})]);}finally{clearTimeout(timer!);}}
   async poll(){if(!this.connected||this.busy||this.foregroundReserved)return;this.busy=true;this.wireIsBackground=true;try{const previous=this.status;this.observe(await this.bounded(this.transport.read()));if(previous&&previous.bootId!==this.status!.bootId){this.generation++;this.onEvent('restart-detected');this.requestStop();}this.onStatus();}catch(e){this.onEvent('read-error',String(e));this.disconnect();}finally{this.releaseWire();}}
   async heartbeat(){if(!this.connected||this.busy||this.foregroundReserved)return;await this.sendNow(OPS.HEARTBEAT,0,0,undefined,true);}
   async send(op:Op,left=0,right=0,patternDuration?:number){
@@ -132,11 +144,17 @@ export class MotorSession {
     if(!this.connected||!this.status)throw new Error('先に接続してください。');
     if(this.busy)throw new Error('通信処理中です。もう一度操作してください。');
     this.busy=true;this.wireIsBackground=op===OPS.HEARTBEAT;const generation=this.generation;
+    const deadline=performance.now()+2000;
+    const wait=<T>(operation:()=>Promise<T>)=>{
+      const remaining=deadline-performance.now();
+      if(remaining<=0)throw new Error('通信応答なし。独立停止タイマーが停止させます。');
+      return this.bounded(operation(),remaining);
+    };
     try{
       // The reserved wire keeps the cached nonce/sequence current for motion.
       // A stale device session still rejects the command without driving.
       const cached=backgroundHeartbeat||op===OPS.MOVE||op===OPS.PATTERN;
-      const before=cached?this.status:await this.bounded(this.transport.read());
+      const before=cached?this.status:await wait(()=>this.transport.read());
       if(!cached)this.observe(before);
       if(generation!==this.generation)throw new Error('操作は停止要求で取り消されました。');
       this.sequence=Math.max(this.sequence,before.seq)+1;
@@ -147,17 +165,21 @@ export class MotorSession {
         if(!id||!validPattern(id,{speed:right as 25|50|75|100,durationMs:patternDuration??NaN},before.patternsVersion))throw new Error(fixedProgram(id)?'前進・後進は100%・1000ms固定です。':'パターンの出力・時間が不正です。');
         new DataView(frame.buffer).setUint16(17,patternDuration!,true);
       }
-      await this.bounded(this.transport.write(frame));
+      await wait(()=>this.transport.write(frame));
       if(backgroundHeartbeat){
         if(generation===this.generation)this.pendingHeartbeat={nonce:before.nonce,seq:this.sequence};
         return;
       }
       for(let i=0;i<12;i++){
-        const status=await this.bounded(this.transport.read());this.observe(status);
+        const status=await wait(()=>this.transport.read());this.observe(status);
         if(status.nonce!==before.nonce||status.seq>=this.sequence)break;
         await new Promise(resolve=>setTimeout(resolve,15));
       }
       const accepted=this.status.nonce===before.nonce&&this.status.seq>=this.sequence;
+      const resetReason=op===OPS.STOP?'operator-stop':op===OPS.DISARM?'disarm':op===OPS.ESTOP?'emergency':op===OPS.RESET_ESTOP?'emergency-reset-disarmed':null;
+      const resetAccepted=resetReason&&this.status.bootId===before.bootId&&this.status.nonce!==before.nonce&&this.status.stopReason===resetReason;
+      if(!accepted&&!resetAccepted)throw new Error('本体の受付応答を確認できません。再接続してください。');
+      if(stop&&(this.status.armed||this.status.left!==0||this.status.right!==0))throw new Error('本体の停止応答を確認できません。');
       if((op===OPS.ARM&&!this.status.armed)||((op===OPS.MOVE||op===OPS.PATTERN)&&(!accepted||!this.status.armed))||((op===OPS.CONFIG||op===OPS.SAVE_PATTERN)&&!accepted))throw new Error(`ファームウェアが操作を拒否：${this.status.stopReason}`);
       if(op===OPS.HEARTBEAT&&accepted)this.lastHeartbeatAt=new Date().toISOString();
       this.onEvent(Object.entries(OPS).find(([,n])=>n===op)?.[0]??'command');this.onStatus();

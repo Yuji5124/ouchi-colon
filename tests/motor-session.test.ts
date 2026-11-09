@@ -249,3 +249,27 @@ test('Session: 定期読取りの間に指を離すと、待機していた移�
     assert.equal(transport.core.state.armed,false);
   }finally{session.disconnect();}
 });
+
+
+test('Session: 初期状態の読取りが終わるまで定期通信を開始しない',async()=>{
+ const transport=new MockTransport(false,true),s=new MotorSession(transport);
+ const held=holdNextRead(transport),writes:number[]=[],write=transport.write.bind(transport);
+ transport.write=async frame=>{writes.push(frame[1]);await write(frame);};
+ try{const connecting=s.connect();await nextTurn();assert.equal(s.connected,false);assert.equal(s.status,null);
+ await s.poll();await s.heartbeat();assert.equal(held.calls(),1);assert.deepEqual(writes,[]);
+ held.release();await connecting;assert.equal(s.connected,true);assert.equal(s.foregroundBusy,false);assert.equal(s.status?.firmware,'colon-motor-1.8.0');
+ }finally{s.disconnect();}
+});
+test('Session: 初期読取り中の切断を、遅い接続完了で上書きしない',async()=>{
+ const transport=new MockTransport(false,true),s=new MotorSession(transport),held=holdNextRead(transport);
+ const connecting=s.connect();await nextTurn();s.disconnect();held.release();await assert.rejects(connecting,/取り消し/);
+ assert.equal(s.connected,false);assert.equal(s.status,null);assert.equal(s.foregroundBusy,false);
+});
+test('Session: STOPの受付が返らない場合は処理中を継続せず切断する',async()=>{
+ const transport=new MockTransport(false,true),s=new MotorSession(transport);await s.connect();
+ const read=transport.read.bind(transport);transport.read=async()=>{await new Promise(resolve=>setTimeout(resolve,220));return read();};
+ transport.write=async()=>{};
+ try{const started=performance.now();s.requestStop();await new Promise(resolve=>setTimeout(resolve,2500));
+ assert.equal(s.connected,false);assert.equal(s.foregroundBusy,false);assert.equal(s.busy,false);assert.ok(performance.now()-started<3000);
+ }finally{s.disconnect();}
+});

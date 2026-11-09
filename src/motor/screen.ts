@@ -137,10 +137,10 @@ export function mountMotorTest(){
     el<HTMLButtonElement>('connect').disabled=connected||connecting;
     el<HTMLButtonElement>('disconnect').disabled=!connected;
     el<HTMLSelectElement>('mode').disabled=connected||connecting;
-    const state=!connected?'未接続':s?.estop?'緊急停止':moving?'動作指令中':session?.foregroundBusy?'操作準備中':'接続済み・停止中';
+    const state=connecting?'接続確認中':!connected?'未接続':s?.estop?'緊急停止':moving?'動作指令中':session?.foregroundBusy?(session.activity||'操作準備中'):'接続済み・停止中';
     el('rc-badge').textContent=el('arm-badge').textContent=state;
     const blocked=controlBlock();
-    el('rc-help').textContent=blocked||(actionPanel?.running?'番号付き動作を実行中です。停止ボタンで中断できます。':moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?'通信処理中です。停止ボタンで中断できます。':held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.8.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
+    el('rc-help').textContent=(connecting?'本体の初期状態を確認しています。':blocked)||(actionPanel?.running?'番号付き動作を実行中です。停止ボタンで中断できます。':moving?'出力指令中です。停止ボタンで中断できます。':session?.foregroundBusy?(session.activity+'です。停止ボタンで中断できます。'):held?'上限時間で停止しました。一度離してから次の操作をしてください。':!isCommonTimingFirmware(s)?'W/Sで前後進できます。90°旋回とA01〜A17には走行プログラム1.8.0へ更新してください。':'方向ボタンまたはW・S・A・Dで操作できます。');
     const canMove=!blocked&&!actionPanel?.running&&(!session?.foregroundBusy||held);
     for(const button of buttons){
       button.disabled=!canMove||(held&&button.dataset.motion!==activeMotion)||(['left','right'].includes(button.dataset.motion!)&&!isCommonTimingFirmware(s));
