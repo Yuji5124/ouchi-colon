@@ -1,0 +1,1 @@
+Notif HTTP UI passed: server default, explicit device selection, connect stopped, real HTTP write/read/patterns, WASD release stop, A01 complete, disconnect. No navigator.bluetooth and no real motor.

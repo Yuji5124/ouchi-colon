@@ -1,3 +1,4 @@
+import {NotifTransport} from './notif-transport.ts';
 import './screen.css';
 import {INITIAL_SETTINGS,OPS,direction,describeStopReason,isDirectFirmware,isCorrectedTurnFirmware,isCommonTimingFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
@@ -22,10 +23,10 @@ export function mountMotorTest(){
     <div class="motor-layout">
       <aside class="motor-sidebar">
         <section class="motor-card"><h2>接続</h2>
-          <label>接続先<select id="mode"><option value="mock">モック（実機なし）</option><option value="ble">AtomS3 · Bluetooth</option></select></label>
+          <label>接続先<select id="mode"><option value="mock">モック（実機なし）</option><option value="notif">Notifローカルサーバー経由</option><option value="ble">ブラウザから直接BLE（従来の試験用）</option></select></label>
           <button id="connect" class="motor-primary">モックを接続</button>
           <button id="disconnect" class="motor-secondary" disabled>切断</button>
-          <p class="subtle">実機はPCのChrome / Edge、AndroidのChromeに対応。iPhone Safariではモックを利用できます。</p>
+          <p class="subtle">Notif経由ではPC上のサーバーがAtomと通信します。USBは書込み・給電用です。ブラウザ直接BLEとは別方式です。</p>
           <a href="#usb-writer">AtomS3へ書き込む</a>
         </section>
         <section class="motor-card wiring"><h2>配線</h2>
@@ -132,8 +133,8 @@ export function mountMotorTest(){
     if(!connected){held=false;pointerId=null;heldKey=null;lastMotion='';}
     const moving=!!s&&(s.left!==0||s.right!==0);
     const selectedMock=el<HTMLSelectElement>('mode').value==='mock';
-    el('mode-badge').textContent=selectedMock?'モック · 実機なし':'AtomS3 · Bluetooth';
-    el('connect').textContent=selectedMock?'モックを接続':'AtomS3に接続';
+    el('mode-badge').textContent=selectedMock?'モック · 実機なし':el<HTMLSelectElement>('mode').value==='notif'?'Notifサーバー経由':'ブラウザ直接BLE';
+    el('connect').textContent=selectedMock?'モックを接続':el<HTMLSelectElement>('mode').value==='notif'?'サーバーでAtomを検索':'AtomS3に接続';
     el<HTMLButtonElement>('connect').disabled=connected||connecting;
     el<HTMLButtonElement>('disconnect').disabled=!connected;
     el<HTMLSelectElement>('mode').disabled=connected||connecting;
@@ -153,7 +154,8 @@ export function mountMotorTest(){
     el('mock-tools').hidden=!mock;
     el('rc-last').hidden=!lastMotion;el('rc-last').textContent=lastMotion;
     const entries:Record<string,string>={
-      'AtomS3':connected?(mock?'モック接続':'BLE接続済み'):'未接続',
+      'AtomS3':connected?(mock?'モック接続':session?.transport.kind==='notif'?'Notifサーバー接続済み':'ブラウザ直接BLE接続済み'):'未接続',
+      '接続経路':session?.transport.kind==='notif'?'Web → PCサーバー → Atom（BLE）':mock?'モック':'Web → Atom（直接BLE）',
       'ファーム':s?.firmware??'未取得','電源設定':'電池3V','出力設定':'100%固定',
       '稼働時間':s?`${(s.uptimeMs/1000).toFixed(1)}秒`:'未取得',
       '起動回数':s?.bootCount==null?'未取得':String(s.bootCount),
@@ -178,7 +180,7 @@ export function mountMotorTest(){
   async function connect(){
     if(connecting||session?.connected)return;
     connecting=true;update();
-    const next=new MotorSession(el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(false,true):new BleTransport());
+    const next=new MotorSession(el<HTMLSelectElement>('mode').value==='mock'?new MockTransport(false,true):el<HTMLSelectElement>('mode').value==='notif'?new NotifTransport():new BleTransport());
     session=next;next.onStatus=()=>{if(session===next)update();};
     next.onEvent=(event,error)=>{
       if(session!==next)return;
@@ -286,5 +288,6 @@ export function mountMotorTest(){
   patternPanel=mountPatternPanel({session:()=>session,blocked:controlBlock,occupied:()=>!!actionPanel?.running,stop,say,record,directControl:true});
   mountUsbWriter({beforeConnect:()=>{stop();session?.disconnect();session=null;update();},record});
   document.querySelector('.motor-content')!.prepend(el('rc-control'),document.querySelector('.motor-state')!,document.querySelector('.colon-actions')!,document.querySelector('.pattern-panel')!);
+  if(new URLSearchParams(location.search).get('transport')==='notif'||document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('mode').value='notif';
   update();
 }

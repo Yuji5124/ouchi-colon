@@ -1,7 +1,7 @@
 import {MOTOR_SERVICE,MOTOR_COMMAND,MOTOR_STATUS,MOTOR_PATTERNS,parseStatus,type MotorStatus} from './protocol.ts';
 import {MockMotor} from './mock.ts';
 import {parsePatterns,type PatternTable} from './patterns.ts';
-export interface Transport {kind:'mock'|'ble';connect():Promise<void>;disconnect():void;read():Promise<MotorStatus>;write(frame:Uint8Array):Promise<void>;readPatterns():Promise<PatternTable>;onDisconnect:()=>void;}
+export interface Transport {kind:'mock'|'ble'|'notif';connect():Promise<void>;disconnect():void;read():Promise<MotorStatus>;write(frame:Uint8Array):Promise<void>;readPatterns():Promise<PatternTable>;onDisconnect:()=>void;}
 export class MockTransport implements Transport {
   kind='mock' as const;core:MockMotor;constructor(singleTest=false,program=false){this.core=new MockMotor(singleTest,program);}onDisconnect=()=>{};private start=performance.now();private timer:ReturnType<typeof setInterval>|null=null;
   now(){return Math.floor(performance.now()-this.start);}

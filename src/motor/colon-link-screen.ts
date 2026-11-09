@@ -1,3 +1,4 @@
+import {NotifTransport} from './notif-transport.ts';
 import './colon-link.css';
 import {MotorCommunications} from './communications.ts';
 import {MotorSession} from './session.ts';
@@ -12,7 +13,7 @@ export function mountColonMotorLink(){
   root.innerHTML=`<details><summary>OuchiColon · モーター動作 A01〜A17</summary>
     <p>電池3V・出力100%・時間制御。接続するだけでは動きません。</p>
     <a href="?motor=1">ラジコン操作・USB書込みへ</a>
-    <label>接続先<select id="colon-motor-mode"><option value="mock">モック（実機なし）</option><option value="ble">AtomS3 · Bluetooth</option></select></label>
+    <label>接続先<select id="colon-motor-mode"><option value="mock">モック（実機なし）</option><option value="notif">Notifローカルサーバー経由</option><option value="ble">ブラウザから直接BLE</option></select></label>
     <button id="colon-motor-connect" type="button">接続する</button><button id="colon-motor-disconnect" type="button" disabled>切断する</button>
     <button id="colon-motor-estop" type="button">■ 緊急停止</button><button id="colon-motor-reset" type="button" hidden>緊急停止を解除</button>
     <p id="colon-motor-status" role="status">未接続・連動OFF</p>
@@ -27,7 +28,7 @@ export function mountColonMotorLink(){
   const block=()=>!session?.connected?'AtomS3へ接続してください。':!isCommonTimingFirmware(session.status)?'走行プログラム1.8.0へ更新してください。':session.status?.estop?'緊急停止中です。':!session.status?.gpioReady?'本体の初期化を待っています。':'';
   function stop(emergency=false){if(actions)actions.stop(emergency);else session?.requestStop(emergency);}
   function update(){
-    const connected=!!session?.connected;floatingStop.hidden=!connected;floatingStop.textContent=`■ モーター緊急停止（${session?.transport.kind==='mock'?'モック':'実機BLE'}）`;
+    const connected=!!session?.connected;floatingStop.hidden=!connected;floatingStop.textContent=`■ モーター緊急停止（${session?.transport.kind==='mock'?'モック':session?.transport.kind==='notif'?'Notifサーバー':'実機BLE'}）`;
     el<HTMLButtonElement>('colon-motor-connect').disabled=connected||connecting;el<HTMLSelectElement>('colon-motor-mode').disabled=connected||connecting;
     el<HTMLButtonElement>('colon-motor-disconnect').disabled=!connected;el('colon-motor-reset').hidden=!session?.status?.estop;
     for(const id of ['colon-motor-invert-left','colon-motor-invert-right'])el<HTMLInputElement>(id).disabled=!!actions?.running||!!session?.status?.armed;
@@ -37,7 +38,7 @@ export function mountColonMotorLink(){
   patterns=mountPatternPanel({session:()=>session,blocked:block,occupied:()=>!!actions?.running,stop,say,record:(event,error)=>say(error??event),directControl:true},el('colon-motor-patterns'));
   el('colon-motor-connect').addEventListener('click',async()=>{
     if(connecting||session?.connected)return;connecting=true;update();
-    const next=new MotorSession(el<HTMLSelectElement>('colon-motor-mode').value==='mock'?new MockTransport(false,true):new BleTransport());session=next;
+    const next=new MotorSession(el<HTMLSelectElement>('colon-motor-mode').value==='mock'?new MockTransport(false,true):el<HTMLSelectElement>('colon-motor-mode').value==='notif'?new NotifTransport():new BleTransport());session=next;
     next.settings={...INITIAL_SETTINGS,signalOnly:false,rcTest:true,directControl:true,pulseMs:500};
     next.onStatus=update;next.onEvent=(event,error)=>{if(error||event==='disconnect')say(error??'切断しました。連動はOFFです。');};
     try{await next.connect();say(block()||`${next.status?.firmware} · 接続しました。連動はOFFです。`);}catch(error){next.disconnect();say(String(error));}
@@ -54,6 +55,7 @@ export function mountColonMotorLink(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('blur',()=>stop());window.addEventListener('pagehide',()=>{stop();session?.disconnect();});
   const communications=new MotorCommunications({session:()=>session,enabled:()=>!document.hidden,error:error=>say(String(error))});
   setInterval(()=>void communications.tick(),40);
+  if(new URLSearchParams(location.search).get('transport')==='notif'||document.querySelector('meta[name=colon-motor-host]'))el<HTMLSelectElement>('colon-motor-mode').value='notif';
   update();
   if(new URLSearchParams(location.search).get('motorLink')==='1'){root.querySelector('details')!.open=true;root.scrollIntoView({block:'start'});}
 }

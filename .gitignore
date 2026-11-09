@@ -6,3 +6,6 @@ work/
 *.bin
 *.elf
 !public/firmware/**/*.bin
+
+__pycache__/
+*.pyc
