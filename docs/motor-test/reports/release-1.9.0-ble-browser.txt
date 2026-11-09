@@ -1,2 +1,2 @@
-Delayed BLE A01 repeats: [{"elapsedMs":2004,"reason":"pulse-limit"},{"elapsedMs":2004,"reason":"pulse-limit"},{"elapsedMs":2004,"reason":"pulse-limit"}]
+Delayed BLE A01 repeats: [{"elapsedMs":251,"reason":"pulse-limit"},{"elapsedMs":250,"reason":"pulse-limit"},{"elapsedMs":251,"reason":"pulse-limit"}]
 Direct UI: copy audit, mock and fake BLE, WASD, timed stop, held-key suppression, presets, calibration, A08/A09/A10, A17 cancellation, Colon typed command to A07/speech, face loss, queued command cancellation, spoken stop while link OFF, mock gaze isolation, state consistency, delayed BLE A01 three-repeat consistency, emergency reset, reconnection, and responsive layout passed

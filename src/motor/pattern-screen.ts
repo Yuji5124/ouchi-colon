@@ -1,5 +1,5 @@
 import {ACTION_PATTERN_IDS,patternLabel,fixedProgram,readLocalPatterns,patternStorageKey,validPattern,setSharedTurn,sharedTurnsMatch,type PatternTable,type PatternId,type PatternConfig} from './patterns.ts';
-import {isCommonTimingFirmware} from './protocol.ts';
+import {isCalibratedFirmware} from './protocol.ts';
 import type {MotorSession} from './session.ts';
 import './pattern-screen.css';
 interface Hooks {session:()=>MotorSession|null;blocked:()=>string;stop:()=>void;say:(s:string)=>void;record:(event:string,error?:string,result?:string)=>void;directControl?:boolean;occupied?:()=>boolean;}
@@ -28,7 +28,7 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
   function renderValues(){for(const [id,field] of fields)field.duration.value=String(table[id].durationMs);}
   const allValid=()=>ACTION_PATTERN_IDS.every(id=>validPattern(id,table[id],7))&&sharedTurnsMatch(table);
   function update(){
-    const s=hooks.session(),supported=isCommonTimingFirmware(s?.status),occupied=!!hooks.occupied?.(),moving=!!s?.status?.armed;
+    const s=hooks.session(),supported=isCalibratedFirmware(s?.status),occupied=!!hooks.occupied?.(),moving=!!s?.status?.armed;
     el('pattern-connection').textContent=!s?.connected?'未接続 · 表示中の値はPC側の設定です。':!supported?'共通時間は未対応のファームです。USB欄から1.9.0へ更新してください。':`形式${s?.status?.patternsVersion??7} · Atomへの保存後、全角度指定動作で使用します。`;
     el<HTMLButtonElement>('pattern-read').disabled=busy||occupied||!s?.connected||!!s.foregroundBusy||moving||!supported;
     el<HTMLButtonElement>('pattern-write').disabled=busy||occupied||!s?.connected||!!s.foregroundBusy||moving||!supported||!allValid();
@@ -36,9 +36,9 @@ export function mountPatternPanel(hooks:Hooks,parent:HTMLElement=document.queryS
     for(const [id,{duration,run}] of fields){duration.disabled=busy||occupied||moving||fixedProgram(id);run.disabled=busy||occupied||!!s?.foregroundBusy||moving||!s?.connected||!supported||!!hooks.blocked()||!allValid()||!table[id].durationMs;}
   }
   el('pattern-local').addEventListener('click',()=>{if(!allValid()){message('旋回時間は0（未設定）または50〜12000msです。同じ角度の左右をそろえてください。');return;}try{localStorage.setItem(patternStorageKey(7),JSON.stringify(Object.fromEntries(ACTION_PATTERN_IDS.map(id=>[id,table[id]]))));message('このブラウザに保存しました。Atomはまだ変更していません。');}catch{message('PCに保存できませんでした。');}});
-  el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s?.connected||!isCommonTimingFirmware(s.status)||busy||hooks.occupied?.()||s.status?.armed)return;busy=true;activity='read';update();try{table=await s.readPatternTable();renderValues();message('Atomの共通時間を読み込みました。');hooks.record('patterns-read');}catch(error){message(String(error));}finally{busy=false;activity='';update();}});
-  el('pattern-write').addEventListener('click',async()=>{const s=hooks.session();if(!s?.connected||!isCommonTimingFirmware(s.status)||busy||hooks.occupied?.()||s.status?.armed||!allValid())return;busy=true;activity='write';update();try{table=await s.savePatternTable(table,count=>message(`共通時間を書込み中 ${count}/10…`));renderValues();message(s.transport.kind==='mock'?'モック内に10パターンを保存・読戻し確認しました。':'10パターンの共通時間をNVSに保存・読戻し確認しました。');hooks.record('patterns-saved');}catch(error){message('保存を完了できませんでした。Atomから読み込んで確認してください。'+String(error));hooks.record('patterns-save-error',String(error));}finally{busy=false;activity='';update();}});
-  async function runPattern(id:PatternId){const s=hooks.session();if(!s||busy||hooks.occupied?.()||hooks.blocked()||!isCommonTimingFirmware(s.status))return;busy=true;update();try{await s.runProgram(id,table[id]);hooks.record(`program:${id}`,undefined,JSON.stringify(table[id]));message(`${patternLabel(id)}を${table[id].durationMs}msの指令時間で開始しました。`);}catch(error){hooks.stop();message(String(error));}finally{busy=false;update();}}
+  el('pattern-read').addEventListener('click',async()=>{const s=hooks.session();if(!s?.connected||!isCalibratedFirmware(s.status)||busy||hooks.occupied?.()||s.status?.armed)return;busy=true;activity='read';update();try{table=await s.readPatternTable();renderValues();message('Atomの共通時間を読み込みました。');hooks.record('patterns-read');}catch(error){message(String(error));}finally{busy=false;activity='';update();}});
+  el('pattern-write').addEventListener('click',async()=>{const s=hooks.session();if(!s?.connected||!isCalibratedFirmware(s.status)||busy||hooks.occupied?.()||s.status?.armed||!allValid())return;busy=true;activity='write';update();try{table=await s.savePatternTable(table,count=>message(`共通時間を書込み中 ${count}/10…`));renderValues();message(s.transport.kind==='mock'?'モック内に10パターンを保存・読戻し確認しました。':'10パターンの共通時間をNVSに保存・読戻し確認しました。');hooks.record('patterns-saved');}catch(error){message('保存を完了できませんでした。Atomから読み込んで確認してください。'+String(error));hooks.record('patterns-save-error',String(error));}finally{busy=false;activity='';update();}});
+  async function runPattern(id:PatternId){const s=hooks.session();if(!s||busy||hooks.occupied?.()||hooks.blocked()||!isCalibratedFirmware(s.status))return;busy=true;update();try{await s.runProgram(id,table[id]);hooks.record(`program:${id}`,undefined,JSON.stringify(table[id]));message(`${patternLabel(id)}を${table[id].durationMs}msの指令時間で開始しました。`);}catch(error){hooks.stop();message(String(error));}finally{busy=false;update();}}
   const link=section.querySelector<HTMLAnchorElement>('a')!;if(parent.id==='colon-motor-patterns')link.parentElement!.hidden=true;else link.addEventListener('click',()=>{hooks.stop();hooks.session()?.disconnect();});
   renderValues();update();return {update};
 }

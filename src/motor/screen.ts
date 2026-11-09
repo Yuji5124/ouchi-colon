@@ -1,6 +1,6 @@
 import {NotifTransport} from './notif-transport.ts';
 import './screen.css';
-import {INITIAL_SETTINGS,OPS,direction,describeStopReason,isDirectFirmware,isCorrectedTurnFirmware,isCommonTimingFirmware,validSettings,type MotorSettings} from './protocol.ts';
+import {INITIAL_SETTINGS,OPS,direction,describeStopReason,isCalibratedFirmware,isDirectFirmware,isCorrectedTurnFirmware,isCommonTimingFirmware,validSettings,type MotorSettings} from './protocol.ts';
 import {BleTransport,MockTransport} from './transport.ts';
 import {MotorSession} from './session.ts';
 import {INITIAL_POWER,diagnosticRow,toCSV,type DiagnosticRow} from './diagnostics.ts';
@@ -122,7 +122,7 @@ export function mountMotorTest(){
   function controlBlock(){
     const status=session?.status;
     if(!session?.connected||!status)return '左の「接続」から接続してください。';
-    if(!isCorrectedTurnFirmware(status))return '走行プログラム1.9.0をUSB欄から書き込んでください。';
+    if(!isCalibratedFirmware(status))return '角度修正を適用するため、走行プログラム1.9.0をUSB欄から書き込んでください。';
     if(status.estop)return '緊急停止中です。「緊急停止を解除」を押してください。';
     if(!status.gpioReady)return '本体の初期化が完了していません。';
     if(!Number.isInteger(settings.pulseMs)||settings.pulseMs<50||settings.pulseMs>500)return '最大時間は50〜500msで指定してください。';

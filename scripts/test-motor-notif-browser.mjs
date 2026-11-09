@@ -52,6 +52,9 @@ try{
   assert.deepEqual(actionFrames.filter(frame=>frame[1]===3).map(frame=>new DataView(new Uint8Array(frame).buffer).getUint16(17,true)),[250,250,250,500,750,750,1500,1500]);
   await evalPage("document.querySelector('#pattern-read').click()");
   await waitFor(async()=> (await text('#pattern-message')).includes('読み込みました'),'NVS read');
+  fixture.core.state.firmware='colon-motor-1.8.0';fixture.core.state.patternsVersion=6;
+  await waitFor(async()=> (await text('#rc-help')).includes('1.9.0'),'legacy firmware requires calibration update');
+  assert.equal(await evalPage("document.querySelector('[data-action=A01]').disabled"),true,'old angles cannot run from the new UI');
   await evalPage("document.querySelector('#disconnect').click()");
   await waitFor(async()=> (await text('#rc-badge')).includes('未接続'),'server disconnect');
   assert.ok(fixture.ops.includes('disconnect'));
@@ -59,5 +62,5 @@ try{
   await waitFor(()=>evalPage("document.querySelector('#mode')?.value==='ble'"),'explicit BLE overrides Notif host default');
   await send('Page.navigate',{url:fixture.base+'/ouchi-colon/?motor=1&transport=notif'});
   await waitFor(()=>evalPage("document.querySelector('#mode')?.value==='notif'"),'return to Notif');
-  console.log('Notif 1.9.0 HTTP UI passed with 400ms reads / 80ms writes: explicit selection, connect stopped, WASD release stop, 250/500/750/1500ms actions and repeated A01 without intermediate STOP, NVS read, disconnect, BLE selection and return to Notif. No real Bluetooth or motor.');
+  console.log('Notif 1.9.0 HTTP UI passed with 400ms reads / 80ms writes: explicit selection, connect stopped, WASD release stop, 250/500/750/1500ms actions and repeated A01 without intermediate STOP, NVS read, legacy angle guard, disconnect, BLE selection and return to Notif. No real Bluetooth or motor.');
 }finally{socket?.close();chrome.kill();await fixture.close();}

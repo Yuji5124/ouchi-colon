@@ -2,7 +2,7 @@ import './actions-screen.css';
 import {ACTIONS,ACTION_SETTINGS_KEY,readActionSettings,actionForCommand,faceAction,freshFace,validActionSettings,type ActionId,type ActionSettings,type FacePose} from './actions.ts';
 import {ActionRunner} from './action-runner.ts';
 import {getMotorSpeaker,registerMotorActionHandler,subscribeMotorSignals} from './bridge.ts';
-import {isCommonTimingFirmware} from './protocol.ts';
+import {isCalibratedFirmware} from './protocol.ts';
 import {SpeechSynthesisEngine} from '../speech/speech-synthesis-engine.ts';
 import type {MotorSession} from './session.ts';
 
@@ -53,7 +53,7 @@ export function mountActionPanel(hooks:Hooks,parent:HTMLElement){
       finally{clearTimeout(timer);signal.removeEventListener('abort',abort);}
     },changed:()=>{update();hooks.changed();},
   });
-  function block(){return hooks.blocked()||(!isCommonTimingFirmware(hooks.session()?.status)?'A01〜A17には走行プログラム1.9.0を書き込んでください。':'');}
+  function block(){return hooks.blocked()||(!isCalibratedFirmware(hooks.session()?.status)?'A01〜A17には走行プログラム1.9.0を書き込んでください。':'');}
   function occupied(){const session=hooks.session();return runner.running||!!session?.foregroundBusy||!!session?.status?.armed;}
   function disableAutomatic(){commandGeneration++;enabled=follow=radio=false;candidate=null;stable=0;for(const role of ['enabled','follow','radio'])el<HTMLInputElement>(role).checked=false;}
   function stop(emergency=false){disableAutomatic();runner.stop(emergency);update();}

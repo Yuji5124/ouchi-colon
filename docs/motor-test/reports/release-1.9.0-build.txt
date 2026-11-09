@@ -12,17 +12,17 @@ dist/assets/actions-screen-sbbGHKDO.css            1.77 kB │ gzip:   0.63 kB
 dist/assets/colon-link-screen-v8ZSJ6N_.css         1.88 kB │ gzip:   0.70 kB
 dist/assets/main-BhmhD-5Y.css                      7.40 kB │ gzip:   1.92 kB
 dist/assets/screen-DPgBnYJu.css                   10.08 kB │ gzip:   2.99 kB
-dist/assets/index-B68yICAW.js                      2.62 kB │ gzip:   1.28 kB
-dist/assets/colon-link-screen-knK0V4_5.js          4.90 kB │ gzip:   2.18 kB
+dist/assets/index-D4dONwlg.js                      2.62 kB │ gzip:   1.28 kB
+dist/assets/colon-link-screen-DB75kn9h.js          4.90 kB │ gzip:   2.18 kB
 dist/assets/speech-synthesis-engine-B2bJrlbM.js   14.24 kB │ gzip:   5.29 kB
-dist/assets/screen-Wvv6d1AP.js                    31.06 kB │ gzip:  11.66 kB
-dist/assets/actions-screen-BG6CBe0y.js            45.40 kB │ gzip:  14.88 kB
+dist/assets/screen-LhVQxy_o.js                    31.11 kB │ gzip:  11.68 kB
+dist/assets/actions-screen-CnBKvEgv.js            45.41 kB │ gzip:  14.89 kB
 dist/assets/vision_bundle-Du3i5Z0q.js            154.81 kB │ gzip:  46.24 kB
 dist/assets/bundle-CDeIc9Ic.js                   315.16 kB │ gzip: 113.25 kB
-dist/assets/main-uWmy1dDz.js                     795.30 kB │ gzip:  99.44 kB
+dist/assets/main-derEs0os.js                     795.30 kB │ gzip:  99.44 kB
 
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 6.34s
+✓ built in 4.74s
