@@ -84,7 +84,7 @@ body.simple-conversation #debug { display: none; }
 .debug__quick, .debug__copy { display: grid; gap: 7px; margin: 8px 0; padding: 9px; border: 1px solid #e3d4bd; border-radius: 10px; }
 .debug__quick output, .debug__copy output { font-size: 13px; overflow-wrap: anywhere; }
 .debug__quick .debug__controls { gap: 6px; }
-.debug__quick label { display: flex; align-items: center; gap: 6px; min-height: 36px; }
+.debug__quick label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; }
 .debug__quick select { max-width: 100%; padding: 7px; border: 1px solid #d4c2a6; border-radius: 8px; color: #3b281c; background: #fff; font: inherit; }
 #diagnostic-report { user-select: text; white-space: pre-wrap; }
 .debug small { display: block; margin-top: 8px; color: #6f5b48; }

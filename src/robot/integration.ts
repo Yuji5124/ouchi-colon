@@ -7,13 +7,15 @@ import { ReplyMotionGate } from './reply-motion.ts';
 import { DirectAtomTransport } from './direct-atom.ts';
 import { ColonBleController, bleBrowserSupport } from './ble-controller.ts';
 import { saveOfflineScreen } from './offline-save.ts';
+import { driveButtonDisabled, missingDriveChecks } from './rc-controls.ts';
+import { mountPhoneDiagnostics } from './phone-diagnostics.ts';
 import './robot.css';
 
 export function mountRobotIntegration() {
   let bridge = new ColonBridge(); const gate = new ReplyMotionGate();
   const root = document.createElement('aside'); root.id = 'robot-panel'; root.hidden = true;
   root.setAttribute('aria-label', 'Colon連携・ラジコン');
-  root.innerHTML = `<header><strong>Colon BLE連携 v34</strong><button id="robot-close">顔を見る</button></header>
+  root.innerHTML = `<header><strong>Colon BLE連携 v35</strong><button id="robot-close">顔を見る</button></header>
   <p>会話・ATOM表示・短時間ラジコン</p>
   <label>動作先 <select id="robot-target"><option value="mock">モック（実機は動きません）</option><option value="ble">スマホ → BLE → AtomS3（既存1.8.0）</option><option value="phone">旧方式：直接Wi-Fi</option><option value="device">旧方式：PC中継</option></select></label>
   <section id="ble-connection"><output id="ble-support"></output><p>初回USB書き込み後はBLEで接続。Atom接続用のWi-Fi設定や証明書は使用しません。</p>
@@ -43,6 +45,8 @@ export function mountRobotIntegration() {
   <div class="robot-pad" aria-label="押している間だけ・1回上限あり">
   <button data-drive="1,1" class="up">前進 ↑</button><button data-drive="-1,1">左 ←</button><button id="robot-stop">停止</button><button data-drive="1,-1">右 →</button><button data-drive="-1,-1" class="down">後退 ↓</button></div>
   <output id="robot-status" role="status">未接続・駆動許可なし</output>
+  <output id="robot-next-step" role="status"></output>
+  <details><summary>駆動の診断情報</summary><output id="robot-device-status"></output><button id="robot-copy-status">診断情報をコピー</button></details>
   <details id="notif-options"><summary>AtomS3の文字・画像表示（Notif）</summary><p>PCのBluetoothを使用。Motor Testとは別ファームウェアです。同じ1台での併用はできません。</p>
   <button id="atom-connect">PC表示サーバーを起動・接続</button><select id="atom-device" aria-label="表示先"><option value="">未接続</option></select>
   <label><input id="atom-auto" type="checkbox"> 返答文を選んだATOMへ送る（会話文がPCを経由します）</label>
@@ -54,6 +58,7 @@ export function mountRobotIntegration() {
   const value = (id: string) => el<HTMLInputElement>(id).value;
   const checked = (id: string) => el<HTMLInputElement>(id).checked;
   let source = 'mock', paired = false, displayBusy = false, connecting = false, operation = 0, lastMotion = '待機';
+  let activePointer: number | null = null, activeKey: string | null = null, activeDriveButton: HTMLButtonElement | null = null;
   let direct: DirectAtomTransport | null = null, replyEmotion = 'NORMAL', replyTurn = 0;
   const phoneLaunch = location.pathname.endsWith('/phone.html') || new URLSearchParams(location.search).get('phone') === '1';
   if (phoneLaunch) el<HTMLSelectElement>('robot-target').value = 'ble';
@@ -82,11 +87,35 @@ export function mountRobotIntegration() {
     el<HTMLButtonElement>('robot-connect').disabled = controller.busy || connecting || (value('robot-target') === 'ble' && !support.available);
     for (const id of ['robot-target', 'robot-speed', 'robot-pulse', 'phone-address', 'phone-code', 'robot-invert-left', 'robot-invert-right']) el<HTMLInputElement>(id).disabled = controller.permitted || controller.busy || connecting;
     if (value('robot-target') === 'ble') el<HTMLInputElement>('robot-speed').disabled = true;
-    driveButtons.forEach(b => b.disabled = gate.mode !== 'rc' || !controller.permitted || controller.busy);
+    driveButtons.forEach(b => b.disabled = driveButtonDisabled({ rc: gate.mode === 'rc', connected: controller.connected,
+      estop: !!s?.estop, permitted: controller.permitted, busy: controller.busy,
+      held: b === activeDriveButton && (activePointer !== null || activeKey !== null) && controller.pressed > 0 }));
+    const missing = source === 'mock' ? [] : missingDriveChecks({ wiring: checked('robot-wiring'), switch: checked('robot-switch'), raised: checked('robot-raised'), current: checked('robot-current'), ble: source === 'ble', power: checked('ble-power-reviewed') });
+    el('robot-next-step').textContent = !controller.connected ? '動作先に接続してください。'
+      : controller.error ? 'エラーと本体の停止理由を下の診断情報で確認してください。'
+      : s?.estop ? '非常停止中です。状況を確認して解除してください。'
+      : gate.mode === 'off' ? 'モードを「ラジコン」または「返答と連動」にしてください。'
+      : controller.pressed ? '駆動指令を処理中。指を離すと停止します。'
+      : controller.busy ? '通信応答を確認しています。'
+      : missing.length ? `未確認：${missing.join('・')}。確認後「次の1回を許可」を押してください。`
+      : !controller.permitted ? '「次の1回を許可」を押してください。1回の動作ごとに再許可が必要です。'
+      : gate.mode === 'rc' ? '方向ボタンを押している間だけ駆動（選択した時間が上限）。' : '次の対象返答の音声再生開始を待っています。';
+    el('robot-device-status').textContent = `動作先: ${source}\nFW: ${s?.firmware ?? '未取得'}\n起動ID: ${s?.bootId ?? '--'}\n状態取得: ${controller.lastReceivedAt || '未取得'}\n本体接続: ${s?.connected ?? '--'} / GPIO: ${s?.gpioReady ?? '--'}\n本体armed: ${s?.armed ?? '--'} / 非常停止: ${s?.estop ?? '--'}\nブラウザー許可: ${controller.permitted} / 指令処理中: ${controller.busy}\n左右出力: ${s?.left ?? '--'}, ${s?.right ?? '--'}\n最終seq: ${s?.lastSeq ?? '--'} / 停止理由: ${s?.stopReason ?? '--'}\nエラー: ${controller.error || 'なし'}\n操作: ${lastMotion}`;
     emergency.hidden = !controller.connected;
   }
   let controller: MotorTestController | ColonBleController = new MotorTestController(new MockMotorTransport(), render);
-  const stop = () => { operation++; gate.cancel(); void controller.stop(); };
+  const stop = () => {
+    operation++; gate.cancel(); const button = activeDriveButton, pointer = activePointer;
+    activePointer = null; activeKey = null; activeDriveButton = null;
+    if (button && pointer !== null) { try { if (button.hasPointerCapture(pointer)) button.releasePointerCapture(pointer); } catch { /* Stop still takes priority. */ } }
+    void controller.stop();
+  };
+  for (const id of ['robot-wiring', 'robot-switch', 'robot-raised', 'robot-current', 'ble-power-reviewed']) el<HTMLInputElement>(id).onchange = render;
+  el('robot-copy-status').onclick = async () => {
+    try { await navigator.clipboard.writeText(el('robot-device-status').textContent ?? ''); lastMotion = '診断情報をコピーしました'; }
+    catch { lastMotion = 'コピーできません。診断情報の文章を確認してください'; } render();
+  };
+  mountPhoneDiagnostics(root, { idle: () => !controller.busy && !controller.pressed && !controller.status?.active, stop });
   el('robot-target').onchange = () => {
     stop(); controller.disconnect(); direct = null; source = value('robot-target');
     lastMotion = '動作先を変更・再接続してください'; targetChanged(); render();
@@ -130,7 +159,7 @@ export function mountRobotIntegration() {
     const generation = ++operation;
     const mock = source === 'mock', ble = source === 'ble'; const measuredMv = Number(value('robot-voltage')) * 1000;
     if (!mock && (!checked('robot-wiring') || !checked('robot-switch') || !checked('robot-raised') || !checked('robot-current') || (ble ? !checked('ble-power-reviewed') : !Number.isInteger(measuredMv) || measuredMv <= 0 || measuredMv > 1500))) {
-      lastMotion = '実機確認と実測電圧が必要です'; render(); return;
+      lastMotion = ble ? '配線・物理スイッチ・浮かせた状態・電源電流・100%出力条件を確認してください' : '実機確認と実測電圧が必要です'; render(); return;
     }
     try {
       await controller.configure({ ...DEFAULT_MOTOR_SETTINGS, leftPercent: Number(value('robot-speed')), rightPercent: Number(value('robot-speed')), pulseMs: Number(value('robot-pulse')), invertLeft: checked('robot-invert-left'), invertRight: checked('robot-invert-right') });
@@ -138,18 +167,18 @@ export function mountRobotIntegration() {
       await controller.arm(mock ? 3 : 6, { wiring: mock || checked('robot-wiring'), physicalSwitch: mock || checked('robot-switch'), raised: mock || checked('robot-raised'), vmOff: mock, voltageMeasured: !mock && !ble, currentReviewed: !mock, legacyBlePowerReviewed: ble && checked('ble-power-reviewed') }, mock || ble ? undefined : measuredMv);
     } catch (e) { lastMotion = String(e); render(); }
   };
-  let activePointer: number | null = null;
   for (const button of driveButtons) {
     button.onpointerdown = e => {
-      if (e.button !== 0 || activePointer !== null || gate.mode !== 'rc' || !controller.permitted) return;
-      e.preventDefault(); activePointer = e.pointerId; button.setPointerCapture(e.pointerId);
+      if (e.button !== 0 || activePointer !== null || activeKey !== null || gate.mode !== 'rc' || !controller.permitted || controller.busy) return;
+      e.preventDefault(); activePointer = e.pointerId; activeDriveButton = button;
+      try { button.setPointerCapture(e.pointerId); } catch { stop(); lastMotion = 'タッチの保持を確認できないため指令を送りませんでした'; render(); return; }
       const [left, right] = button.dataset.drive!.split(',').map(Number); lastMotion = button.textContent!; void controller.drive(left!, right!);
     };
-    button.onkeydown = e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat && controller.permitted && gate.mode === 'rc') { e.preventDefault(); const [l, r] = button.dataset.drive!.split(',').map(Number); void controller.drive(l!, r!); } };
-    button.onkeyup = e => { if (e.key === ' ' || e.key === 'Enter') stop(); };
+    button.onkeydown = e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat && activePointer === null && activeKey === null && controller.permitted && !controller.busy && gate.mode === 'rc') { e.preventDefault(); activeKey = e.key; activeDriveButton = button; const [l, r] = button.dataset.drive!.split(',').map(Number); lastMotion = button.textContent!; void controller.drive(l!, r!); } };
   }
   const release = (e: PointerEvent) => { if (activePointer === e.pointerId) { activePointer = null; stop(); } };
   window.addEventListener('pointerup', release); window.addEventListener('pointercancel', release);
+  window.addEventListener('keyup', e => { if (activeKey === e.key) stop(); });
   root.addEventListener('lostpointercapture', release);
   window.addEventListener('blur', () => { if (!connecting) stop(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape') emergency.click(); });

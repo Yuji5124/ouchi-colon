@@ -84,8 +84,11 @@ export class MotorSession {
     if(!status||!this.settings.directControl||!isDirectFirmware(status))throw new Error('走行プログラム1.8.0へ更新してください。');
     if(status.estop)throw new Error('緊急停止を解除してください。');
     if(status.armed||status.left||status.right)throw new Error('停止してから操作してください。');
-    const remaining=100-(performance.now()-this.stoppedObservedAt);
-    if(remaining>0)await new Promise(resolve=>setTimeout(resolve,Math.ceil(remaining)));
+    // Timer wakeups and the firmware's integer millisecond clock can differ at
+    // the 100ms boundary. Wait conservatively and recheck after every wakeup.
+    for(let remaining=110-(performance.now()-this.stoppedObservedAt);remaining>0;remaining=110-(performance.now()-this.stoppedObservedAt)){
+      await new Promise(resolve=>setTimeout(resolve,Math.max(1,Math.ceil(remaining))));assertCurrent();
+    }
     assertCurrent();
   }
   async drive(left:number,right:number){

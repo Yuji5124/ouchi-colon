@@ -67,7 +67,9 @@ export class ColonBleController {
       assertBleProfile(s);
       if (this.established && !s.connected) throw new Error('本体のBLE接続状態を確認できません。再接続してください。');
       if (this.bootId !== null && s.bootId !== this.bootId) throw new Error('AtomS3が再起動しました。再接続が必要です。');
-      if (s.estop || (this.moving && !s.armed)) { this.permitted = false; this.pressed = 0; this.moving = false; }
+      // Foreground reservation/direction dwell reports the old stopped snapshot.
+      // It must not release the held UI control before MOVE has been written.
+      if (s.estop || (this.moving && this.pending === 0 && !s.armed)) { this.permitted = false; this.pressed = 0; this.moving = false; }
       this.status = {
         protocol: 1, source: 'device', firmware: s.firmware, bootId: String(s.bootId), bootCount: s.bootCount ?? 0,
         resetReason: s.resetReason, uptimeMs: s.uptimeMs, lastHeartbeatMs: (s.uptimeMs - s.heartbeatAgeMs) >>> 0,

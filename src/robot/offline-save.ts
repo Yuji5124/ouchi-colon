@@ -35,7 +35,7 @@ export async function saveOfflineScreen(): Promise<number> {
     channel.port1.onmessage = event => { clearTimeout(timeout); channel.port1.close(); resolve(event.data?.cache ?? ''); };
     registration.active!.postMessage({ type: 'GET_CACHE_VERSION' }, [channel.port2]);
   });
-  if (cacheName !== 'ouchicolon-shell-ble-v34') throw new Error('新しい版へ更新してから保存してください。');
+  if (cacheName !== 'ouchicolon-shell-ble-v35') throw new Error('新しい版へ更新してから保存してください。');
   const cache = await caches.open(cacheName);
   const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')?.href;
   const base = new URL('.', manifest ?? location.href);

@@ -1,7 +1,7 @@
 {
   "commit": "ee2474bea4ab66ea45590c4140e9e1a7f678cb2c",
   "copiedTo": "src/robot/ble-core/",
-  "changes": "transport.ts: unsupported-browser message includes Bluefy",
+  "changes": "transport.ts: unsupported-browser message includes Bluefy; session.ts (v35): conservative 110ms browser stop-dwell wait with timer recheck; firmware 100ms minimum unchanged",
   "files": [
     {
       "source": "src/motor/protocol.ts",

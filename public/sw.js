@@ -1,4 +1,4 @@
-const CACHE = 'ouchicolon-shell-ble-v34';
+const CACHE = 'ouchicolon-shell-ble-v35';
 const ROOT = '/ouchi-colon/';
 const SHELL = [ROOT, `${ROOT}phone.html`, `${ROOT}motor-test.html`, `${ROOT}manifest.webmanifest`, `${ROOT}manifest-phone.webmanifest`, `${ROOT}icons/ouchicolon-192.png`, `${ROOT}icons/ouchicolon-512.png`];
 const MODEL_ORIGINS = new Set(['https://cdn.jsdelivr.net', 'https://storage.googleapis.com']);

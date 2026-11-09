@@ -4,8 +4,23 @@ import {ColonBleController,bleBrowserSupport,bleDirections} from '../src/robot/b
 import {MockTransport} from '../src/robot/ble-core/transport.ts';
 import {OPS} from '../src/robot/ble-core/protocol.ts';
 import {DEFAULT_MOTOR_SETTINGS} from '../src/motor/protocol.ts';
+import {driveButtonDisabled} from '../src/robot/rc-controls.ts';
 const settings={...DEFAULT_MOTOR_SETTINGS,leftPercent:100,rightPercent:100};
 const checks={wiring:true,physicalSwitch:true,raised:true,vmOff:false,voltageMeasured:false,currentReviewed:true,legacyBlePowerReviewed:true};
+test('held RC button survives foreground reservation and pre-MOVE stopped telemetry',async()=>{
+  const t=new MockTransport(false,true);const frames:Uint8Array[]=[];const write=t.write.bind(t);let watch=false;
+  t.write=async frame=>{frames.push(frame.slice());await write(frame);};
+  const beforeWrite:Array<{pressed:number;disabled:boolean}>=[];
+  const c=new ColonBleController(()=>{if(watch&&!frames.some(f=>f[1]===OPS.MOVE))beforeWrite.push({pressed:c.pressed,disabled:driveButtonDisabled({rc:true,connected:c.connected,estop:!!c.status?.estop,permitted:c.permitted,busy:c.busy,held:c.pressed>0})});},t,false);
+  try{
+    await c.connect();await c.configure({...settings,pulseMs:500});await c.arm(0,checks);watch=true;
+    const motion=c.drive(1,1);await Promise.resolve();assert.equal(c.pressed,1,'stopped telemetry during direction dwell must not release touch capture');
+    await motion;assert.ok(beforeWrite.length>=2);assert.ok(beforeWrite.every(s=>s.pressed===1&&!s.disabled));
+    assert.equal(frames.filter(f=>f[1]===OPS.MOVE).length,1);assert.equal(c.permitted,false);
+    assert.equal(driveButtonDisabled({rc:true,connected:true,estop:false,permitted:false,busy:c.busy,held:false}),true,'other buttons remain locked');
+    await c.stop();assert.equal(t.core.state.left,0);assert.equal(c.pressed,0);
+  }finally{watch=false;c.disconnect();}
+});
 async function fixture(){
   let now=0;const frames:Uint8Array[]=[];const t=new MockTransport(false,true);t.now=()=>now;
   const write=t.write.bind(t);t.write=async frame=>{frames.push(frame.slice());await write(frame);};

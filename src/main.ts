@@ -33,6 +33,7 @@ import { createDiagnosticReport } from './app/diagnostic-report';
 import { canStartConversation, conversationLaunchSettings, fallbackReplyVoice, INITIAL_REPLY_VOICE_MODE } from './speech/reply-voice-policy';
 import { TurnCompletionGate } from './speech/turn-completion';
 import { canRecoverFromEmptyRecognitionResult, MAX_EMPTY_RESULT_RESTARTS, recognitionErrorAction, recognitionResumeBlockReason, RESUME_BUSY_RETRY_DELAYS_MS, shouldResumeAfterReply } from './speech/recognition-resume';
+import { recognitionServiceGuidance } from './speech/microphone-probe';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#face');
@@ -1565,14 +1566,14 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
       recordSpeechStage('microphone', `失敗:${code}`);
       recordSpeechStage('recognition-start', `失敗:${code}`);
       if (isResume) recordSpeechStage('recognition-resume', `失敗:${code}・手動再開が必要`);
-      const detail = code === 'not-allowed' || code === 'service-not-allowed'
-        ? 'マイクまたは音声認識が許可されませんでした。Safariのサイト設定をご確認ください。'
-        : code === 'network'
+      const detail = recognitionServiceGuidance(code)
+        ?? (code === 'network'
           ? action === 'retry-network-once' ? 'オンライン音声認識に接続できません。1回だけ再接続します。' : '再接続に失敗しました。接続を確認するか保護者が再開してください。'
           : code === 'no-speech'
             ? '発話がありませんでした。待機を続けます。'
-          : `音声認識エラー (${code})。マイク停止後に手入力を試せます。`;
-      recognitionStatus.value = message ? `${detail} ${message}` : detail;
+          : `音声認識エラー (${code})。マイク停止後に手入力を試せます。`);
+      recognitionStatus.value = message && !recognitionServiceGuidance(code) ? `${detail} ${message}` : detail;
+      window.dispatchEvent(new CustomEvent('colon-recognition-error', { detail: { code } }));
       if (isResume && action === 'stop') {
         lastMicrophoneResumeStatus = `failed:${code}`;
         responseLatencyTrial.record(activeLatencyTrialMode, 'resumeFailure');
@@ -1665,7 +1666,7 @@ function startVoiceRecognition(isResume = false, expectedSession?: number): void
     }
   } else {
     if (!isResume) recordSpeechStage('recognition-start', '開始要求');
-    recognitionStatus.value = 'Safariにマイク許可を求めています…';
+    recognitionStatus.value = 'ブラウザーに音声認識の開始を要求しています…';
   }
   updateRecognitionButtons();
   renderMediaConcurrency();
